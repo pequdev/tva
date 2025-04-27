@@ -1,0 +1,495 @@
+//@version=6
+indicator("Predictive Trend and Breaks [PQ_MOD]", "FTL [v0.1.9]", format=format.price, overlay=true, max_labels_count=500, max_lines_count=200, max_polylines_count=100, max_bars_back=750)
+
+import Steversteves/SPTS_StatsPakLib/1 as spts 
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Inputs
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+length = input.int(14, 'Swing Detection Lookback')
+mult = input.float(1., 'Slope', minval = 0, step = .1)
+calcMethod = input.string('Stdev', 'Slope Calculation Method', options = ['Atr','Stdev','Linreg'])
+backpaint = input(true, tooltip = 'Backpainting offset displayed elements in the past. Disable backpainting to see real time information returned by the indicator.')
+
+//Style
+upCss = input.color(#2bff00, 'Up Trendline Color', group = 'Style')
+dnCss = input.color(#ff0000, 'Down Trendline Color', group = 'Style')
+showExt = input(true, 'Show Extended Lines')
+
+color t_primary_label = input.color(color.new(color.blue, 15), 'Primary Label')
+color t_secondary_label = input.color(color.new(color.lime, 15), 'Primary Label')
+color t_secondary_label2 = input.color(color.new(color.red, 15), 'Primary Label')
+
+int t_transparency_main = 25
+int t_transparency_suplementary = 95
+
+int   trend_length = input.int(100, "Trend Length")
+float multi  = input.float(3, "Channel Width", step = 0.1)
+int   extend = input.int(50, "Index of future price")
+color color_up = input.color(color.new(#16d897, t_transparency_main), "Up", inline = "Colors")
+color color_dn = input.color(color.new(#da853f, t_transparency_main), "Dn", inline = "Colors")
+color t_trend_neutral = input.color(color.new(color.gray, t_transparency_main))
+
+float atr    = ta.highest(ta.atr(200), 100)
+
+t1 = "This will plot a line from the first Result to the last Result for the forecast length"
+t2 = "Showing results and variances will plot both the results (blue) and the standard errors based on the variance in the dataset. Only plotting reuslts will only plot the most likely outcome without the variance."
+t3 = "This will omit the need for you to identify the lookback length yourself and will autofind the best lookback period"
+// Inputs 
+src =       input.source(ohlc4, "Forecast Source"), 
+src_channel = input.source(ohlc4, "Channel Source")     
+train1 = input.int(160, "Train Time"),        
+len = input.int(50, "Forecast Length"),    
+typ =       input.string("Line Plot", "Scatter Plot Type", ["Line Plot", "Scatter Plot"]),            
+show_stats = input.bool(false, "Show Model Statistics")     
+show_others = input.string("Show Results and Variances","Show Results/Variance", ["Show Results and Variances", "Show Results Only"], tooltip = t2)
+autolen =   input.bool(true, "Use Auto lookback based on strongest trend", tooltip = t3)
+
+// Function: flush
+// Description: This function removes all elements from the given source.
+// Parameters:
+//   source (array) - The array from which elements will be removed.
+// Logic:
+//   - If the source array is not empty, iterate through the array from the last element to the first.
+//   - For each element, delete it and then remove it from the array.
+flush(source)=>
+    if source.size() > 0
+        for i = source.size() - 1 to 0
+            source.get(i).delete()
+            source.remove(i)
+
+// Function: trend_finder
+// Description: This function calculates the correlation between the closing prices and time over a specified length.
+// Parameters:
+//   len (int) - The length over which the correlation is calculated.
+// Returns:
+//   float - The correlation coefficient between the closing prices and time over the specified length.
+trend_finder(len) => 
+    ta.correlation(close, time, len) 
+
+//-----------------------------------------------------------------------------}
+//Calculations
+//-----------------------------------------------------------------------------{
+var upper = 0.
+var lower = 0.
+var slope_ph = 0.
+var slope_pl = 0.
+
+var offset = backpaint ? length : 0
+
+n = bar_index
+
+ph = ta.pivothigh(length, length)
+pl = ta.pivotlow(length, length)
+
+//Slope Calculation Method
+slope = switch calcMethod
+    'Atr'    => ta.atr(length) / length * mult
+    'Stdev'  => ta.stdev(src,length) / length * mult
+    'Linreg' => math.abs(ta.sma(src * n, length) - ta.sma(src, length) * ta.sma(n, length)) / ta.variance(n, length) / 2 * mult
+
+//Get slopes and calculate trendlines
+slope_ph := bool(ph) ? slope : slope_ph
+slope_pl := bool(pl) ? slope : slope_pl
+
+upper := bool(ph) ? ph : upper - slope_ph
+lower := bool(pl) ? pl : lower + slope_pl
+
+var upos = 0
+var dnos = 0
+upos := bool(ph) ? 0 : close > upper - slope_ph * length ? 1 : upos
+dnos := bool(pl) ? 0 : close < lower + slope_pl * length ? 1 : dnos
+
+results = array.new_float()
+ucl = array.new_float()
+lcl = array.new_float()
+
+t50 = trend_finder(50),     t100 = trend_finder(100),       t150 = trend_finder(150),       t200 = trend_finder(200),   t250 = trend_finder(250),       t300 = trend_finder(300),       t350 = trend_finder(350),
+t400 = trend_finder(400),   t450 = trend_finder(450),       t500 = trend_finder(500),       t550 = trend_finder(550),   t600 = trend_finder(600),       t650 = trend_finder(650),       t700 = trend_finder(700),
+strongest_trend = math.max(t50, t100, t150, t200, t250, t300, t350, t400, t450, t500, t550, t600, t650, t700) 
+int find_trend = strongest_trend == t50 ? 50 : strongest_trend == t100 ? 100 : strongest_trend == t150 ? 150 : strongest_trend == t200 ? 200 : strongest_trend == t250 ? 250 : strongest_trend == t300 ? 300 : strongest_trend == t350 ? 350 : strongest_trend == t400 ? 400 : strongest_trend == t450 ? 450 : strongest_trend == t500 ? 500 : strongest_trend == t550 ? 550 : strongest_trend == t600 ? 600 : strongest_trend == t650 ? 650 : strongest_trend == t700 ? 700 : 100
+
+
+int train = 0 
+if autolen 
+    train := find_trend 
+else 
+    train := train1
+
+cor = ta.correlation(src, src[len], train) 
+r2 = math.pow(cor,2) 
+max_val = array.max(ucl) 
+min_val = array.min(lcl) 
+
+[forecast_result, b, c] = spts.f_forecast(src, src[1], train, len, results, ucl, lcl)
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+// Function: f_primary_labels
+// Description: This function creates a new label on the chart at a specified position with a circle style.
+// Parameters:
+//   id (int) - The identifier used to determine the position of the label on the chart.
+// Returns:
+//   label - A new label object created on the chart.
+// Variables:
+//   bar_index (int) - The current bar index on the chart.
+//   results (array) - An array containing the data used to position the label.
+// Logic:
+//   - The function creates a new label at the position determined by `bar_index + id` and the value from the `results` array at the index `id`.
+//   - The label is styled as a tiny blue circle with no text.
+f_primary_labels(id) => 
+    label.new(bar_index + id, array.get(results, id), text = "", color = t_primary_label, style = label.style_circle, size = 1)
+    // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+// Function: f_secondary_labels
+// Description: This function creates a new label on the chart at a specified position with a circle style and tiny size.
+// Parameters:
+//   id (int) - The identifier used to determine the position of the label on the chart.
+// Returns:
+//   label - A new label object created on the chart.
+// Variables:
+//   ucl (array) - An array from which the y-coordinate value for the label is retrieved using the id.
+// Logic:
+//   - The function creates a new label at the position determined by bar_index + id and the value from the ucl array at the index id.
+//   - The label is styled as a tiny circle with a lime color.
+f_secondary_labels(id) => 
+    label.new(bar_index + id, array.get(ucl, id), text = "", color = t_secondary_label, style = label.style_circle, size = 1)
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+// Function: f_secondary_labels2
+// Description: This function creates a new label at a specified position with a red circle style.
+// Parameters:
+//   id (int) - The identifier used to calculate the position of the label.
+// Returns:
+//   label - A new label object with the specified properties.
+// Variables:
+//   lcl (array) - An array from which the label's y-coordinate is retrieved.
+// Logic:
+//   - The label is created at the position determined by `bar_index + id` on the x-axis and the value from the `lcl` array at the index `id` on the y-axis.
+//   - The label is styled as a tiny red circle with no text.
+f_secondary_labels2(id) => 
+    label.new(bar_index + id, array.get(lcl, id), text = "", color = t_secondary_label2, style = label.style_circle, size = 1)  
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+  
+// Function: f_primary_line
+// Description: This function creates a new line on the chart based on the given id and results array.
+// Parameters:
+//   id (int) - The identifier used to calculate the position of the line.
+// Returns:
+//   line - A new line object drawn on the chart.
+// Variables:
+//   bar_index (int) - The current bar index on the chart.
+//   results (array) - An array containing the y-values for the lines.
+// Logic:
+//   - Calculate the starting and ending positions of the line using the bar index and id.
+//   - Retrieve the y-values from the results array for the starting and ending positions.
+//   - Create a new line with the specified positions, color, and width.
+f_primary_line(id) => 
+    line.new(bar_index + id, y1 = array.get(results, id), x2 = bar_index + 1 + id, y2 = array.get(results, id), color = t_primary_label, width = 1)
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+// Function: f_secondary_line
+// Description: This function creates a new line on the chart at a specified offset.
+// Parameters:
+//   id (int) - The offset index for the line position.
+// Returns:
+//   line - A new line object drawn on the chart.
+// Variables:
+//   ucl (array) - An array containing the y-coordinates for the line.
+// Logic:
+//   - Retrieve the y-coordinate from the 'ucl' array using the provided 'id'.
+//   - Create a new line starting from the current bar index plus the offset 'id' to the next bar index plus the offset 'id'.
+//   - Set the line color to lime and width to 3.
+f_secondary_line(id) =>     
+    line.new(bar_index + id, y1 = array.get(ucl, id), x2 = bar_index + 1 + id, y2 = array.get(ucl, id), color = t_secondary_label, width = 1)
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+// Function: f_secondary_line2
+// Description: This function creates a new line on the chart with specified parameters.
+// Parameters:
+//   id (int) - The identifier used to calculate the position of the line.
+// Returns:
+//   line - A new line object drawn on the chart.
+// Variables:
+//   lcl (array) - An array containing y-values for the line.
+// Logic:
+//   - The function calculates the x and y coordinates for the start and end points of the line using the provided id and values from the lcl array.
+//   - A new line is created with the specified coordinates, color, and width.
+f_secondary_line2(id) =>    
+    line.new(bar_index + id, y1 = array.get(lcl, id), x2 = bar_index + 1 + id, y2 = array.get(lcl, id), color = t_secondary_label2, width = 1)
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+var label1_ar = array.new<label>() 
+var label2_ar = array.new<label>() 
+var label3_ar = array.new<label>() 
+var line1_ar = array.new<line>() 
+var line2_ar = array.new<line>() 
+var line3_ar = array.new<line>() 
+
+// Function: flush
+// Description: This function clears the contents of the specified array.
+// Parameters:
+//   label1_ar (array) - The first array to be flushed.
+//   label2_ar (array) - The second array to be flushed.
+//   label3_ar (array) - The third array to be flushed.
+//   line1_ar (array) - The fourth array to be flushed.
+//   line2_ar (array) - The fifth array to be flushed.
+//   line3_ar (array) - The sixth array to be flushed.
+// Logic:
+//   - The function iterates through each specified array and removes all elements, effectively clearing the array.
+flush(label1_ar)
+flush(label2_ar)
+flush(label3_ar)
+flush(line1_ar)
+flush(line2_ar)
+flush(line3_ar)
+
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Calculations
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+future_price(x1,x2,y1,y2,index)=>
+    float slope = (y2-y1)/(x2-x1) 
+
+    float future_price = y1 + slope * (index - x1)
+
+    style = switch
+        y1 > y2 =>label.style_label_lower_left
+        =>label.style_label_upper_left
+
+    label.new(index, future_price, 
+                 text  = str.tostring(future_price, "#.#"),
+                 color = color.new(chart.fg_color, 80),
+                 textcolor = chart.fg_color, 
+                 style     = style)
+
+trend(trend_length)=>
+    var trend = bool(na)
+    float sma = ta.sma(close, trend_length)
+    float upper = sma + atr
+    float lower = sma - atr
+
+    bool signal_up = ta.crossover(close, upper)
+    bool signal_dn = ta.crossunder(close, lower)
+
+    if signal_up
+        trend := true
+    if signal_dn
+        trend := false
+
+    trend
+
+bool trend = trend(trend_length)
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Data Structures
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+type channel 
+    line line_mid1 = na
+    line line_mid2 = na
+    line line_top1 = na
+    line line_top2 = na
+    line line_low1 = na
+    line line_low2 = na
+
+var cM = channel.new(line(na), line(na), line(na), line(na), line(na), line(na))
+
+remove_lines(trend)=>
+    if trend and not trend[1]
+        cM.line_mid2 := line(na)
+        cM.line_top2 := line(na)
+        cM.line_low2 := line(na)
+
+    if not trend and trend[1]
+        cM.line_mid1 := line(na)
+        cM.line_top1 := line(na)
+        cM.line_low1 := line(na)
+
+color_lines(line_m, line_t, line_l, color, label)=>
+    var color_lines = color
+    string t_style_trend = line.style_dotted
+
+    if color == color_up ? line_m.get_y1() <= line_m.get_y2() : line_m.get_y1() >= line_m.get_y2()
+        color_lines := color
+        line_m.set_color(color_lines)
+        line_l.set_color(color_lines)
+        line_t.set_color(color_lines)
+
+        line_m.set_style(t_style_trend)
+        line_m.set_width(2)
+        line_t.set_style(t_style_trend)
+        line_t.set_width(2)
+        line_l.set_style(t_style_trend)
+        line_l.set_width(2)
+
+        label.set_color(label, color_lines)  
+
+    if  color == color_up ? line_m.get_y1() >= line_m.get_y2() : line_m.get_y1() <= line_m.get_y2()
+        color_lines := t_trend_neutral
+        line_m.set_color(color_lines)
+        line_t.set_color(color_lines)
+        line_l.set_color(color_lines)
+
+        line_m.set_style(t_style_trend)
+        line_t.set_style(t_style_trend)
+        line_l.set_style(t_style_trend)
+        label.set_color(label, color.new(color_lines, 100))
+
+    label.set_size(label, size.tiny)
+
+    linefill.new(line_l, line_t, color.new(color_lines, t_transparency_suplementary))
+
+draw_channel(trend)=>
+    var label_up = label(na)
+    var label_dn = label(na)
+    var label_m = label(na)
+
+    series float low_src = src_channel - atr * multi
+    series float high_src = src_channel + atr * multi
+
+    // -> New Lines
+    if trend and not trend[1]
+        label_up := label.new(bar_index, low_src, style = label.style_diamond)
+        cM.line_mid1 := line.new(bar_index, src_channel, bar_index, src_channel)
+        cM.line_top1 := line.new(bar_index, high_src, bar_index, high_src)
+        cM.line_low1 := line.new(bar_index, low_src, bar_index, low_src)
+
+        cM.line_mid2.set_xy2(bar_index, src_channel)
+        cM.line_top2.set_xy2(bar_index, high_src)
+        cM.line_low2.set_xy2(bar_index, low_src)
+
+    if not trend and trend[1]
+        label_dn := label.new(bar_index, high_src, style = label.style_diamond)
+        cM.line_mid2 := line.new(bar_index, src_channel, bar_index+2, src_channel)
+        cM.line_top2 := line.new(bar_index, high_src, bar_index, high_src)
+        cM.line_low2 := line.new(bar_index, low_src, bar_index, low_src)
+
+        cM.line_mid1.set_xy2(bar_index, src_channel)
+        cM.line_top1.set_xy2(bar_index, high_src)
+        cM.line_low1.set_xy2(bar_index, low_src)
+
+    // Extend
+    if trend
+        label.delete(label_m)
+        cM.line_mid2.set_extend(extend.none)
+        cM.line_top2.set_extend(extend.none)     
+        cM.line_low2.set_extend(extend.none)   
+
+        cM.line_mid1.set_extend(extend.right)
+        cM.line_top1.set_extend(extend.right)     
+        cM.line_low1.set_extend(extend.right)   
+
+        cM.line_mid1.set_xy2(bar_index, ta.sma(src_channel, 20))
+        cM.line_top1.set_xy2(bar_index, ta.sma(high_src, 20))
+        cM.line_low1.set_xy2(bar_index, ta.sma(low_src, 20))
+
+        label_m := future_price(cM.line_mid1.get_x1(), cM.line_mid1.get_x2(), cM.line_mid1.get_y1(), cM.line_mid1.get_y2(), bar_index+extend)
+
+    if not trend
+        label.delete(label_m)
+        cM.line_mid1.set_extend(extend.none)
+        cM.line_top1.set_extend(extend.none)     
+        cM.line_low1.set_extend(extend.none)   
+
+        cM.line_mid2.set_extend(extend.right)
+        cM.line_top2.set_extend(extend.right)     
+        cM.line_low2.set_extend(extend.right)   
+
+        cM.line_mid2.set_xy2(bar_index, ta.sma(src_channel, 20))
+        cM.line_top2.set_xy2(bar_index, ta.sma(high_src, 20))
+        cM.line_low2.set_xy2(bar_index, ta.sma(low_src, 20))
+
+        label_m := future_price(cM.line_mid2.get_x1(), cM.line_mid2.get_x2(), cM.line_mid2.get_y1(), cM.line_mid2.get_y2(), bar_index+extend)
+
+
+    color_lines(cM.line_mid1, cM.line_top1, cM.line_low1, color_up, label_up)
+    color_lines(cM.line_mid2, cM.line_top2, cM.line_low2, color_dn, label_dn)
+
+    remove_lines(trend)
+
+
+
+//----
+a = line.new(n[length],src[length],n,src,extend=extend.right,color=color.new(#ffffff, 5),width=1, style = line.style_dashed)
+line.delete(a[1])
+
+//-----------------------------------------------------------------------------}
+//Extended Lines
+//-----------------------------------------------------------------------------{
+var uptl  = line.new(na,na,na,na, color = upCss, style = line.style_dashed, extend = extend.right)
+var dntl  = line.new(na,na,na,na, color = dnCss, style = line.style_dashed, extend = extend.right)
+
+if bool(ph) and showExt
+    uptl.set_xy1(n-offset, backpaint ? ph : upper - slope_ph * length)
+    uptl.set_xy2(n-offset+1, backpaint ? ph - slope : upper - slope_ph * (length+1))
+
+if bool(pl) and showExt
+    dntl.set_xy1(n-offset, backpaint ? pl : lower + slope_pl * length)
+    dntl.set_xy2(n-offset+1, backpaint ? pl + slope : lower + slope_pl * (length+1))
+
+//-----------------------------------------------------------------------------}
+//Plots
+//-----------------------------------------------------------------------------{
+plot(backpaint ? upper : upper - slope_ph * length, 'Upper', color = bool(ph) ? na : upCss, offset = -offset, linewidth = 2)
+plot(backpaint ? lower : lower + slope_pl * length, 'Lower', color = bool(pl) ? na : dnCss, offset = -offset, linewidth = 2)
+
+//Breakouts
+plotshape(upos > upos[1] ? low : na, "Upper Break"
+  , shape.circle
+  , location.absolute
+  , upCss
+  , text = ""
+  , textcolor = color.black
+  , size = size.tiny)
+
+plotshape(dnos > dnos[1] ? high : na, "Lower Break"
+  , shape.circle
+  , location.absolute
+  , dnCss
+  , text = ""
+  , textcolor = color.black
+  , size = size.tiny)
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Plot
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+draw_channel(trend)
+// --------------------------------------------------------------------------------------------------------------------}
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Plots
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+var table data = table.new(position.middle_right, 2, 7, bgcolor = color.blue, frame_color = color.rgb(0, 0, 0), frame_width = 4)
+if show_stats 
+    table.cell(data, 1, 1, text = "Model Data", bgcolor = color.blue, text_color = color.white) 
+    table.cell(data, 1, 2, text = "Correlation: " + str.tostring(math.round(cor,2)), bgcolor = color.blue, text_color = color.white) 
+    table.cell(data, 1, 3, text = "R2: " + str.tostring(math.round(r2, 3)), bgcolor = color.blue, text_color = color.white) 
+    table.cell(data, 1, 4, text = "Max Forecasted Value: " + str.tostring(math.round(max_val, 2)), bgcolor = color.blue, text_color = color.white) 
+    table.cell(data, 1, 5, text = "Min Forecasted Value: " + str.tostring(math.round(min_val, 2)), bgcolor = color.blue, text_color = color.white) 
+    table.cell(data, 1, 6, text = "Lookback Length: " + str.tostring(train), bgcolor = color.blue, text_color = color.white) 
+
+if typ == "Scatter Plot"
+    for idx = 0 to len 
+        label1_ar.push(f_primary_labels(idx))
+        if show_others == "Show Results and Variances"
+            label2_ar.push(f_secondary_labels(idx))
+            label3_ar.push(f_secondary_labels2(idx))
+
+if typ == "Line Plot"
+    for idx = 0 to len 
+        line1_ar.push(f_primary_line(idx))
+        if show_others == "Show Results and Variances"
+            line2_ar.push(f_secondary_line(idx))
+            line3_ar.push(f_secondary_line2(idx))
+
+
+//-----------------------------------------------------------------------------}
+//Alerts
+//-----------------------------------------------------------------------------{
+alertcondition(upos > upos[1], 'Upward Breakout', 'Price broke the down-trendline upward')
+alertcondition(dnos > dnos[1], 'Downward Breakout', 'Price broke the up-trendline downward')
+
+//-----------------------------------------------------------------------------}
