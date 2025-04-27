@@ -1,0 +1,25 @@
+//@version=6
+indicator(title = 'SMIEO [PQ_MOD]', shorttitle = 'SMIEO [v0.1.2]')
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Inputs
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+shortlen = input.int(5, minval=1, title="Short Period")
+longlen = input.int(20, minval=1, title="Long Period")
+siglen = input.int(5, minval=1, title="Signal Line Period")
+
+source = input.source(ohlc4, 'Source')
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Calculations
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+
+erg = ta.tsi(source, shortlen, longlen)
+sig = ta.ema(erg, siglen)
+osc = erg - sig
+plot(erg, color=color.rgb(255, 255, 0, 35), title="Indicator", style = plot.style_circles)
+plot(sig, color=color.rgb(0, 255, 242, 35), title="Signal", style =plot.style_circles)
+
+
+plot(osc, color=color.new(chart.fg_color, 70), style=plot.style_histogram, title="Oscillator")

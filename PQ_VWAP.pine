@@ -1,0 +1,64 @@
+//@version=6
+indicator(title = "Responsive VWAP Bands [PQ_MOD]", shorttitle = "VWAP [v0.1.1]", overlay=true, format = format.price)
+start     = input.time(0,confirm=true)
+from_bar0 = input(true,'Start At First Bar')
+
+length    = input(14,group='VWAP')
+mult      = input(2.,group='VWAP')
+source    = input.string('hlcc4', options=['open','high','low','close','hl2','hlc3','ohlc4', 'hlcc4'],group='VWAP')
+//----
+event = input.string('Trend Change',
+  options=['Periodic','Higher High','Lower Low','Trend Change','Start','External Cross','External Event'],
+  group='Event')
+ext_src = input.source(hlcc4,'External Cross/Event')
+//----
+var t = 0
+var csum_num = 0.
+var csum_den = 0. 
+var var_num = 0.
+var var_den = 0.
+//----
+src = switch source
+    'open'  => open
+    'high'  => high
+    'low'   => low
+    'close' => close
+    'hl2'   => hl2
+    'hlc3'  => hlc3
+    'ohlc4' => ohlc4
+    'hlcc4' => hlcc4
+//----
+upper = ta.highest(length)
+lower = ta.lowest(length)
+os = math.round(ta.stoch(src,src,src,length)/100)
+//----
+start_time = from_bar0 ? true : time >= start
+
+event_condition = switch event
+    'Periodic'       => t%length == 0
+    'Higher High'    => upper > upper[1]
+    'Lower Low'      => lower < lower[1]
+    'Trend Change'   => os != os[1]
+    'Start'          => false
+    'External Cross' => ta.cross(src,ext_src)
+    'External Event' => ext_src != 0
+
+if start_time
+    csum_num += src*volume
+    csum_den += volume
+    
+    var_num += src*src*volume
+    t += 1
+    
+    if event_condition
+        csum_num := src*volume
+        csum_den := volume
+        var_num := src*src*volume
+//----
+pvwap = csum_num/csum_den
+dev = math.sqrt(var_num/csum_den - pvwap*pvwap)*mult      
+//----
+up = plot(event_condition ? na : pvwap + dev,'Upper',color=color.rgb(0, 255, 8, 20),style=plot.style_circles, linewidth = 2)
+plot(event_condition ? na : pvwap,'Basis',color=color.new(chart.fg_color, 10),style=plot.style_circles, linewidth = 2)
+dn = plot(event_condition ? na : pvwap - dev,'Lower',color=color.rgb(255, 0, 0, 10),style=plot.style_circles, linewidth = 2)
+

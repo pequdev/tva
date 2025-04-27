@@ -1,0 +1,641 @@
+//@version=6
+indicator(title = 'Fancy as Fuck Moving Averages [PQ_MOD] [v0.1.4]', shorttitle = 'MAVG [v0.1.4]', overlay=true, format=format.price, max_labels_count=500, max_lines_count=200, max_polylines_count=100, max_bars_back=500)
+
+import TradingView/ta/8
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+//
+// Moving Averages
+//
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Inputs
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+int t_transarpency_main = 25
+int t_transarpency_suplementary = t_transarpency_main / 2
+
+color t_color_iIntra = color.new(chart.fg_color, 15)
+
+color t_color_upPlot = input.color(color.new(color.lime, 35), 'up Plot')
+color t_color_buySignal = input.color(color.new(color.lime, 0), 'buy singal')
+color t_color_buySignal_text = color.new(chart.fg_color, 0)
+
+color t_color_dnPlot = input.color(color.new(color.red, 35), 'dn plot')
+color t_color_sellSignal = input.color(color.new(color.red, 0), 'sell signal')
+color t_color_sellSignal_text = color.new(chart.fg_color, 0)
+
+color t_color_longFill = input.color(color.new(color.lime, 35), 'long fill')
+color t_color_shortFill = input.color(color.new(color.red, 35), 'short fill')
+
+color t_color_plot_fill = input.color(color.new(color.blue, t_transarpency_suplementary), 'plot fill')
+
+iWidth = input.int(title='Line Width', defval=1, minval=1, maxval=4)
+
+bool show_mplot = input.bool(false, 'show mplot')
+
+//---------------------------------------------------
+// Signals 
+//---------------------------------------------------
+// Periods = input.int(title="ATR Period", defval=10, group='Signals')
+src = input(ohlc4, title="Source", group='Signals')
+Multiplier = input.float(title="ATR Multiplier", step=0.1, defval=3.0, group='Signals')
+changeATR= input.bool(title="Change ATR Calculation Method ?", defval=true, group='Signals')
+showsignals = input.bool(title="Show Buy/Sell Signals ?", defval=false, group='Signals')
+highlighting = input.bool(title="Highlighter On/Off ?", defval=false, group='Signals')
+
+iSignalMALength = input.int(title='', minval=1, maxval=5000, defval=10, inline='I1', group='Signals')
+iSignalMAType = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='ALMA', inline='I5', group='Signals')
+iSignalMAFast = input.int(2, 'KAMA Fast period', minval=1, group='Signals')
+iSignalMASlow = input.int(30, "KAMA Slow Period", minval=1, group='Signals')
+iSignalMAPhase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Signals')
+iSignalMAOffset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Signals')
+iSignalMASigma = input.float(6, title="ALMA Sigma", minval=1, group='Signals')
+iSignalMAFastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Signals')
+
+//---------------------------------------------------
+// Intraday 
+//---------------------------------------------------
+iIntraMA1Visible = input.bool(title='', defval=true, inline='I1', group='Intraday Moving Averages')
+iIntraMA1Length = input.int(title='', minval=1, maxval=5000, defval=5, inline='I1', group='Intraday Moving Averages')
+iIntraMA1Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='ALMA', inline='I1', group='Intraday Moving Averages')
+iIntraMA1Source = input.source(title='', defval=ohlc4, inline='I1', group='Intraday Moving Averages')
+iIntraMA1Color = input.color(title='', defval=color.new(#00ff4c, t_transarpency_main), inline='I1', group='Intraday Moving Averages')
+
+iIntraMA1Fast = input.int(2, 'KAMA Fast period', minval=1, group='Intraday Moving Averages')
+iIntraMA1Slow = input.int(30, "KAMA Slow Period", minval=1, group='Intraday Moving Averages')
+iIntraMA1Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Intraday Moving Averages')
+iIntraMA1Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Intraday Moving Averages')
+iIntraMA1Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Intraday Moving Averages')
+iIntraMA1FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Intraday Moving Averages')
+
+iIntraMA2Visible = input.bool(title='', defval=true, inline='I2', group='Intraday Moving Averages')
+iIntraMA2Length = input.int(title='', minval=1, maxval=5000, defval=8, inline='I2', group='Intraday Moving Averages')
+iIntraMA2Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='ALMA', inline='I2', group='Intraday Moving Averages')
+iIntraMA2Source = input.source(title='', defval=ohlc4, inline='I2', group='Intraday Moving Averages')
+iIntraMA2Color = input.color(title='', defval=color.new(#00f7ff, t_transarpency_main), inline='I2', group='Intraday Moving Averages')
+
+iIntraMA2Fast = input.int(2, 'KAMA Fast period', minval=1, group='Intraday Moving Averages')
+iIntraMA2Slow = input.int(30, "KAMA Slow Period", minval=1, group='Intraday Moving Averages')
+iIntraMA2Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Intraday Moving Averages')
+iIntraMA2Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Intraday Moving Averages')
+iIntraMA2Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Intraday Moving Averages')
+iIntraMA2FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Intraday Moving Averages')
+
+iIntraMA3Visible = input.bool(title='', defval=true, inline='I3', group='Intraday Moving Averages')
+iIntraMA3Length = input.int(title='', minval=1, maxval=5000, defval=13, inline='I3', group='Intraday Moving Averages')
+iIntraMA3Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='ALMA', inline='I3', group='Intraday Moving Averages')
+iIntraMA3Source = input.source(title='', defval=ohlc4, inline='I3', group='Intraday Moving Averages')
+iIntraMA3Color = input.color(title='', defval=color.new(#ffcc00, t_transarpency_main), inline='I3', group='Intraday Moving Averages')
+
+iIntraMA3Fast = input.int(2, 'KAMA Fast period', minval=1, group='Intraday Moving Averages')
+iIntraMA3Slow = input.int(30, "KAMA Slow Period", minval=1, group='Intraday Moving Averages')
+iIntraMA3Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Intraday Moving Averages')
+iIntraMA3Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Intraday Moving Averages')
+iIntraMA3Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Intraday Moving Averages')
+iIntraMA3FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Intraday Moving Averages')
+
+iIntraMA4Visible = input.bool(title='', defval=true, inline='I4', group='Intraday Moving Averages')
+iIntraMA4Length = input.int(title='', minval=1, maxval=5000, defval=20, inline='I4', group='Intraday Moving Averages')
+iIntraMA4Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='ALMA', inline='I4', group='Intraday Moving Averages')
+iIntraMA4Source = input.source(title='', defval=ohlc4, inline='I4', group='Intraday Moving Averages')
+iIntraMA4Color = input.color(title='', defval=color.new(#ff00ae, t_transarpency_main), inline='I4', group='Intraday Moving Averages')
+
+iIntraMA4Fast = input.int(2, 'KAMA Fast period', minval=1, group='Intraday Moving Averages')
+iIntraMA4Slow = input.int(30, "KAMA Slow Period", minval=1, group='Intraday Moving Averages')
+iIntraMA4Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Intraday Moving Averages')
+iIntraMA4Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Intraday Moving Averages')
+iIntraMA4Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Intraday Moving Averages')
+iIntraMA4FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Intraday Moving Averages')
+
+iIntraMA5Visible = input.bool(title='', defval=true, inline='I5', group='Intraday Moving Averages')
+iIntraMA5Length = input.int(title='', minval=1, maxval=5000, defval=60, inline='I5', group='Intraday Moving Averages')
+iIntraMA5Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='ALMA', inline='I5', group='Intraday Moving Averages')
+iIntraMA5Source = input.source(title='', defval=ohlc4, inline='I5', group='Intraday Moving Averages')
+// iIntraMA5Color = input.color(title='', defval=t_color_iIntraMA5Color, inline='I5', group='Intraday Moving Averages')
+
+iIntraMA5Fast = input.int(2, 'KAMA Fast period', minval=1, group='Intraday Moving Averages')
+iIntraMA5Slow = input.int(30, "KAMA Slow Period", minval=1, group='Intraday Moving Averages')
+iIntraMA5Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Intraday Moving Averages')
+iIntraMA5Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Intraday Moving Averages')
+iIntraMA5Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Intraday Moving Averages')
+iIntraMA5FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Intraday Moving Averages')
+
+iIntraCloud = input.bool(title='Show Moving Average Cloud', defval=false, inline='I6', tooltip='Fill area between the first two defined ' + 
+     'moving averages with color. At a glance, you can see if the slower moving average is above or below the faster moving average.')
+iIntraCloudColorUp = input.color(title='   Up', defval=color.rgb(76, 175, 80, 90), inline='I6')
+iIntraCloudColorDown = input.color(title='Down', defval=color.rgb(175, 76, 76, 90), inline='I6')
+
+//---------------------------------------------------
+// Daily 
+//---------------------------------------------------
+iDailyMA1Visible = input.bool(title='', defval=true, inline='I7', group='Daily Moving Averages')
+iDailyMA1Length = input.int(title='', minval=1, maxval=5000, defval=10, inline='I7', group='Daily Moving Averages')
+iDailyMA1Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='JMA', inline='I7', group='Daily Moving Averages')
+iDailyMA1Source = input.source(title='', defval=close, inline='I7', group='Daily Moving Averages')
+iDailyMA1Color = input.color(title='', defval=color.new(#00ff4c, t_transarpency_main), inline='I7', group='Daily Moving Averages')
+
+iDailyMA1Fast = input.int(2, 'KAMA Fast period', minval=1, group='Daily Moving Averages')
+iDailyMA1Slow = input.int(30, "KAMA Slow Period", minval=1, group='Daily Moving Averages')
+iDailyMA1Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Daily Moving Averages')
+iDailyMA1Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Daily Moving Averages')
+iDailyMA1Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Daily Moving Averages')
+iDailyMA1FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Daily Moving Averages')
+
+iDailyMA2Visible = input.bool(title='', defval=true, inline='I8', group='Daily Moving Averages')
+iDailyMA2Length = input.int(title='', minval=1, maxval=5000, defval=21, inline='I8', group='Daily Moving Averages')
+iDailyMA2Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='JMA', inline='I8', group='Daily Moving Averages')
+iDailyMA2Source = input.source(title='', defval=close, inline='I8', group='Daily Moving Averages')
+iDailyMA2Color = input.color(title='', defval=color.new(#00f7ff, t_transarpency_main), inline='I8', group='Daily Moving Averages')
+
+iDailyMA2Fast = input.int(2, 'KAMA Fast period', minval=1, group='Daily Moving Averages')
+iDailyMA2Slow = input.int(30, "KAMA Slow Period", minval=1, group='Daily Moving Averages')
+iDailyMA2Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Daily Moving Averages')
+iDailyMA2Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Daily Moving Averages')
+iDailyMA2Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Daily Moving Averages')
+iDailyMA2FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Daily Moving Averages')
+
+iDailyMA3Visible = input.bool(title='', defval=true, inline='I9', group='Daily Moving Averages')
+iDailyMA3Length = input.int(title='', minval=1, maxval=5000, defval=50, inline='I9', group='Daily Moving Averages')
+iDailyMA3Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='JMA', inline='I9', group='Daily Moving Averages')
+iDailyMA3Source = input.source(title='', defval=close, inline='I9', group='Daily Moving Averages')
+iDailyMA3Color = input.color(title='', defval=color.new(#ffcc00, t_transarpency_main), inline='I9', group='Daily Moving Averages')
+
+iDailyMA3Fast = input.int(2, 'KAMA Fast period', minval=1, group='Daily Moving Averages')
+iDailyMA3Slow = input.int(30, "KAMA Slow Period", minval=1, group='Daily Moving Averages')
+iDailyMA3Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Daily Moving Averages')
+iDailyMA3Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Daily Moving Averages')
+iDailyMA3Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Daily Moving Averages')
+iDailyMA3FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Daily Moving Averages')
+
+iDailyMA4Visible = input.bool(title='', defval=true, inline='I10', group='Daily Moving Averages')
+iDailyMA4Length = input.int(title='', minval=1, maxval=5000, defval=200, inline='I10', group='Daily Moving Averages')
+iDailyMA4Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='JMA', inline='I10', group='Daily Moving Averages')
+iDailyMA4Source = input.source(title='', defval=close, inline='I10', group='Daily Moving Averages')
+iDailyMA4Color = input.color(title='', defval=color.new(#ff00ae, t_transarpency_main), inline='I10', group='Daily Moving Averages')
+
+iDailyMA4Fast = input.int(2, 'KAMA Fast period', minval=1, group='Daily Moving Averages')
+iDailyMA4Slow = input.int(30, "KAMA Slow Period", minval=1, group='Daily Moving Averages')
+iDailyMA4Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Daily Moving Averages')
+iDailyMA4Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Daily Moving Averages')
+iDailyMA4Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Daily Moving Averages')
+iDailyMA4FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Daily Moving Averages')
+
+iDailyMA5Visible = input.bool(title='', defval=true, inline='I11', group='Daily Moving Averages')
+iDailyMA5Length = input.int(title='', minval=1, maxval=500, defval=300, inline='I11', group='Daily Moving Averages')
+iDailyMA5Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='JMA', inline='I11', group='Daily Moving Averages')
+iDailyMA5Source = input.source(title='', defval=close, inline='I11', group='Daily Moving Averages')
+// iDailyMA5Color = input.color(title='', defval=t_color_iDailyMA5Color, inline='I11', group='Daily Moving Averages')
+
+iDailyMA5Fast = input.int(2, 'KAMA Fast period', minval=1, group='Daily Moving Averages')
+iDailyMA5Slow = input.int(30, "KAMA Slow Period", minval=1, group='Daily Moving Averages')
+iDailyMA5Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Daily Moving Averages')
+iDailyMA5Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Daily Moving Averages')
+iDailyMA5Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Daily Moving Averages')
+iDailyMA5FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Daily Moving Averages')
+
+iDailyCloud = input.bool(title='Show Moving Average Cloud', defval=false, inline='I12', tooltip='Fill area between the first two defined ' +
+     'moving averages with color. At a glance, you can see if the slower moving average is above or below the faster moving average.')
+iDailyCloudColorUp = input.color(title='   Up', defval=color.rgb(76, 175, 80, 90), inline='I12')
+iDailyCloudColorDown = input.color(title='Down', defval=color.rgb(175, 76, 76, 90), inline='I12')
+
+iWeeklyOnDaily = input.bool(title='Show Weekly on Daily', defval=true, inline='I13')
+iWeeklyOnDailyColor = input.color(title='', defval=color.rgb(255, 123, 0, 5), inline='I13')
+
+
+//---------------------------------------------------
+// Weekly 
+//---------------------------------------------------
+iWeeklyMA1Visible = input.bool(title='', defval=true, inline='I14', group='Weekly Moving Averages')
+iWeeklyMA1Length = input.int(title='', minval=1, maxval=5000, defval=10, inline='I14', group='Weekly Moving Averages')
+iWeeklyMA1Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='JMA', inline='I14', group='Weekly Moving Averages')
+iWeeklyMA1Source = input.source(title='', defval=close, inline='I14', group='Weekly Moving Averages')
+iWeeklyMA1Color = input.color(title='', defval=color.new(#00ff4c, t_transarpency_main), inline='I14', group='Weekly Moving Averages')
+
+iWeeklyMA1Fast = input.int(2, 'KAMA Fast period', minval=1, group='Weekly Moving Averages')
+iWeeklyMA1Slow = input.int(30, "KAMA Slow Period", minval=1, group='Weekly Moving Averages')
+iWeeklyMA1Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Weekly Moving Averages')
+iWeeklyMA1Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Weekly Moving Averages')
+iWeeklyMA1Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Weekly Moving Averages')
+iWeeklyMA1FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Weekly Moving Averages')
+
+iWeeklyMA2Visible = input.bool(title='', defval=true, inline='I15', group='Weekly Moving Averages')
+iWeeklyMA2Length = input.int(title='', minval=1, maxval=5000, defval=20, inline='I15', group='Weekly Moving Averages')
+iWeeklyMA2Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='JMA', inline='I15', group='Weekly Moving Averages')
+iWeeklyMA2Source = input.source(title='', defval=close, inline='I15', group='Weekly Moving Averages')
+iWeeklyMA2Color = input.color(title='', defval=color.new(#00f7ff, t_transarpency_main), inline='I15', group='Weekly Moving Averages')
+
+iWeeklyMA2Fast = input.int(2, 'KAMA Fast period', minval=1, group='Weekly Moving Averages')
+iWeeklyMA2Slow = input.int(30, "KAMA Slow Period", minval=1, group='Weekly Moving Averages')
+iWeeklyMA2Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Weekly Moving Averages')
+iWeeklyMA2Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Weekly Moving Averages')
+iWeeklyMA2Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Weekly Moving Averages')
+iWeeklyMA2FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Weekly Moving Averages')
+
+iWeeklyMA3Visible = input.bool(title='', defval=true, inline='I16', group='Weekly Moving Averages')
+iWeeklyMA3Length = input.int(title='', minval=1, maxval=5000, defval=40, inline='I16', group='Weekly Moving Averages')
+iWeeklyMA3Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='JMA', inline='I16', group='Weekly Moving Averages')
+iWeeklyMA3Source = input.source(title='', defval=close, inline='I16', group='Weekly Moving Averages')
+iWeeklyMA3Color = input.color(title='', defval=color.new(#ffcc00, t_transarpency_main), inline='I16', group='Weekly Moving Averages')
+
+iWeeklyMA3Fast = input.int(2, 'KAMA Fast period', minval=1, group='Weekly Moving Averages')
+iWeeklyMA3Slow = input.int(30, "KAMA Slow Period", minval=1, group='Weekly Moving Averages')
+iWeeklyMA3Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Weekly Moving Averages')
+iWeeklyMA3Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Weekly Moving Averages')
+iWeeklyMA3Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Weekly Moving Averages')
+iWeeklyMA3FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Weekly Moving Averages')
+
+iWeeklyMA4Visible = input.bool(title='', defval=true, inline='I17', group='Weekly Moving Averages')
+iWeeklyMA4Length = input.int(title='', minval=1, maxval=5000, defval=100, inline='I17', group='Weekly Moving Averages')
+iWeeklyMA4Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='JMA', inline='I17', group='Weekly Moving Averages')
+iWeeklyMA4Source = input.source(title='', defval=close, inline='I17', group='Weekly Moving Averages')
+// iWeeklyMA4Color = input.color(title='', defval=t_color_iWeeklyMA4Color, inline='I17', group='Weekly Moving Averages')
+
+iWeeklyMA4Fast = input.int(2, 'KAMA Fast period', minval=1, group='Weekly Moving Averages')
+iWeeklyMA4Slow = input.int(30, "KAMA Slow Period", minval=1, group='Weekly Moving Averages')
+iWeeklyMA4Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Weekly Moving Averages')
+iWeeklyMA4Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Weekly Moving Averages')
+iWeeklyMA4Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Weekly Moving Averages')
+iWeeklyMA4FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Weekly Moving Averages')
+
+iWeeklyCloud = input.bool(title='Show Moving Average Cloud', defval=false, inline='I18', tooltip='Fill area between the first two defined ' +
+     'moving averages with color. At a glance, you can see if the slower moving average is above or below the faster moving average.')
+iWeeklyCloudColorUp = input.color(title='   Up', defval=color.rgb(76, 175, 80, 90), inline='I18')
+iWeeklyCloudColorDown = input.color(title='Down', defval=color.rgb(175, 76, 76, 90), inline='I18')
+
+
+//---------------------------------------------------
+// Monthly  
+//---------------------------------------------------
+iMonthlyMA1Visible = input.bool(title='', defval=true, inline='I19', group='Monthly Moving Averages')
+iMonthlyMA1Length = input.int(title='', minval=1, maxval=5000, defval=6, inline='I19', group='Monthly Moving Averages')
+iMonthlyMA1Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='SMA', inline='I19', group='Monthly Moving Averages')
+iMonthlyMA1Source = input.source(title='', defval=close, inline='I19', group='Monthly Moving Averages')
+iMonthlyMA1Color = input.color(title='', defval=color.new(#00ff4c, t_transarpency_main), inline='I19', group='Monthly Moving Averages')
+
+iMonthlyMA1Fast = input.int(2, 'KAMA Fast period', minval=1, group='Monthly Moving Averages')
+iMonthlyMA1Slow = input.int(30, "KAMA Slow Period", minval=1, group='Monthly Moving Averages')
+iMonthlyMA1Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Monthly Moving Averages')
+iMonthlyMA1Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Monthly Moving Averages')
+iMonthlyMA1Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Monthly Moving Averages')
+iMonthlyMA1FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Monthly Moving Averages')
+
+iMonthlyMA2Visible = input.bool(title='', defval=true, inline='I20', group='Monthly Moving Averages')
+iMonthlyMA2Length = input.int(title='', minval=1, maxval=5000, defval=10, inline='I20', group='Monthly Moving Averages')
+iMonthlyMA2Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='SMA', inline='I20', group='Monthly Moving Averages')
+iMonthlyMA2Source = input.source(title='', defval=close, inline='I20', group='Monthly Moving Averages')
+iMonthlyMA2Color = input.color(title='', defval=color.new(#00f7ff, t_transarpency_main), inline='I20', group='Monthly Moving Averages')
+
+iMonthlyMA2Fast = input.int(2, 'KAMA Fast period', minval=1, group='Monthly Moving Averages')
+iMonthlyMA2Slow = input.int(30, "KAMA Slow Period", minval=1, group='Monthly Moving Averages')
+iMonthlyMA2Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Monthly Moving Averages')
+iMonthlyMA2Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Monthly Moving Averages')
+iMonthlyMA2Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Monthly Moving Averages')
+iMonthlyMA2FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Monthly Moving Averages')
+
+iMonthlyMA3Visible = input.bool(title='', defval=true, inline='I21', group='Monthly Moving Averages')
+iMonthlyMA3Length = input.int(title='', minval=1, maxval=5000, defval=24, inline='I21', group='Monthly Moving Averages')
+iMonthlyMA3Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='SMA', inline='I21', group='Monthly Moving Averages')
+iMonthlyMA3Source = input.source(title='', defval=close, inline='I21', group='Monthly Moving Averages')
+iMonthlyMA3Color = input.color(title='', defval=color.new(#ffcc00, t_transarpency_main), inline='I21', group='Monthly Moving Averages')
+
+iMonthlyMA3Fast = input.int(2, 'KAMA Fast period', minval=1, group='Monthly Moving Averages')
+iMonthlyMA3Slow = input.int(30, "KAMA Slow Period", minval=1, group='Monthly Moving Averages')
+iMonthlyMA3Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Monthly Moving Averages')
+iMonthlyMA3Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Monthly Moving Averages')
+iMonthlyMA3Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Monthly Moving Averages')
+iMonthlyMA3FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Monthly Moving Averages')
+
+iMonthlyMA4Visible = input.bool(title='', defval=true, inline='I22', group='Monthly Moving Averages')
+iMonthlyMA4Length = input.int(title='', minval=1, maxval=5000, defval=40, inline='I22', group='Monthly Moving Averages')
+iMonthlyMA4Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA', 'FRAMA', 'VWEMA', 'GMA', 'MDA', 'EVWMA'], defval='SMA', inline='I22', group='Monthly Moving Averages')
+iMonthlyMA4Source = input.source(title='', defval=close, inline='I22', group='Monthly Moving Averages')
+// iMonthlyMA4Color = input.color(title='', defval=t_color_iMonthlyMA4Color, inline='I22', group='Monthly Moving Averages')
+
+iMonthlyMA4Fast = input.int(2, 'KAMA Fast period', minval=1, group='Monthly Moving Averages')
+iMonthlyMA4Slow = input.int(30, "KAMA Slow Period", minval=1, group='Monthly Moving Averages')
+iMonthlyMA4Phase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Monthly Moving Averages')
+iMonthlyMA4Offset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Monthly Moving Averages')
+iMonthlyMA4Sigma = input.float(6, title="ALMA Sigma", minval=1, group='Monthly Moving Averages')
+iMonthlyMA4FastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Monthly Moving Averages')
+
+iMonthlyCloud = input.bool(title='Show Moving Average Cloud', defval=false, inline='I23', tooltip='Fill area between the first two defined ' + 
+     'moving averages with color. At a glance, you can see if the slower moving average is above or below the faster moving average.')
+iMonthlyCloudColorUp = input.color(title='   Up', defval=color.new(color.rgb(76, 175, 80, 90), transp=90), inline='I23')
+iMonthlyCloudColorDown = input.color(title='Down', defval=color.new(color.rgb(175, 76, 76, 90), transp=90), inline='I23')
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Variables
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+float intraMA1 = 0.0
+float intraMA2 = 0.0
+float intraMA3 = 0.0
+float intraMA4 = 0.0
+float intraMA5 = 0.0
+
+float dailyMA1 = 0.0
+float dailyMA2 = 0.0
+float dailyMA3 = 0.0
+float dailyMA4 = 0.0
+float dailyMA5 = 0.0
+
+float weeklyMA1 = 0.0
+float weeklyMA2 = 0.0
+float weeklyMA3 = 0.0
+float weeklyMA4 = 0.0
+
+float monthlyMA1 = 0.0
+float monthlyMA2 = 0.0
+float monthlyMA3 = 0.0
+float monthlyMA4 = 0.0
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Functions
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+zlema(source, length) =>
+    lag = (length - 1) / 2
+    ta.ema(source + (source - source[lag]), length)
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+kama(float source, length= 10, int fast = 2, slow = 30) =>
+    float kama = na
+    float change = math.abs(source - source[length])
+    float volatility = math.sum(math.abs(source - source[1]), length)
+    float er = change / volatility
+
+    float fastSC = 2 / (fast + 1)
+    float slowSC = 2 / (slow + 1)
+    float sc = math.pow(er * (fastSC - slowSC) + slowSC, 2)
+
+    kama := na(kama[1]) ? source : kama[1] + sc * (source - kama[1])
+    kama
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+jma(source, length, phase) =>
+    beta = 0.45 * (length - 1) / (0.45 * (length - 1) + 2)
+    alpha = math.pow(beta, 1 + math.max(math.min(phase, 100), -100) / 100)
+    
+    float jmaValue = na
+    jmaValue := na(jmaValue[1]) ? source : (1 - alpha) * source + alpha * jmaValue[1]
+
+    jmaValue
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+frama(source, length, fast) =>
+    slow_constant = 2 - fast
+    
+    n1 = ta.highest(source, math.ceil(length / 2))
+    n2 = ta.lowest(source, math.ceil(length / 2))
+    n3 = ta.highest(source, length)
+    n4 = ta.lowest(source, length)
+
+    n_diff = n1 - n2
+    n_total = n3 - n4
+    dimension = 0.0
+    if (n_total != 0)
+        dimension := math.log(n_diff / n_total) / math.log(2)
+    
+    alpha = math.exp(-slow_constant * (dimension - 1))
+    
+    frama_val = 0.0
+    frama_val := na(frama_val[1]) ? source : (alpha * source + (1 - alpha) * frama_val[1])
+    frama_val
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+vwema(source, length) =>
+    alpha = 2 / (length + 1)  // Smoothing factor for EMA
+    float vwema_val = na
+    weighted_price = source * volume
+    weighted_sum = 0.0
+    volume_sum = 0.0
+
+    if na(vwema_val[1])
+        vwema_val := source  // Initialize with the source on the first calculation
+    else
+        weighted_sum := alpha * (weighted_price) + (1 - alpha) * (vwema_val[1] * volume[1])
+        volume_sum := alpha * volume + (1 - alpha) * volume_sum[1]
+        vwema_val := weighted_sum / volume_sum
+
+    vwema_val
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+gma(source, length) =>
+    w = array.new_float(5, na) // Gaussian filter weights
+    for i = 0 to 4
+        weight = math.exp(-0.5 * math.pow(i / (length / 3), 2)) // Gaussian function
+        array.set(w, i, weight)
+
+    // Normalize weights to sum up to 1
+    total_weight = array.sum(w)
+    for i = 0 to 4
+        array.set(w, i, array.get(w, i) / total_weight)
+
+    // Apply Gaussian filter
+    sum = 0.0
+    for i = 0 to 4
+        if not na(source[i])
+            sum := sum + source[i] * array.get(w, i)
+
+    sum
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+mda(source, length) =>
+    var float prevMDA = na
+    if na(prevMDA)
+        prevMDA := source // Initialize with the source value on the first calculation
+    else
+        adjustmentFactor = length * (source / prevMDA)
+        prevMDA := prevMDA + (source - prevMDA) / adjustmentFactor
+    prevMDA
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+evwma(source, length) =>
+    var float evwma_val = na
+    if na(evwma_val)
+        evwma_val := source // Initialize with the source value on the first calculation
+    else
+        adjustment = volume / ta.sma(volume, length) // Normalize volume using SMA
+        evwma_val := evwma_val + adjustment * (source - evwma_val) / length
+    evwma_val
+
+calcMA(maType, maSource, maLength, maFast, maSlow, maPhase, maOffset, maSigma, maFastFractal) => maType == 'SMA' ? ta.sma(maSource, maLength) : maType == 'EMA' ? ta.ema(maSource, maLength) : maType == 'RMA' ? ta.rma(maSource, maLength) : maType == 'VWMA' ? ta.vwma(maSource, maLength) : maType == 'HMA' ? ta.hma(maSource, maLength) : maType == 'TEMA' ? ta.tema(maSource, maLength) : maType == 'ZLEMA' ? zlema(maSource, maLength) : maType == 'DEMA' ? ta.dema(maSource, maLength) : maType == 'KAMA' ? kama(maSource, maLength, maFast, maSlow) : maType == 'TRIMA' ? ta.trima(maSource, maLength) : maType == 'JMA' ? jma(maSource, maLength, maPhase) : maType == 'ALMA' ? ta.alma(maSource, maLength, maOffset, maSigma) : maType == 'FRAMA' ? frama(maSource, maLength, maFastFractal) : maType == 'VWEMA' ? vwema(maSource, maLength) : maType == 'GMA' ? gma(maSource, maLength) : maType == 'MDA' ? mda(maSource, maLength) : maType == 'EVWMA' ? evwma(maSource, maLength) : ta.wma(maSource, maLength)
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Calculations
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+atr2 = calcMA(iSignalMAType, src, iSignalMALength, iSignalMAFast, iSignalMASlow, iSignalMAPhase, iSignalMAOffset, iSignalMASigma, iSignalMAFastFractal)
+atr= changeATR ? ta.atr(iSignalMALength) : atr2
+up=src-(Multiplier*atr)
+up1 = nz(up[1],up)
+up := src[1] > up1 ? math.max(up,up1) : up
+
+dn=src+(Multiplier*atr)
+dn1 = nz(dn[1], dn)
+dn := src[1] < dn1 ? math.min(dn, dn1) : dn
+trend = 1
+trend := nz(trend[1], trend)
+trend := trend == -1 and src > dn1 ? 1 : trend == 1 and src < up1 ? -1 : trend
+
+buySignal = trend == 1 and trend[1] == -1
+sellSignal = trend == -1 and trend[1] == 1
+
+//---------------------------------------------------
+// Intraday 
+//---------------------------------------------------
+if (timeframe.isintraday)
+    intraMA1 := calcMA(iIntraMA1Type, iIntraMA1Source, iIntraMA1Length, iIntraMA1Fast, iIntraMA1Slow, iIntraMA1Phase, iIntraMA1Offset, iIntraMA1Sigma, iIntraMA1FastFractal)
+    intraMA2 := calcMA(iIntraMA2Type, iIntraMA2Source, iIntraMA2Length, iIntraMA2Fast, iIntraMA2Slow, iIntraMA2Phase, iIntraMA2Offset, iIntraMA2Sigma, iIntraMA2FastFractal)
+    intraMA3 := calcMA(iIntraMA3Type, iIntraMA3Source, iIntraMA3Length, iIntraMA3Fast, iIntraMA3Slow, iIntraMA3Phase, iIntraMA3Offset, iIntraMA3Sigma, iIntraMA3FastFractal)
+    intraMA4 := calcMA(iIntraMA4Type, iIntraMA4Source, iIntraMA4Length, iIntraMA4Fast, iIntraMA4Slow, iIntraMA4Phase, iIntraMA4Offset, iIntraMA4Sigma, iIntraMA4FastFractal)
+    intraMA5 := calcMA(iIntraMA5Type, iIntraMA5Source, iIntraMA5Length, iIntraMA5Fast, iIntraMA5Slow, iIntraMA5Phase, iIntraMA5Offset, iIntraMA5Sigma, iIntraMA5FastFractal)
+
+//---------------------------------------------------
+// Daily 
+//---------------------------------------------------
+if (timeframe.isdaily)
+    dailyMA1 := calcMA(iDailyMA1Type, iDailyMA1Source, iDailyMA1Length, iDailyMA1Fast, iDailyMA1Slow, iDailyMA1Phase, iDailyMA1Offset, iDailyMA1Sigma, iDailyMA1FastFractal)
+    dailyMA2 := calcMA(iDailyMA2Type, iDailyMA2Source, iDailyMA2Length, iDailyMA2Fast, iDailyMA2Slow, iDailyMA2Phase, iDailyMA2Offset, iDailyMA2Sigma, iDailyMA2FastFractal)
+    dailyMA3 := calcMA(iDailyMA3Type, iDailyMA3Source, iDailyMA3Length, iDailyMA3Fast, iDailyMA3Slow, iDailyMA3Phase, iDailyMA3Offset, iDailyMA3Sigma, iDailyMA3FastFractal)
+    dailyMA4 := calcMA(iDailyMA4Type, iDailyMA4Source, iDailyMA4Length, iDailyMA4Fast, iDailyMA4Slow, iDailyMA4Phase, iDailyMA4Offset, iDailyMA4Sigma, iDailyMA4FastFractal)
+    dailyMA5 := calcMA(iDailyMA5Type, iDailyMA5Source, iDailyMA5Length, iDailyMA5Fast, iDailyMA5Slow, iDailyMA5Phase, iDailyMA5Offset, iDailyMA5Sigma, iDailyMA5FastFractal)
+
+//---------------------------------------------------
+// Weekly
+//---------------------------------------------------
+if (timeframe.isweekly)
+    weeklyMA1 := calcMA(iWeeklyMA1Type, iWeeklyMA1Source, iWeeklyMA1Length, iWeeklyMA1Fast, iWeeklyMA1Slow, iWeeklyMA1Phase, iWeeklyMA1Offset, iWeeklyMA1Sigma, iWeeklyMA1FastFractal)
+    weeklyMA2 := calcMA(iWeeklyMA2Type, iWeeklyMA2Source, iWeeklyMA2Length, iWeeklyMA2Fast, iWeeklyMA2Slow, iWeeklyMA2Phase, iWeeklyMA2Offset, iWeeklyMA2Sigma, iWeeklyMA2FastFractal)
+    weeklyMA3 := calcMA(iWeeklyMA3Type, iWeeklyMA3Source, iWeeklyMA3Length, iWeeklyMA3Fast, iWeeklyMA3Slow, iWeeklyMA3Phase, iWeeklyMA3Offset, iWeeklyMA3Sigma, iWeeklyMA3FastFractal)
+    weeklyMA4 := calcMA(iWeeklyMA4Type, iWeeklyMA4Source, iWeeklyMA4Length, iWeeklyMA4Fast, iWeeklyMA4Slow, iWeeklyMA4Phase, iWeeklyMA4Offset, iWeeklyMA4Sigma, iWeeklyMA4FastFractal)
+
+//---------------------------------------------------
+// Monthly 
+//---------------------------------------------------
+if (timeframe.ismonthly)
+    monthlyMA1 := calcMA(iMonthlyMA1Type, iMonthlyMA1Source, iMonthlyMA1Length, iMonthlyMA1Fast, iMonthlyMA1Slow, iMonthlyMA1Phase, iMonthlyMA1Offset, iMonthlyMA1Sigma, iMonthlyMA1FastFractal)
+    monthlyMA2 := calcMA(iMonthlyMA2Type, iMonthlyMA2Source, iMonthlyMA2Length, iMonthlyMA2Fast, iMonthlyMA2Slow, iMonthlyMA2Phase, iMonthlyMA2Offset, iMonthlyMA2Sigma, iMonthlyMA2FastFractal)
+    monthlyMA3 := calcMA(iMonthlyMA3Type, iMonthlyMA3Source, iMonthlyMA3Length, iMonthlyMA3Fast, iMonthlyMA3Slow, iMonthlyMA3Phase, iMonthlyMA3Offset, iMonthlyMA3Sigma, iMonthlyMA3FastFractal)
+    monthlyMA4 := calcMA(iMonthlyMA4Type, iMonthlyMA4Source, iMonthlyMA4Length, iMonthlyMA4Fast, iMonthlyMA4Slow, iMonthlyMA4Phase, iMonthlyMA4Offset, iMonthlyMA4Sigma, iMonthlyMA4FastFractal)
+
+//---------------------------------------------------
+// Signals 
+//---------------------------------------------------
+// iIntraMA5Type = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA'], defval='JMA', inline='I5', group='Intraday Moving Averages')
+// iSignalMALength = input.int(title='', minval=1, maxval=5000, defval=5, inline='I1', group='Signals')
+// iSignalMAType = input.string(title='', options=['SMA', 'EMA', 'RMA', 'VWMA', 'WMA', 'HMA', 'TEMA', 'ZLEMA', 'DEMA', 'KAMA', 'TRIMA', 'JMA', 'ALMA'], defval='JMA', inline='I5', group='Signals')
+// iSignalMAFast = input.int(2, 'KAMA Fast period', minval=1, group='Intraday Moving Averages')
+// iSignalMASlow = input.int(30, "KAMA Slow Period", minval=1, group='Intraday Moving Averages')
+// iSignalMAPhase = input.int(0, "JMA Phase", minval=-100, maxval=100, group='Intraday Moving Averages')
+// iSignalMAOffset = input.float(0.5, title="ALMA Offset (0 to 1)", minval=0, maxval=1, group='Intraday Moving Averages')
+// iSignalMASigma = input.float(6, title="ALMA Sigma", minval=1, group='Intraday Moving Averages')
+// iSignalMAFastFractal = input.float(2.0, title="FRAMA Fast", minval=0.1, maxval=2.0 , group='Intraday Moving Averages')
+
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Plotting
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+
+fillColor = color.new(#ffffff, 100)  
+
+//---------------------------------------------------
+// Intraday 
+//---------------------------------------------------
+i1 = plot(iIntraMA1Visible and timeframe.isintraday ? intraMA1 : na, title='Intraday Moving Average #1', color=iIntraMA1Color, linewidth=iWidth)
+i2 = plot(iIntraMA2Visible and timeframe.isintraday ? intraMA2 : na, title='Intraday Moving Average #2', color=iIntraMA2Color, linewidth=iWidth)
+
+plot(iIntraMA3Visible and timeframe.isintraday ? intraMA3 : na, title='Intraday Moving Average #3', color=iIntraMA3Color, linewidth=iWidth)
+plot(iIntraMA4Visible and timeframe.isintraday ? intraMA4 : na, title='Intraday Moving Average #4', color=iIntraMA4Color, linewidth=iWidth)
+plot(iIntraMA5Visible and timeframe.isintraday ? intraMA5 : na, title='Intraday Moving Average #5', color=t_color_iIntra, linewidth=3)
+
+if (iIntraCloud)
+    fillColor := intraMA1 < intraMA2 ? iIntraCloudColorDown : iIntraCloudColorUp
+fill(i1, i2, color=fillColor)
+
+
+//---------------------------------------------------
+// Intraday 
+//---------------------------------------------------
+
+d1 = plot(iDailyMA1Visible and timeframe.isdaily ? dailyMA1 : na, title='Daily Moving Average #1', color=iDailyMA1Color, linewidth=iWidth)
+d2 = plot(iDailyMA2Visible and timeframe.isdaily ? dailyMA2 : na, title='Daily Moving Average #2', color=iDailyMA2Color, linewidth=iWidth)
+
+plot(iDailyMA3Visible and timeframe.isdaily ? dailyMA3 : na, title='Daily Moving Average #3', color=iDailyMA3Color, linewidth=iWidth)
+plot(iDailyMA4Visible and timeframe.isdaily ? dailyMA4 : na, title='Daily Moving Average #4', color=iDailyMA4Color, linewidth=iWidth)
+plot(iDailyMA5Visible and timeframe.isdaily ? dailyMA5 : na, title='Daily Moving Average #5', color=t_color_iIntra, linewidth=3)
+
+// Show weekly on daily
+w = request.security(syminfo.tickerid, 'W', ta.sma(close, 10), lookahead = barmerge.lookahead_on)
+plot(iWeeklyOnDaily and timeframe.isdaily ? w : na, color=iWeeklyOnDailyColor, linewidth=1)
+
+if (iDailyCloud)
+    fillColor := dailyMA1 < dailyMA2 ? iDailyCloudColorDown : iDailyCloudColorUp
+fill(d1, d2, color=fillColor)
+
+
+//---------------------------------------------------
+// Weekly
+//---------------------------------------------------
+
+w1 = plot(iWeeklyMA1Visible and timeframe.isweekly ? weeklyMA1 : na, title='Weekly Moving Average #1', color=iWeeklyMA1Color, linewidth=iWidth)
+w2 = plot(iWeeklyMA2Visible and timeframe.isweekly ? weeklyMA2 : na, title='Weekly Moving Average #2', color=iWeeklyMA2Color, linewidth=iWidth)
+
+plot(iWeeklyMA3Visible and timeframe.isweekly ? weeklyMA3 : na, title='Weekly Moving Average #3', color=iWeeklyMA3Color, linewidth=iWidth)
+plot(iWeeklyMA4Visible and timeframe.isweekly ? weeklyMA4 : na, title='Weekly Moving Average #4', color=t_color_iIntra, linewidth=3)
+
+// Show moving average cloud
+fillColor := color.rgb(0, 0, 0, 100)  // Transparent
+if (iWeeklyCloud)
+    fillColor := weeklyMA1 < weeklyMA2 ? iWeeklyCloudColorDown : iWeeklyCloudColorUp
+fill(w1, w2, color=fillColor)
+
+
+//---------------------------------------------------
+// Monthly 
+//---------------------------------------------------
+
+m1 = plot(iMonthlyMA1Visible and timeframe.ismonthly ? monthlyMA1 : na, title='Monthly Moving Average #1', color=iMonthlyMA1Color, linewidth=iWidth)
+m2 = plot(iMonthlyMA2Visible and timeframe.ismonthly ? monthlyMA2 : na, title='Monthly Moving Average #2', color=iMonthlyMA2Color, linewidth=iWidth)
+
+plot(iMonthlyMA3Visible and timeframe.ismonthly ? monthlyMA3 : na, title='Monthly Moving Average #3', color=iMonthlyMA3Color, linewidth=iWidth)
+plot(iMonthlyMA4Visible and timeframe.ismonthly ? monthlyMA4 : na, title='Monthly Moving Average #4', color=t_color_iIntra, linewidth=3)
+
+// Show moving average cloud
+fillColor := color.rgb(0, 0, 0, 100)  // Transparent
+if (iMonthlyCloud)
+    fillColor := monthlyMA1 < monthlyMA2 ? iMonthlyCloudColorDown : iMonthlyCloudColorUp
+fill(m1, m2, color=fillColor)
+
+//---------------------------------------------------
+// Signals 
+//---------------------------------------------------
+
+upPlot = plot(trend == 1 ? up : na, title="Up Trend", style=plot.style_linebr, linewidth=2, color=t_color_upPlot)
+
+plotshape(buySignal ? up : na, title="UpTrend Begins", location=location.absolute, style=shape.triangleup, size=size.small, color=t_color_buySignal)
+plotshape(buySignal and showsignals ? up : na, title="Buy", text="Buy", location=location.absolute, style=shape.labelup, size=size.tiny, color=t_color_buySignal, textcolor=t_color_buySignal_text)
+
+dnPlot = plot(trend == 1 ? na : dn, title="Down Trend", style=plot.style_linebr, linewidth=2, color=t_color_dnPlot)
+
+plotshape(sellSignal ? dn : na, title="DownTrend Begins", location=location.absolute, style=shape.triangledown, size=size.small, color=t_color_sellSignal)
+plotshape(sellSignal and showsignals ? dn : na, title="Sell", text="Sell", location=location.absolute, style=shape.labeldown, size=size.tiny, color=t_color_sellSignal, textcolor=t_color_sellSignal_text)
+
+mPlot = plot(show_mplot ? src : na, title="M plot", style=plot.style_circles, linewidth=1, color = t_color_plot_fill)
+
+longFillColor = highlighting ? (trend == 1 ? t_color_longFill : chart.fg_color) : color(na)
+shortFillColor = highlighting ? (trend == -1 ? t_color_shortFill : chart.fg_color) : color(na)
+
+fill(mPlot, upPlot, title="UpTrend Highligter", color=longFillColor)
+fill(mPlot, dnPlot, title="DownTrend Highligter", color=shortFillColor)
+
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Alerts
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+alertcondition(buySignal, title="SuperTrend Buy", message="SuperTrend Buy!")
+alertcondition(sellSignal, title="SuperTrend Sell", message="SuperTrend Sell!")
+changeCond = trend != trend[1]
+alertcondition(changeCond, title="SuperTrend Direction Change", message="SuperTrend has changed direction!")
