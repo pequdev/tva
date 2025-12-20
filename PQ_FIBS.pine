@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.1.46', overlay = true, format = format.price, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
+indicator(title = 'Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.1.47', overlay = true, format = format.price, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -2271,7 +2271,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     else if bt_total_trades == 0
         backtest_text := "\n📈 Backtesting... (0 trades)"
     
-    string pos_text = (display_is_long ? TEXT_LONG : TEXT_SHORT) + TEXT_SETUP + trade_state_indicator + status + "\nTP: " + str.tostring(display_tp_text, format.mintick) + "\nSL: " + str.tostring(display_sl_text, format.mintick) + "\nR:R " + str.tostring(rr_ratio, "#.##") + ev_text + kelly_text + learn_text + backtest_text
+    string pos_text = (display_is_long ? TEXT_LONG : TEXT_SHORT) + TEXT_SETUP + trade_state_indicator + status + "\n🎯 TP: " + str.tostring(display_tp_text, format.mintick) + "\n🛑 SL: " + str.tostring(display_sl_text, format.mintick) + "\n⚖️ R:R " + str.tostring(rr_ratio, "#.##") + ev_text + kelly_text + learn_text + backtest_text
     
     // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
     // LEARNING ENGINE: Record CONFIRMED setup outcome on pivot change (NEVER projections)
@@ -2379,7 +2379,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Visual style settings based on state
     // Confirmed: dotted (standard), Projection: dashed (tentative)
     var string box_style = line.style_dotted
-    box_style := showingProjection ? line.style_dashed : line.style_solid
+    box_style := showingProjection ? line.style_dotted : line.style_solid
     
     // Transparency: Projection = 40 (more transparent), Confirmed = 5 (solid)
     int sl_tp_transparency = showingProjection ? 40 : 5
@@ -2422,17 +2422,17 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         line_sl := line.new(bar_index, display_sl, bar_index + 5, display_sl, color=sl_line_col, style=box_style, width=2)
         // Smart SL line (only if backtest data available)
         if show_smart_sl
-            line_smart_sl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dashed, width=2)
-        line_tp := line.new(bar_index, display_tp, bar_index + 5, display_tp, color=tp_line_col, style=box_style, width=2)
-        lbl_risk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small)
+            line_smart_sl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=3)
+        line_tp := line.new(bar_index, display_tp, bar_index + 5, display_tp, color=tp_line_col, style=box_style, width=3)
+        lbl_risk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small, text.align_left)
     else if na(box_entry)
         // First time creation (no pivot change yet)
         box_entry := box.new(bar_index, display_zone_top, bar_index + 5, display_zone_bottom, bgcolor=bg_col, border_color=border_col, border_style=line.style_dotted)
-        line_sl := line.new(bar_index, display_sl, bar_index + 5, display_sl, color=sl_line_col, style=line.style_dotted, width=2)
+        line_sl := line.new(bar_index, display_sl, bar_index + 5, display_sl, color=sl_line_col, style=line.style_dotted, width=3)
         if show_smart_sl
-            line_smart_sl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dashed, width=2)
-        line_tp := line.new(bar_index, display_tp, bar_index + 5, display_tp, color=tp_line_col, style=line.style_dotted, width=2)
-        lbl_risk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small)
+            line_smart_sl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=3)
+        line_tp := line.new(bar_index, display_tp, bar_index + 5, display_tp, color=tp_line_col, style=line.style_dotted, width=3)
+        lbl_risk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small, text.align_left)
     else
         // Update existing objects with current values (dynamic learning adjustments)
         box.set_top(box_entry, display_zone_top)
@@ -2453,7 +2453,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             line.set_y1(line_smart_sl, smart_sl_price)
             line.set_y2(line_smart_sl, smart_sl_price)
         else if show_smart_sl and na(line_smart_sl)
-            line_smart_sl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dashed, width=2)
+            line_smart_sl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=2)
         
         // Update TP line - price and color (dynamic learning adjustments)
         line.set_x2(line_tp, bar_index + 5)
