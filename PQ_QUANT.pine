@@ -1,0 +1,449 @@
+//@version=6
+// @description QuantLib - Advanced Quantitative Analysis Library
+// Implements statistical functions using Pine Script v6 matrix.* capabilities
+// for optimal performance and numerical accuracy.
+library("QuantLib", overlay = false)
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// HURST EXPONENT - R/S Analysis with Matrix-Based Log-Log Regression
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+//
+// The Hurst Exponent H measures long-term memory in time series:
+//   H ≈ 0.5: Random walk (Brownian motion, efficient market)
+//   H > 0.5: Persistent/trending behavior (momentum)
+//   H < 0.5: Anti-persistent/mean-reverting behavior
+//
+// R/S Analysis Method:
+//   1. For each sub-period size n, divide series into blocks
+//   2. For each block: calculate range R and standard deviation S
+//   3. Average R/S ratio for each n
+//   4. Regress log(R/S) on log(n) - slope = H
+//
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Calculates the Hurst Exponent using Rescaled Range (R/S) Analysis
+// @param src Source series (typically close price or returns)
+// @param length Total lookback period for analysis
+// @returns Hurst exponent H in range [0, 1]
+export get_hurst_exponent(series float src, simple int length) =>
+    // Minimum sub-period sizes for R/S calculation (powers of 2 for even divisions)
+    // Using sizes: 8, 16, 32, 64, 128 (or up to length/2)
+    int max_n = int(math.floor(float(length) / 2.0))
+    
+    // Build array of sub-period sizes
+    array<int> n_sizes = array.new_int(0)
+    int n = 8
+    while n <= max_n and n <= 128
+        array.push(n_sizes, n)
+        n := n * 2
+    
+    int num_sizes = array.size(n_sizes)
+    
+    // Need at least 2 points for regression
+    if num_sizes < 2
+        0.5  // Return neutral Hurst if insufficient data
+    else
+        // Arrays for log-log regression
+        array<float> log_n = array.new_float(num_sizes, 0.0)
+        array<float> log_rs = array.new_float(num_sizes, 0.0)
+        
+        // Calculate R/S for each sub-period size
+        for i = 0 to num_sizes - 1
+            int sub_n = array.get(n_sizes, i)
+            int num_blocks = int(math.floor(float(length) / float(sub_n)))
+            
+            float rs_sum = 0.0
+            int valid_blocks = 0
+            
+            // Process each block
+            for b = 0 to num_blocks - 1
+                int start_idx = b * sub_n
+                
+                // Calculate mean of block
+                float block_sum = 0.0
+                for j = 0 to sub_n - 1
+                    block_sum += nz(src[length - 1 - start_idx - j], src)
+                float block_mean = block_sum / float(sub_n)
+                
+                // Calculate cumulative deviations and find range
+                float cum_dev = 0.0
+                float max_cum = 0.0
+                float min_cum = 0.0
+                float sum_sq = 0.0
+                
+                for j = 0 to sub_n - 1
+                    float val = nz(src[length - 1 - start_idx - j], src)
+                    float dev = val - block_mean
+                    cum_dev += dev
+                    max_cum := math.max(max_cum, cum_dev)
+                    min_cum := math.min(min_cum, cum_dev)
+                    sum_sq += dev * dev
+                
+                // Range R = max - min of cumulative deviations
+                float R = max_cum - min_cum
+                
+                // Standard deviation S
+                float S = math.sqrt(sum_sq / float(sub_n))
+                
+                // R/S ratio (avoid division by zero)
+                if S > 1e-10
+                    rs_sum += R / S
+                    valid_blocks += 1
+            
+            // Average R/S for this sub-period size
+            float avg_rs = valid_blocks > 0 ? rs_sum / float(valid_blocks) : 1.0
+            
+            // Store log values for regression
+            array.set(log_n, i, math.log(float(sub_n)))
+            array.set(log_rs, i, math.log(math.max(avg_rs, 1e-10)))
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Matrix-based Linear Regression: H = slope of log(R/S) vs log(n)
+        // Using Normal Equation: β = (X^T X)^(-1) X^T y
+        // ═══════════════════════════════════════════════════════════════════════════
+        
+        // Construct design matrix X (N x 2): [1, log_n] for intercept and slope
+        matrix<float> X = matrix.new<float>(num_sizes, 2, 0.0)
+        matrix<float> Y = matrix.new<float>(num_sizes, 1, 0.0)
+        
+        for i = 0 to num_sizes - 1
+            matrix.set(X, i, 0, 1.0)  // Intercept column
+            matrix.set(X, i, 1, array.get(log_n, i))  // log(n) column
+            matrix.set(Y, i, 0, array.get(log_rs, i))  // log(R/S) values
+        
+        // X^T (2 x N)
+        matrix<float> Xt = matrix.transpose(X)
+        
+        // X^T X (2 x 2)
+        matrix<float> XtX = matrix.mult(Xt, X)
+        
+        // Add ridge regularization for numerical stability
+        float ridge = 1e-8
+        matrix.set(XtX, 0, 0, matrix.get(XtX, 0, 0) + ridge)
+        matrix.set(XtX, 1, 1, matrix.get(XtX, 1, 1) + ridge)
+        
+        // (X^T X)^(-1)
+        matrix<float> XtX_inv = matrix.inv(XtX)
+        
+        // X^T y (2 x 1)
+        matrix<float> XtY = matrix.mult(Xt, Y)
+        
+        // β = (X^T X)^(-1) X^T y
+        matrix<float> beta = matrix.mult(XtX_inv, XtY)
+        
+        // Slope (Hurst exponent) is β[1]
+        float H = matrix.get(beta, 1, 0)
+        
+        // Clamp to valid range [0, 1]
+        math.max(0.0, math.min(1.0, H))
+
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// SHANNON ENTROPY - Information-Theoretic Disorder Measure
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+//
+// Shannon Entropy measures the unpredictability/disorder in a distribution:
+//   H = -Σ p_i · log₂(p_i)
+//
+// Normalized to [0, 1] by dividing by max entropy log₂(bins):
+//   H_norm = 0: Perfect order (all values in one bin)
+//   H_norm = 1: Maximum disorder (uniform distribution)
+//
+// For financial applications:
+//   High entropy → Chaotic/random market (hard to predict)
+//   Low entropy → Ordered/trending market (easier to predict)
+//
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Calculates normalized Shannon Entropy of a price series
+// @param src Source series (typically close price)
+// @param length Number of bars to include in analysis
+// @param bins Number of histogram bins for discretization
+// @returns Normalized entropy in range [0.0, 1.0]
+export get_shannon_entropy(series float src, simple int length, simple int bins) =>
+    // Step 1: Collect values into array
+    array<float> values = array.new_float(0)
+    
+    for i = 0 to length - 1
+        array.push(values, nz(src[i], src))
+    
+    int n_values = array.size(values)
+    
+    // Need sufficient data
+    if n_values < bins
+        0.5  // Return neutral entropy if insufficient data
+    else
+        // Step 2: Find min/max for dynamic binning
+        float val_min = array.min(values)
+        float val_max = array.max(values)
+        
+        // Handle edge case where all values are identical
+        float val_range = val_max - val_min
+        if val_range < 1e-10
+            0.0  // Perfect order - all values identical
+        else
+            // Calculate bin width
+            float bin_width = val_range / float(bins)
+            
+            // Initialize bin counts
+            array<int> bin_counts = array.new_int(bins, 0)
+            
+            // Step 3: Populate histogram bins
+            for i = 0 to n_values - 1
+                float val = array.get(values, i)
+                // Calculate bin index
+                int bin_idx = int(math.floor((val - val_min) / bin_width))
+                bin_idx := math.max(0, math.min(bins - 1, bin_idx))
+                array.set(bin_counts, bin_idx, array.get(bin_counts, bin_idx) + 1)
+            
+            // Step 4: Calculate Shannon Entropy
+            // H = -Σ p_i · log₂(p_i)
+            float entropy = 0.0
+            float total = float(n_values)
+            
+            for i = 0 to bins - 1
+                int count = array.get(bin_counts, i)
+                if count > 0
+                    float p_i = float(count) / total
+                    // log₂(x) = ln(x) / ln(2)
+                    entropy -= p_i * (math.log(p_i) / math.log(2.0))
+            
+            // Step 5: Normalize by maximum possible entropy
+            // Max entropy = log₂(bins) when uniform distribution
+            float max_entropy = math.log(float(bins)) / math.log(2.0)
+            float normalized_entropy = max_entropy > 0 ? entropy / max_entropy : 0.0
+            
+            // Clamp to [0, 1] for safety
+            math.max(0.0, math.min(1.0, normalized_entropy))
+
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// WEIGHTED LEAST SQUARES - Matrix-Based Implementation
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+//
+// Weighted Least Squares (WLS) minimizes weighted sum of squared residuals:
+//   min Σ w_i · (y_i - β₀ - β₁·x_i)²
+//
+// Matrix formulation (for simple linear regression):
+//   β = (X^T W X)^(-1) X^T W y
+//
+// Where:
+//   X = Design matrix [1, x] (N x 2)
+//   W = Diagonal weight matrix (N x N)
+//   y = Dependent variable vector (N x 1)
+//   β = [β₀, β₁] coefficient vector (intercept, slope)
+//
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Calculates Weighted Least Squares slope using matrix operations
+// @param x_array Array of independent variable values
+// @param y_array Array of dependent variable values
+// @param weights_array Array of weights (higher weight = more influence)
+// @returns Slope coefficient β₁ from WLS regression
+export get_wls_slope(array<float> x_array, array<float> y_array, array<float> weights_array) =>
+    int N = array.size(x_array)
+    
+    // Validate inputs
+    if N < 2 or array.size(y_array) != N or array.size(weights_array) != N
+        0.0  // Return zero slope for invalid inputs
+    else
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Step 1: Construct Design Matrix X (N x 2)
+        // Column 0: all 1s (for intercept)
+        // Column 1: x values (for slope)
+        // ═══════════════════════════════════════════════════════════════════════════
+        matrix<float> X = matrix.new<float>(N, 2, 0.0)
+        
+        for i = 0 to N - 1
+            matrix.set(X, i, 0, 1.0)  // Intercept column
+            matrix.set(X, i, 1, array.get(x_array, i))  // X values
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Step 2: Construct Diagonal Weight Matrix W (N x N)
+        // Normalize weights to prevent overflow
+        // ═══════════════════════════════════════════════════════════════════════════
+        matrix<float> W = matrix.new<float>(N, N, 0.0)
+        
+        // Find max weight for normalization
+        float max_weight = 0.0
+        for i = 0 to N - 1
+            max_weight := math.max(max_weight, math.abs(array.get(weights_array, i)))
+        
+        float weight_scale = max_weight > 0 ? 1.0 / max_weight : 1.0
+        
+        for i = 0 to N - 1
+            float w_i = array.get(weights_array, i) * weight_scale
+            matrix.set(W, i, i, math.max(w_i, 1e-10))  // Ensure positive weights
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Step 3: Construct Y Vector (N x 1)
+        // ═══════════════════════════════════════════════════════════════════════════
+        matrix<float> Y = matrix.new<float>(N, 1, 0.0)
+        
+        for i = 0 to N - 1
+            matrix.set(Y, i, 0, array.get(y_array, i))
+        
+        // ═══════════════════════════════════════════════════════════════════════════
+        // Step 4: Compute β = (X^T W X)^(-1) X^T W y
+        // ═══════════════════════════════════════════════════════════════════════════
+        
+        // X^T (2 x N)
+        matrix<float> Xt = matrix.transpose(X)
+        
+        // X^T W (2 x N)
+        matrix<float> XtW = matrix.mult(Xt, W)
+        
+        // X^T W X (2 x 2)
+        matrix<float> XtWX = matrix.mult(XtW, X)
+        
+        // Add ridge regularization for numerical stability
+        float ridge = 1e-8
+        matrix.set(XtWX, 0, 0, matrix.get(XtWX, 0, 0) + ridge)
+        matrix.set(XtWX, 1, 1, matrix.get(XtWX, 1, 1) + ridge)
+        
+        // (X^T W X)^(-1)
+        matrix<float> XtWX_inv = matrix.inv(XtWX)
+        
+        // X^T W y (2 x 1)
+        matrix<float> XtWY = matrix.mult(XtW, Y)
+        
+        // β = (X^T W X)^(-1) X^T W y (2 x 1)
+        matrix<float> beta = matrix.mult(XtWX_inv, XtWY)
+        
+        // Return slope (β₁)
+        matrix.get(beta, 1, 0)
+
+
+// @function Calculates full WLS regression returning both intercept and slope
+// @param x_array Array of independent variable values
+// @param y_array Array of dependent variable values
+// @param weights_array Array of weights (higher weight = more influence)
+// @returns Tuple [intercept, slope] from WLS regression
+export get_wls_coefficients(array<float> x_array, array<float> y_array, array<float> weights_array) =>
+    int N = array.size(x_array)
+    
+    // Validate inputs
+    if N < 2 or array.size(y_array) != N or array.size(weights_array) != N
+        [0.0, 0.0]  // Return zero coefficients for invalid inputs
+    else
+        // Construct Design Matrix X (N x 2)
+        matrix<float> X = matrix.new<float>(N, 2, 0.0)
+        for i = 0 to N - 1
+            matrix.set(X, i, 0, 1.0)
+            matrix.set(X, i, 1, array.get(x_array, i))
+        
+        // Construct Weight Matrix W (N x N)
+        matrix<float> W = matrix.new<float>(N, N, 0.0)
+        float max_weight = 0.0
+        for i = 0 to N - 1
+            max_weight := math.max(max_weight, math.abs(array.get(weights_array, i)))
+        float weight_scale = max_weight > 0 ? 1.0 / max_weight : 1.0
+        for i = 0 to N - 1
+            float w_i = array.get(weights_array, i) * weight_scale
+            matrix.set(W, i, i, math.max(w_i, 1e-10))
+        
+        // Construct Y Vector (N x 1)
+        matrix<float> Y = matrix.new<float>(N, 1, 0.0)
+        for i = 0 to N - 1
+            matrix.set(Y, i, 0, array.get(y_array, i))
+        
+        // Compute β = (X^T W X)^(-1) X^T W y
+        matrix<float> Xt = matrix.transpose(X)
+        matrix<float> XtW = matrix.mult(Xt, W)
+        matrix<float> XtWX = matrix.mult(XtW, X)
+        
+        // Ridge regularization
+        float ridge = 1e-8
+        matrix.set(XtWX, 0, 0, matrix.get(XtWX, 0, 0) + ridge)
+        matrix.set(XtWX, 1, 1, matrix.get(XtWX, 1, 1) + ridge)
+        
+        matrix<float> XtWX_inv = matrix.inv(XtWX)
+        matrix<float> XtWY = matrix.mult(XtW, Y)
+        matrix<float> beta = matrix.mult(XtWX_inv, XtWY)
+        
+        // Return [intercept, slope]
+        [matrix.get(beta, 0, 0), matrix.get(beta, 1, 0)]
+
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// UTILITY FUNCTIONS
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Interprets Hurst exponent value as market regime
+// @param H Hurst exponent in [0, 1]
+// @returns String describing the market regime
+export interpret_hurst(float H) =>
+    if H > 0.75
+        "Strong Trend"
+    else if H > 0.55
+        "Trending"
+    else if H > 0.45
+        "Random Walk"
+    else if H > 0.25
+        "Mean-Reverting"
+    else
+        "Strong Mean-Reversion"
+
+
+// @function Interprets Shannon entropy value as market state
+// @param entropy Normalized entropy in [0, 1]
+// @returns String describing the market disorder level
+export interpret_entropy(float entropy) =>
+    if entropy > 0.9
+        "Chaotic"
+    else if entropy > 0.7
+        "Random"
+    else if entropy > 0.5
+        "Mixed"
+    else if entropy > 0.3
+        "Trending"
+    else
+        "Ordered"
+
+
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+// DEMONSTRATION / TEST PLOTS
+// ════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Calculate indicators for visualization
+float hurst_val = get_hurst_exponent(close, 100)
+float entropy_val = get_shannon_entropy(close, 50, 10)
+
+// Create test arrays for WLS demonstration
+var array<float> test_x = array.new_float(10, 0.0)
+var array<float> test_y = array.new_float(10, 0.0)
+var array<float> test_w = array.new_float(10, 1.0)
+
+if barstate.isfirst
+    for i = 0 to 9
+        array.set(test_x, i, float(i))
+        array.set(test_y, i, float(i) * 2.0 + 1.0)  // y = 2x + 1
+        array.set(test_w, i, 1.0)
+
+float wls_slope = get_wls_slope(test_x, test_y, test_w)
+
+// Plot indicators
+plot(hurst_val, "Hurst Exponent", color = color.new(#4caf50, 0), linewidth = 2)
+plot(entropy_val, "Shannon Entropy", color = color.new(#2196f3, 0), linewidth = 2)
+plot(0.5, "H=0.5 (Random Walk)", color = color.new(color.gray, 50), style = plot.style_circles)
+
+// Reference lines
+hline(0.5, "Random Walk", color = color.gray, linestyle = hline.style_dashed)
+hline(0.0, "Zero", color = color.gray, linestyle = hline.style_dotted)
+hline(1.0, "One", color = color.gray, linestyle = hline.style_dotted)
+
+// Info table
+var table info_table = table.new(position.top_right, 2, 4, bgcolor = color.new(#1e1e1e, 20))
+
+if barstate.islast
+    table.cell(info_table, 0, 0, "Hurst (H)", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 0, str.tostring(hurst_val, "#.###") + " - " + interpret_hurst(hurst_val), text_color = color.new(#4caf50, 0), text_size = size.small)
+    
+    table.cell(info_table, 0, 1, "Entropy", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 1, str.tostring(entropy_val, "#.###") + " - " + interpret_entropy(entropy_val), text_color = color.new(#2196f3, 0), text_size = size.small)
+    
+    table.cell(info_table, 0, 2, "WLS Slope", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 2, str.tostring(wls_slope, "#.###"), text_color = color.new(#ff9800, 0), text_size = size.small)
+    
+    table.cell(info_table, 0, 3, "Status", text_color = color.white, text_size = size.small)
+    table.cell(info_table, 1, 3, "✓ Library Active", text_color = color.new(#00c853, 0), text_size = size.small)

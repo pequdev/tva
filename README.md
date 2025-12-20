@@ -19,6 +19,35 @@ For nearly half a year I’ve been fine-tuning parameters and wrestling with som
 
 ---
 
+## How to Add a New Pine Script to TradingView
+
+![Trading View Authority](add.png)
+
+Follow these steps to create and load your own custom indicator in the Pine Editor:
+
+1. **Open the Pine Editor**  
+   - At the bottom of TradingView, click **Pine Editor** to reveal the script editor pane.
+
+2. **Expand the Script Menu**  
+   - Next to the current script name (e.g. `PQ_DBS`), click the ▼ arrow.  
+   - A context menu will appear with options like **Save script**, **Make a copy…**, **Version history…**, and **Create new**.
+
+3. **Create a New Indicator**  
+   - In that menu, choose **Create new → Indicator**  
+     _(macOS shortcut: `⌘K, ⌘I`)_  
+   - TradingView will open a fresh Pine Script template.
+
+4. **Paste Your Code & Save**  
+   - Delete the template code and paste in your own Pine Script.  
+   - Click the floppy-disk icon (or press `⌘S`) to **Save script**.  
+   - Give it a descriptive name (for example, `My_Custom_Indicator`).
+
+5. **Add It to the Chart**  
+   - With your new script still open, click **Add to chart** at the top of the Pine Editor.  
+   - Your indicator will now appear on the active chart. 
+
+---
+
 ## PQ_FIBS
 
 **TL;DR**  

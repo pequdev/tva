@@ -1,64 +1,847 @@
 //@version=6
-indicator(title = "Responsive VWAP Bands [PQ_MOD]", shorttitle = "VWAP [v0.1.1]", overlay=true, format = format.price)
-start     = input.time(0,confirm=true)
-from_bar0 = input(true,'Start At First Bar')
+indicator(title = "Responsive VWAP Bands [PQ_MOD]", shorttitle = "VWAP [v0.5.0]", overlay=true, format = format.price)
 
-length    = input(14,group='VWAP')
-mult      = input(2.,group='VWAP')
-source    = input.string('hlcc4', options=['open','high','low','close','hl2','hlc3','ohlc4', 'hlcc4'],group='VWAP')
-//----
-event = input.string('Trend Change',
-  options=['Periodic','Higher High','Lower Low','Trend Change','Start','External Cross','External Event'],
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// VWAP - Hybrid Mode (Auto + Manual Per-Timeframe)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// ————— Mode Selection
+string MODE_AUTO   = "Auto"
+string MODE_MANUAL = "Manual"
+string tf_mode     = input.string(MODE_MANUAL, "Timeframe Mode", options = [MODE_AUTO, MODE_MANUAL], group = "⚙️ TF Mode", tooltip = "Auto: Scales length/mult based on current timeframe.\nManual: Use custom settings per timeframe.")
+
+// ————— Auto Mode Settings (Base values for Daily TF)
+int    auto_length_base = input.int(14, "Base Length (Daily)", minval = 1, maxval = 200, group = "🔄 Auto Mode", tooltip = "Base VWAP length for Daily timeframe. Scales for other TFs.")
+float  auto_mult_base   = input.float(2.0, "Base Multiplier (Daily)", minval = 0.5, maxval = 5.0, step = 0.1, group = "🔄 Auto Mode", tooltip = "Base band multiplier for Daily. Scales for other TFs.")
+
+// ————— Manual Mode: Per-Timeframe Settings
+// 1 Minute
+int    m1_length = input.int(50, "Length", minval = 1, group = "📊 1 Minute")
+float  m1_mult   = input.float(2.5, "Multiplier", minval = 0.5, step = 0.1, group = "📊 1 Minute")
+// 5 Minute
+int    m5_length = input.int(30, "Length", minval = 1, group = "📊 5 Minute")
+float  m5_mult   = input.float(2.2, "Multiplier", minval = 0.5, step = 0.1, group = "📊 5 Minute")
+// 15 Minute
+int    m15_length = input.int(20, "Length", minval = 1, group = "📊 15 Minute")
+float  m15_mult   = input.float(2.0, "Multiplier", minval = 0.5, step = 0.1, group = "📊 15 Minute")
+// 1 Hour
+int    h1_length = input.int(14, "Length", minval = 1, group = "📊 1 Hour")
+float  h1_mult   = input.float(2.0, "Multiplier", minval = 0.5, step = 0.1, group = "📊 1 Hour")
+// 4 Hour
+int    h4_length = input.int(10, "Length", minval = 1, group = "📊 4 Hour")
+float  h4_mult   = input.float(1.8, "Multiplier", minval = 0.5, step = 0.1, group = "📊 4 Hour")
+// Daily
+int    d_length = input.int(8, "Length", minval = 1, group = "📊 Daily")
+float  d_mult   = input.float(1.5, "Multiplier", minval = 0.5, step = 0.1, group = "📊 Daily")
+// Weekly+
+int    w_length = input.int(5, "Length", minval = 1, group = "📊 Weekly+")
+float  w_mult   = input.float(1.2, "Multiplier", minval = 0.5, step = 0.1, group = "📊 Weekly+")
+
+// ————— Regime Detection Settings
+bool   use_regime = input.bool(false, "Enable Regime Detection", group = "🔬 Regime", tooltip = "Calculates Hurst exponent and volatility to detect trending vs mean-reverting regimes")
+int    regime_len = input.int(20, "Regime Lookback", minval = 10, maxval = 100, group = "🔬 Regime", tooltip = "Lookback period for Hurst exponent calculation")
+
+// ————— Asset-Specific Parameters (Map Lookups)
+bool   use_asset_map = input.bool(false, "Enable Asset Adjustments", group = "🗺️ Asset Map", tooltip = "Use pre-defined volatility factors per asset. Adjusts bands for asset-specific characteristics.")
+float  default_factor = input.float(1.0, "Default Factor", minval = 0.1, maxval = 5.0, step = 0.1, group = "🗺️ Asset Map", tooltip = "Fallback factor for unlisted assets")
+float  custom_factor = input.float(1.0, "Custom Override", minval = 0.1, maxval = 5.0, step = 0.1, group = "🗺️ Asset Map", tooltip = "Manual override (set > 0 to ignore map lookup)")
+
+// Hurst Calculation Method
+string HURST_RS = "Rescaled Range"
+string HURST_VR = "Variance Ratio"
+string hurst_method = input.string(HURST_VR, "Hurst Method", options = [HURST_RS, HURST_VR], group = "🔬 Regime", tooltip = "Rescaled Range: Classic R/S analysis.\nVariance Ratio: More stable, uses log-return variances.")
+
+// Signal Gating based on Hurst
+bool   use_filter = input.bool(false, "Enable Signal Filter", group = "🔬 Regime", tooltip = "Gate signals based on detected regime. Disables trend signals in mean-reverting markets.")
+float  hurst_threshold = input.float(0.5, "Hurst Threshold", minval = 0.3, maxval = 0.7, step = 0.05, group = "🔬 Regime", tooltip = "H > threshold = Trending, H < threshold = Mean-Reverting")
+
+// ════════════════════════════════════════════════════════════════════════════
+// RegimeState UDT - Market Regime Detection
+// Encapsulates trend, volatility, and fractal dimension metrics
+// ════════════════════════════════════════════════════════════════════════════
+
+// @type RegimeState - Encapsulates all market regime metrics
+// @field hurst Hurst exponent (0-1): <0.5 = mean-reverting, 0.5 = random, >0.5 = trending
+// @field volatility Current volatility (ATR-normalized)
+// @field is_trending Boolean flag: true if Hurst > threshold
+// @field trend_duration Number of consecutive bars in current regime
+// @field prev_hurst Previous bar's Hurst value (for change detection)
+// @field filter_trend Signal gate: true = disable trend-following signals
+// @field filter_revert Signal gate: true = disable mean-reversion signals
+type RegimeState
+    float hurst = 0.5
+    float volatility = 0.0
+    bool  is_trending = false
+    int   trend_duration = 0
+    float prev_hurst = 0.5
+    bool  filter_trend = false
+    bool  filter_revert = true
+
+// ════════════════════════════════════════════════════════════════════════════
+// Anchor UDT - Auto-Anchored VWAP State
+// Tracks cumulative price*volume and volume from pivot points
+// ════════════════════════════════════════════════════════════════════════════
+
+// @type Anchor - Encapsulates state for a pivot-anchored VWAP
+// @field start_idx Bar index where the anchor was created (pivot point)
+// @field sum_pv Cumulative sum of price * volume since anchor
+// @field sum_vol Cumulative sum of volume since anchor
+// @field vwap_val Current VWAP value (sum_pv / sum_vol)
+// @field is_high True if anchored to pivot high, false for pivot low
+// @field anchor_price Price level at the pivot point
+type Anchor
+    int   start_idx = 0
+    float sum_pv = 0.0
+    float sum_vol = 0.0
+    float vwap_val = na
+    bool  is_high = true
+    float anchor_price = 0.0
+
+// @function update - Update anchor sums with current bar data
+// @param this Anchor instance
+// @param price Current price (typically hlcc4)
+// @param vol Current volume
+// @returns Updated Anchor
+method update(Anchor this, float price, float vol) =>
+    this.sum_pv += price * vol
+    this.sum_vol += vol
+    this.vwap_val := this.sum_vol > 0 ? this.sum_pv / this.sum_vol : na
+    this
+
+// @function f_hurst_rs - Hurst via Rescaled Range (R/S) analysis
+// @param src Price source
+// @param lookback Lookback period
+// @returns Hurst exponent estimate [0, 1]
+f_hurst_rs(series float src, simple int lookback) =>
+    float log_return = math.log(src / src[1])
+    float mean_ret = ta.sma(log_return, lookback)
+    float std_ret = ta.stdev(log_return, lookback)
+    
+    float cum_dev = 0.0
+    float max_cum = -1e10
+    float min_cum = 1e10
+    
+    for i = 0 to lookback - 1
+        float ret_i = nz(log_return[i])
+        cum_dev += (ret_i - mean_ret)
+        max_cum := math.max(max_cum, cum_dev)
+        min_cum := math.min(min_cum, cum_dev)
+    
+    float rescaled_range = std_ret > 1e-10 ? (max_cum - min_cum) / std_ret : 0.0
+    float n = float(lookback)
+    float raw_hurst = rescaled_range > 0 ? math.log(rescaled_range) / math.log(n) : 0.5
+    math.max(0.0, math.min(1.0, raw_hurst))
+
+// @function f_hurst_vr - Hurst via Variance Ratio algorithm
+// @param src Price source
+// @param lookback Base lookback period (N)
+// @returns Hurst exponent estimate [0, 1]
+// Formula: H ≈ 0.5 * [log(Var(2N)) - log(Var(N))] / log(2)
+f_hurst_vr(series float src, simple int lookback) =>
+    // Calculate log returns
+    float log_return = math.log(src / src[1])
+    
+    // Variance at lag N
+    float var_n = ta.variance(log_return, lookback)
+    
+    // Variance at lag 2N (aggregated returns over 2-bar periods)
+    int lookback_2n = lookback * 2
+    float log_return_2 = math.log(src / src[2])  // 2-bar return
+    float var_2n = ta.variance(log_return_2, lookback)
+    
+    // Variance Ratio: VR = Var(2N) / (2 * Var(N))
+    // For random walk: VR = 1, H = 0.5
+    // For trending: VR > 1, H > 0.5  
+    // For mean-reverting: VR < 1, H < 0.5
+    
+    // Hurst from Variance Ratio:
+    // H = 0.5 * [log(Var(2N)) - log(Var(N))] / log(2)
+    float safe_var_n = math.max(var_n, 1e-10)
+    float safe_var_2n = math.max(var_2n, 1e-10)
+    
+    float log_ratio = math.log(safe_var_2n) - math.log(safe_var_n)
+    float raw_hurst = 0.5 * log_ratio / math.log(2)
+    
+    // Clamp to valid range [0, 1]
+    math.max(0.0, math.min(1.0, raw_hurst))
+
+// @function update - Calculate regime metrics from price source
+// @param this RegimeState instance
+// @param src Price source for calculations
+// @param lookback Lookback period for Hurst calculation
+// @param method "Rescaled Range" or "Variance Ratio"
+// @param threshold Hurst threshold for regime classification
+// @returns Updated RegimeState
+method update(RegimeState this, series float src, simple int lookback, simple string method, simple float threshold) =>
+    // Store previous state for change detection
+    this.prev_hurst := this.hurst
+    bool was_trending = this.is_trending
+    
+    // Calculate Hurst using selected method
+    float raw_hurst = method == HURST_VR ? f_hurst_vr(src, lookback) : f_hurst_rs(src, lookback)
+    
+    // Smooth with EMA for stability
+    this.hurst := 0.7 * raw_hurst + 0.3 * this.prev_hurst
+    
+    // Volatility (ATR-normalized)
+    float atr_val = ta.atr(lookback)
+    float price_avg = ta.sma(src, lookback)
+    this.volatility := price_avg > 0 ? (atr_val / price_avg) * 100 : 0.0
+    
+    // Regime Classification with configurable threshold
+    this.is_trending := this.hurst > threshold
+    
+    // Signal Filter Flags
+    // filter_trend = true means "disable trend-following" (market is mean-reverting)
+    // filter_revert = true means "disable mean-reversion" (market is trending)
+    this.filter_trend := this.hurst < threshold
+    this.filter_revert := this.hurst > threshold
+    
+    // Track regime duration
+    if this.is_trending == was_trending
+        this.trend_duration += 1
+    else
+        this.trend_duration := 1
+    
+    this
+
+// @function get_regime_label - Get human-readable regime description
+// @param this RegimeState instance
+// @param threshold Hurst threshold for classification
+// @returns String description of current regime
+method get_regime_label(RegimeState this, simple float threshold) =>
+    string regime_str = this.is_trending ? "📈 Trend" : "📊 Revert"
+    string strength = this.hurst > (threshold + 0.15) ? "++" : this.hurst < (threshold - 0.15) ? "++" : "+"
+    regime_str + strength
+
+// Initialize persistent regime state object
+var RegimeState regime = RegimeState.new()
+
+// Initialize persistent anchors array for auto-anchored VWAPs
+var array<Anchor> anchors = array.new<Anchor>()
+var array<line> anchor_lines = array.new<line>()
+
+// ════════════════════════════════════════════════════════════════════════════
+// Asset Volatility Map - O(1) Lookups for Universal Scripts
+// Replaces if-else chains with efficient map-based parameter retrieval
+// ════════════════════════════════════════════════════════════════════════════
+
+// @description Initialize volatility factor map with asset-specific multipliers
+// Higher factors = more volatile assets → wider bands
+// Lower factors = stable assets → tighter bands
+
+var map<string, float> vol_factors = map.new<string, float>()
+
+// Populate map once on first bar (var ensures single initialization)
+if barstate.isfirst
+    // ————— Crypto (High Volatility: 2.0 - 4.0)
+    vol_factors.put("BTCUSD", 3.5)
+    vol_factors.put("BTCUSDT", 3.5)
+    vol_factors.put("XBTUSD", 3.5)
+    vol_factors.put("ETHUSD", 3.2)
+    vol_factors.put("ETHUSDT", 3.2)
+    vol_factors.put("SOLUSD", 3.8)
+    vol_factors.put("SOLUSDT", 3.8)
+    vol_factors.put("BNBUSD", 2.8)
+    vol_factors.put("XRPUSD", 3.0)
+    vol_factors.put("DOGEUSD", 4.0)
+    vol_factors.put("AVAXUSD", 3.5)
+    vol_factors.put("ADAUSD", 3.0)
+    
+    // ————— Forex Majors (Low Volatility: 0.8 - 1.2)
+    vol_factors.put("EURUSD", 1.0)
+    vol_factors.put("GBPUSD", 1.1)
+    vol_factors.put("USDJPY", 1.0)
+    vol_factors.put("USDCHF", 0.9)
+    vol_factors.put("AUDUSD", 1.1)
+    vol_factors.put("USDCAD", 1.0)
+    vol_factors.put("NZDUSD", 1.1)
+    
+    // ————— Forex Crosses (Moderate: 1.2 - 1.5)
+    vol_factors.put("EURJPY", 1.3)
+    vol_factors.put("GBPJPY", 1.5)
+    vol_factors.put("EURGBP", 1.0)
+    vol_factors.put("AUDNZD", 1.2)
+    
+    // ————— Indices (Moderate-High: 1.5 - 2.5)
+    vol_factors.put("SPX", 1.5)
+    vol_factors.put("SPY", 1.5)
+    vol_factors.put("ES1!", 1.6)
+    vol_factors.put("NQ1!", 2.0)
+    vol_factors.put("QQQ", 1.8)
+    vol_factors.put("DJI", 1.4)
+    vol_factors.put("NDX", 2.0)
+    vol_factors.put("VIX", 3.5)
+    vol_factors.put("IXIC", 1.8)
+    vol_factors.put("RUT", 2.0)
+    
+    // ————— Commodities (Variable: 1.5 - 3.0)
+    vol_factors.put("XAUUSD", 1.8)     // Gold
+    vol_factors.put("GC1!", 1.8)
+    vol_factors.put("XAGUSD", 2.5)     // Silver
+    vol_factors.put("SI1!", 2.5)
+    vol_factors.put("CL1!", 2.5)       // Crude Oil
+    vol_factors.put("USOIL", 2.5)
+    vol_factors.put("NG1!", 3.0)       // Natural Gas
+    vol_factors.put("NATGAS", 3.0)
+    
+    // ————— Popular Stocks (Variable: 1.0 - 3.5)
+    vol_factors.put("AAPL", 1.5)
+    vol_factors.put("MSFT", 1.4)
+    vol_factors.put("GOOGL", 1.6)
+    vol_factors.put("AMZN", 1.8)
+    vol_factors.put("NVDA", 2.8)
+    vol_factors.put("TSLA", 3.5)
+    vol_factors.put("META", 2.2)
+    vol_factors.put("AMD", 2.5)
+    vol_factors.put("NFLX", 2.2)
+    vol_factors.put("COIN", 3.5)
+    vol_factors.put("GME", 4.0)
+    vol_factors.put("AMC", 4.0)
+
+// @function f_get_asset_factor - Retrieve volatility factor with fallback
+// @param ticker Current symbol ticker
+// @param fallback Default factor if ticker not in map
+// @returns Volatility adjustment factor
+f_get_asset_factor(string ticker, float fallback) =>
+    // Try exact match first
+    float factor = vol_factors.get(ticker)
+    
+    // If not found, try base symbol (remove exchange prefix)
+    if na(factor)
+        // Extract base symbol: "BINANCE:BTCUSDT" → "BTCUSDT"
+        string base = str.contains(ticker, ":") ? array.get(str.split(ticker, ":"), 1) : ticker
+        factor := vol_factors.get(base)
+    
+    // Return factor or fallback
+    nz(factor, fallback)
+
+// Runtime O(1) lookup for current asset
+float asset_factor = use_asset_map ? f_get_asset_factor(syminfo.ticker, default_factor) : 1.0
+
+// Allow manual override (custom_factor != 1.0 means user wants override)
+float final_asset_factor = (use_asset_map and custom_factor != 1.0) ? custom_factor : asset_factor
+
+// ════════════════════════════════════════════════════════════════════════════
+// Timeframe Detection & Parameter Selection
+// ════════════════════════════════════════════════════════════════════════════
+
+// Get minutes per bar
+float bar_mins = timeframe.in_seconds(timeframe.period) / 60
+
+// Determine which TF category we're in
+f_get_tf_category() =>
+    if bar_mins <= 1
+        "1m"
+    else if bar_mins <= 5
+        "5m"
+    else if bar_mins <= 15
+        "15m"
+    else if bar_mins <= 60
+        "1H"
+    else if bar_mins <= 240
+        "4H"
+    else if bar_mins <= 1440
+        "D"
+    else
+        "W+"
+
+string tf_category = f_get_tf_category()
+
+// ————— Auto Mode: Calculate scaled values
+float baseline_mins = 1440.0  // Daily as baseline
+float tf_multiplier = math.sqrt(baseline_mins / math.max(bar_mins, 1))  // Square root for smoother scaling
+
+int   auto_length = int(math.max(3, math.min(200, math.round(auto_length_base * tf_multiplier))))
+// Logarithmic scaling for multiplier: more gradual than power function
+// On 1m (tf_mult≈38): 2.0 * (1 + ln(38)*0.15) ≈ 2.0 * 1.55 = 3.1
+// On Daily (tf_mult=1): 2.0 * (1 + 0) = 2.0
+float auto_mult   = math.max(0.5, math.min(5.0, auto_mult_base * (1 + math.log(tf_multiplier) * 0.15)))
+
+// ————— Manual Mode: Select values based on current TF
+f_get_manual_length() =>
+    switch tf_category
+        "1m"  => m1_length
+        "5m"  => m5_length
+        "15m" => m15_length
+        "1H"  => h1_length
+        "4H"  => h4_length
+        "D"   => d_length
+        => w_length
+
+f_get_manual_mult() =>
+    switch tf_category
+        "1m"  => m1_mult
+        "5m"  => m5_mult
+        "15m" => m15_mult
+        "1H"  => h1_mult
+        "4H"  => h4_mult
+        "D"   => d_mult
+        => w_mult
+
+// ————— Final Values Based on Mode
+int   tf_length = tf_mode == MODE_AUTO ? auto_length : f_get_manual_length()
+float tf_mult   = tf_mode == MODE_AUTO ? auto_mult : f_get_manual_mult()
+
+// ════════════════════════════════════════════════════════════════════════════
+// Original Inputs (now with TF-aware defaults)
+// ════════════════════════════════════════════════════════════════════════════
+
+// --- Inputs ---
+anchor_t  = input.time(0, 'Anchor Time', confirm=true) 
+from_bar0 = input(true, 'Start Calculation from Bar 0')
+
+// Group: Calculation Mode
+calc_mode = input.string("Logarithmic", "Calculation Mode", options=["Arithmetic", "Logarithmic"], group="Math Settings")
+
+// Group: Band Volatility Method
+string BAND_STDEV = "Standard Deviation"
+string BAND_MAD   = "MAD (Robust)"
+string band_method = input.string(BAND_STDEV, "Band Volatility", options = [BAND_STDEV, BAND_MAD], group = "Math Settings", tooltip = "Standard Deviation: Classic volatility measure.\nMAD: Median Absolute Deviation - robust to outliers, resists 'blow-out' after spikes.")
+
+// Group: Cornish-Fisher Asymmetric Bands
+bool   use_cf = input.bool(false, "Enable Cornish-Fisher", group = "Math Settings", tooltip = "Asymmetric bands using skewness/kurtosis. Widens lower band for crash-prone (negatively skewed) markets.")
+float  cf_z_base = input.float(2.0, "Base Z-Score", minval = 1.0, maxval = 3.0, step = 0.1, group = "Math Settings", tooltip = "Base Z-score (2.0 ≈ 95% confidence). Cornish-Fisher adjusts this for non-Normal tails.")
+
+// Group: Auto-Anchored VWAP (Pivot-Based)
+bool   use_auto_anchor = input.bool(false, "Enable Auto-Anchor VWAP", group = "📍 Auto-Anchor", tooltip = "Automatically anchor VWAPs to significant pivot points. Reveals hidden S/R based on market structure.")
+int    pivot_left = input.int(5, "Pivot Left Bars", minval = 1, maxval = 20, group = "📍 Auto-Anchor", tooltip = "Bars to the left for pivot detection")
+int    pivot_right = input.int(5, "Pivot Right Bars", minval = 1, maxval = 20, group = "📍 Auto-Anchor", tooltip = "Bars to the right for pivot detection")
+int    max_anchors = input.int(3, "Max VWAP Lines", minval = 1, maxval = 10, group = "📍 Auto-Anchor", tooltip = "Number of most recent pivot VWAPs to display")
+string pivot_type = input.string("Both", "Pivot Type", options = ["High", "Low", "Both"], group = "📍 Auto-Anchor", tooltip = "Which pivots to anchor: Highs, Lows, or Both")
+color  anchor_hi_color = input.color(color.new(color.teal, 30), "High Pivot VWAP", group = "📍 Auto-Anchor")
+color  anchor_lo_color = input.color(color.new(color.orange, 30), "Low Pivot VWAP", group = "📍 Auto-Anchor")
+
+// ════════════════════════════════════════════════════════════════════════════
+// Median Absolute Deviation (MAD) - Robust Volatility Measure
+// Addresses fat-tailed (leptokurtic) return distributions
+// ════════════════════════════════════════════════════════════════════════════
+
+// @function f_mad - Calculate Median Absolute Deviation
+// @param src Source series
+// @param len Lookback period
+// @returns MAD value scaled to be comparable with StdDev (×1.4826)
+f_mad(series float src, simple int len) =>
+    // Step 1: Calculate rolling median of source
+    float med = ta.median(src, len)
+    
+    // Step 2: Calculate absolute deviations from median
+    float abs_dev = math.abs(src - med)
+    
+    // Step 3: Calculate median of absolute deviations
+    float mad_raw = ta.median(abs_dev, len)
+    
+    // Step 4: Scale factor 1.4826 makes MAD consistent with StdDev for normal distributions
+    // For N(0,1): MAD ≈ 0.6745, so 1/0.6745 ≈ 1.4826
+    float sigma_mad = mad_raw * 1.4826
+    
+    sigma_mad
+
+// @function f_mad_log - MAD for log-space calculations
+// @param src Source series (prices)
+// @param len Lookback period
+// @returns [log_median, log_mad] tuple for logarithmic band calculation
+f_mad_log(series float src, simple int len) =>
+    float log_src = math.log(src)
+    float log_med = ta.median(log_src, len)
+    float log_abs_dev = math.abs(log_src - log_med)
+    float log_mad_raw = ta.median(log_abs_dev, len)
+    float log_sigma = log_mad_raw * 1.4826
+    [log_med, log_sigma]
+
+// ════════════════════════════════════════════════════════════════════════════
+// Cornish-Fisher Expansion - Asymmetric Bands for Non-Normal Distributions
+// Accounts for Skewness (S) and Kurtosis (K) to provide statistically
+// accurate bounds in fat-tailed, crash-prone markets
+// ════════════════════════════════════════════════════════════════════════════
+
+// @function f_skewness - Rolling sample skewness (Fisher's coefficient)
+// @param src Source series
+// @param len Lookback period
+// @returns Skewness: <0 = left tail (crash prone), >0 = right tail
+// Formula: S = E[(X-μ)³] / σ³
+f_skewness(series float src, simple int len) =>
+    float mean_val = ta.sma(src, len)
+    float std_val = ta.stdev(src, len)
+    
+    float sum_cubed = 0.0
+    for i = 0 to len - 1
+        float dev = nz(src[i]) - mean_val
+        sum_cubed += math.pow(dev, 3)
+    
+    // Normalize by N and σ³
+    float skew = std_val > 1e-10 ? (sum_cubed / len) / math.pow(std_val, 3) : 0.0
+    skew
+
+// @function f_kurtosis - Rolling sample kurtosis (excess kurtosis + 3)
+// @param src Source series
+// @param len Lookback period  
+// @returns Kurtosis: 3 = Normal, >3 = fat tails (leptokurtic), <3 = thin tails
+// Formula: K = E[(X-μ)⁴] / σ⁴
+f_kurtosis(series float src, simple int len) =>
+    float mean_val = ta.sma(src, len)
+    float std_val = ta.stdev(src, len)
+    
+    float sum_fourth = 0.0
+    for i = 0 to len - 1
+        float dev = nz(src[i]) - mean_val
+        sum_fourth += math.pow(dev, 4)
+    
+    // Normalize by N and σ⁴ (returns raw kurtosis, not excess)
+    float kurt = std_val > 1e-10 ? (sum_fourth / len) / math.pow(std_val, 4) : 3.0
+    kurt
+
+// @function f_cornish_fisher - Cornish-Fisher expansion for quantile adjustment
+// @param z Base Z-score (e.g., 2.0 for ~95%)
+// @param skew Sample skewness
+// @param kurt Sample kurtosis (raw, not excess)
+// @returns Adjusted Z-score accounting for non-Normality
+// Formula: w = z + (1/6)(z²-1)S + (1/24)(z³-3z)(K-3) - (1/36)(2z³-5z)S²
+f_cornish_fisher(float z, float skew, float kurt) =>
+    float z2 = z * z
+    float z3 = z2 * z
+    float excess_kurt = kurt - 3.0  // Convert to excess kurtosis
+    
+    // Cornish-Fisher polynomial terms
+    float term1 = z                                          // Base Z
+    float term2 = (1.0/6.0) * (z2 - 1.0) * skew             // Skewness correction
+    float term3 = (1.0/24.0) * (z3 - 3.0*z) * excess_kurt   // Kurtosis correction
+    float term4 = -(1.0/36.0) * (2.0*z3 - 5.0*z) * skew * skew  // Skewness² correction
+    
+    term1 + term2 + term3 + term4
+
+// @function f_cf_multipliers - Calculate asymmetric band multipliers
+// @param z Base Z-score
+// @param skew Sample skewness
+// @param kurt Sample kurtosis
+// @returns [w_upper, w_lower] - distinct multipliers for each band
+// Negative skewness → larger w_lower (wider lower band for crash protection)
+f_cf_multipliers(float z, float skew, float kurt) =>
+    // Upper quantile: positive Z direction
+    float w_upper = f_cornish_fisher(z, skew, kurt)
+    
+    // Lower quantile: negative Z direction, then negate for positive multiplier
+    // When z is negative, skewness term flips sign appropriately
+    float w_lower = -f_cornish_fisher(-z, skew, kurt)
+    
+    // Clamp to reasonable range [0.5, 5.0] to prevent extreme bands
+    w_upper := math.max(0.5, math.min(5.0, w_upper))
+    w_lower := math.max(0.5, math.min(5.0, w_lower))
+    
+    [w_upper, w_lower]
+
+// Group: Dynamic Bands (New)
+use_dyn   = input.bool(false, "Enable Volume-Weighted Bands", group="Dynamic Bands", tooltip="If enabled, bands tighten on low volume and expand on high volume.")
+dyn_len   = input.int(20, "Volume Average Length", minval=1, group="Dynamic Bands")
+sensitivity = input.float(0.5, "Sensitivity", minval=0.0, maxval=2.0, step=0.1, group="Dynamic Bands", tooltip="0 = No change.\n1 = Bands expand 100% if volume doubles.")
+
+// Group: VWAP Settings - Now uses TF-aware values
+length    = tf_length  // Use TF-scaled length
+base_mult = tf_mult    // Use TF-scaled multiplier
+src       = input.source(hlcc4, 'Source', group='VWAP')
+
+// Group: Events
+event     = input.string('Trend Change', 
+  options=['Periodic','Higher High','Lower Low','Trend Change','Manual Anchor','External Cross','External Event'], 
   group='Event')
-ext_src = input.source(hlcc4,'External Cross/Event')
-//----
-var t = 0
-var csum_num = 0.
-var csum_den = 0. 
-var var_num = 0.
-var var_den = 0.
-//----
-src = switch source
-    'open'  => open
-    'high'  => high
-    'low'   => low
-    'close' => close
-    'hl2'   => hl2
-    'hlc3'  => hlc3
-    'ohlc4' => ohlc4
-    'hlcc4' => hlcc4
-//----
+ext_src   = input.source(hlcc4, 'External Cross/Event')
+
+// --- State Variables ---
+var int   t        = 0
+var float vol_sum  = 0. 
+
+// Arithmetic Variables
+var float pv_sum   = 0.
+var float p2v_sum  = 0. 
+
+// Logarithmic Variables
+var float lpv_sum  = 0.
+var float lp2v_sum = 0.
+
+// --- Calculations ---
 upper = ta.highest(length)
 lower = ta.lowest(length)
-os = math.round(ta.stoch(src,src,src,length)/100)
-//----
-start_time = from_bar0 ? true : time >= start
+os    = math.round(ta.stoch(src, src, src, length)/100)
 
+// ————— Regime Detection Update
+// Update regime state using method-based approach
+if use_regime and bar_index >= regime_len
+    regime.update(close, regime_len, hurst_method, hurst_threshold)
+
+// Signal filter flags for external use
+// When use_filter is enabled, these can gate trend/reversion strategies
+bool allow_trend_signal = not use_filter or not regime.filter_trend
+bool allow_revert_signal = not use_filter or not regime.filter_revert
+
+// ————— Auto-Anchored VWAP: Pivot Detection & Anchor Management
+// Detect pivot highs and lows (offset by pivot_right bars)
+float ph = ta.pivothigh(high, pivot_left, pivot_right)
+float pl = ta.pivotlow(low, pivot_left, pivot_right)
+
+// Helper function to backfill historical data from pivot to current bar
+f_backfill_anchor(int pivot_bar_offset) =>
+    float total_pv = 0.0
+    float total_vol = 0.0
+    // Loop from pivot bar (offset bars ago) to current bar
+    for j = pivot_bar_offset to 0
+        float hist_price = nz(src[j])
+        float hist_vol = nz(volume[j])
+        total_pv += hist_price * hist_vol
+        total_vol += hist_vol
+    [total_pv, total_vol]
+
+// Create new anchors on pivot detection
+if use_auto_anchor
+    // Pivot High detected - pivot_right bars ago
+    if not na(ph) and (pivot_type == "High" or pivot_type == "Both")
+        // Backfill from pivot bar to current bar
+        [init_pv, init_vol] = f_backfill_anchor(pivot_right)
+        Anchor new_anchor = Anchor.new(
+             start_idx = bar_index - pivot_right,
+             sum_pv = init_pv,
+             sum_vol = init_vol,
+             vwap_val = init_vol > 0 ? init_pv / init_vol : na,
+             is_high = true,
+             anchor_price = ph
+             )
+        anchors.push(new_anchor)
+    
+    // Pivot Low detected - pivot_right bars ago
+    if not na(pl) and (pivot_type == "Low" or pivot_type == "Both")
+        // Backfill from pivot bar to current bar
+        [init_pv, init_vol] = f_backfill_anchor(pivot_right)
+        Anchor new_anchor = Anchor.new(
+             start_idx = bar_index - pivot_right,
+             sum_pv = init_pv,
+             sum_vol = init_vol,
+             vwap_val = init_vol > 0 ? init_pv / init_vol : na,
+             is_high = false,
+             anchor_price = pl
+             )
+        anchors.push(new_anchor)
+    
+    // Limit array size to max_anchors (remove oldest)
+    while anchors.size() > max_anchors
+        anchors.shift()
+
+// Update all EXISTING anchors with current bar data (only if no new pivot this bar)
+// New anchors already include current bar via backfill
+if use_auto_anchor and na(ph) and na(pl) and anchors.size() > 0
+    for i = 0 to anchors.size() - 1
+        Anchor a = anchors.get(i)
+        a.update(src, volume)
+
+// Calculate Relative Volume (RVOL) for Dynamic Bands
+avg_vol = ta.sma(volume, dyn_len)
+// Protect against division by zero and clamp to prevent extreme band expansion
+// Min 0.2 (bands don't shrink more than 80%), Max 5.0 (bands don't expand more than 5x)
+float raw_rvol = (avg_vol != 0) ? (volume / avg_vol) : 1.0
+rvol = math.max(0.2, math.min(5.0, raw_rvol))
+
+// Calculate the Dynamic Multiplier
+// If sensitivity is 0, dynamic_mult stays at 1.0
+// If sensitivity is 0.5 and volume is double (rvol=2), modifier is 1 + (1 * 0.5) = 1.5x width
+mult_modifier = 1.0 + (rvol - 1.0) * sensitivity
+// Clamp to prevent bands from inverting or disappearing completely
+final_mult = base_mult * (use_dyn ? math.max(0.1, mult_modifier) : 1.0)
+
+// ————— Cornish-Fisher Asymmetric Multipliers
+// Calculate rolling skewness and kurtosis for CF expansion
+float cf_skew = use_cf ? f_skewness(src, length) : 0.0
+float cf_kurt = use_cf ? f_kurtosis(src, length) : 3.0
+
+// Get asymmetric multipliers (w_upper, w_lower may differ)
+[cf_w_upper, cf_w_lower] = f_cf_multipliers(cf_z_base, cf_skew, cf_kurt)
+
+// Final asymmetric multipliers: combine CF with volume dynamics
+float mult_upper = use_cf ? (final_mult / cf_z_base) * cf_w_upper : final_mult
+float mult_lower = use_cf ? (final_mult / cf_z_base) * cf_w_lower : final_mult
+
+// Apply asset-specific volatility factor (scales band width per asset)
+mult_upper *= final_asset_factor
+mult_lower *= final_asset_factor
+
+// Anchor Logic
+is_anchor_bar = (time >= anchor_t and time[1] < anchor_t) or time == anchor_t
+
+// Reset Trigger
 event_condition = switch event
-    'Periodic'       => t%length == 0
+    'Periodic'       => t % length == 0
     'Higher High'    => upper > upper[1]
     'Lower Low'      => lower < lower[1]
     'Trend Change'   => os != os[1]
-    'Start'          => false
-    'External Cross' => ta.cross(src,ext_src)
+    'Manual Anchor'  => is_anchor_bar
+    'External Cross' => ta.cross(src, ext_src)
     'External Event' => ext_src != 0
+    => false
 
-if start_time
-    csum_num += src*volume
-    csum_den += volume
-    
-    var_num += src*src*volume
-    t += 1
+active_region = from_bar0 or time >= anchor_t
+
+// --- Main Loop ---
+if active_region
+    float log_p = math.log(src)
     
     if event_condition
-        csum_num := src*volume
-        csum_den := volume
-        var_num := src*src*volume
-//----
-pvwap = csum_num/csum_den
-dev = math.sqrt(var_num/csum_den - pvwap*pvwap)*mult      
-//----
-up = plot(event_condition ? na : pvwap + dev,'Upper',color=color.rgb(0, 255, 8, 20),style=plot.style_circles, linewidth = 2)
-plot(event_condition ? na : pvwap,'Basis',color=color.new(chart.fg_color, 10),style=plot.style_circles, linewidth = 2)
-dn = plot(event_condition ? na : pvwap - dev,'Lower',color=color.rgb(255, 0, 0, 10),style=plot.style_circles, linewidth = 2)
+        vol_sum  := volume
+        pv_sum   := src * volume
+        p2v_sum  := src * src * volume
+        lpv_sum  := log_p * volume
+        lp2v_sum := log_p * log_p * volume
+        t := 1 
+    else
+        vol_sum  += volume
+        pv_sum   += src * volume
+        p2v_sum  += src * src * volume
+        lpv_sum  += log_p * volume
+        lp2v_sum += log_p * log_p * volume
+        t += 1
 
+// --- Output Calculation ---
+float final_basis = na
+float final_upper = na
+float final_lower = na
+
+// Require at least 3 bars for meaningful deviation calculation
+if active_region and vol_sum > 0 and t >= 3
+    if calc_mode == "Arithmetic"
+        float vwap_val = pv_sum / vol_sum
+        
+        // Choose volatility measure: StdDev or MAD
+        float band_dev = 0.0
+        if band_method == BAND_MAD
+            // MAD-based: more robust to outliers
+            band_dev := f_mad(src, length)
+        else
+            // Standard Deviation (classic)
+            float variance = p2v_sum / vol_sum - vwap_val * vwap_val
+            band_dev := math.sqrt(math.max(0, variance))
+        
+        final_basis := vwap_val
+        // Use asymmetric multipliers (CF-adjusted or symmetric)
+        final_upper := vwap_val + (band_dev * mult_upper)
+        final_lower := vwap_val - (band_dev * mult_lower)
+        
+    else
+        // Logarithmic mode
+        if band_method == BAND_MAD
+            // MAD in log-space: robust logarithmic bands
+            [log_med, log_mad] = f_mad_log(src, length)
+            final_basis := math.exp(log_med)
+            // Use asymmetric multipliers (CF-adjusted or symmetric)
+            final_upper := math.exp(log_med + log_mad * mult_upper)
+            final_lower := math.exp(log_med - log_mad * mult_lower)
+        else
+            // Standard Deviation in log-space
+            float log_mean = lpv_sum / vol_sum
+            float log_var  = lp2v_sum / vol_sum - log_mean * log_mean
+            float log_dev  = math.sqrt(math.max(0, log_var))
+            
+            final_basis := math.exp(log_mean)
+            // Use asymmetric multipliers (CF-adjusted or symmetric)
+            final_upper := math.exp(log_mean + log_dev * mult_upper)
+            final_lower := math.exp(log_mean - log_dev * mult_lower)
+
+// ════════════════════════════════════════════════════════════════════════════
+// Gradient Heatmap Visualization
+// Maps Hurst exponent to color gradient for instant regime feedback
+// H < 0.5 (mean-reverting) → Blue | H > 0.5 (trending) → Orange
+// ════════════════════════════════════════════════════════════════════════════
+
+// Heatmap Inputs (must be declared before use)
+bool   use_heatmap = input.bool(false, "Enable Regime Heatmap", group = "🎨 Display", tooltip = "Color-code plot dots by Hurst exponent. Blue = Mean-reverting, Orange = Trending.")
+color  heatmap_revert = input.color(color.new(#2196F3, 20), "Mean-Revert Color", group = "🎨 Display", tooltip = "Color for mean-reverting regime (H < 0.5)")
+color  heatmap_trend = input.color(color.new(#FF9800, 20), "Trending Color", group = "🎨 Display", tooltip = "Color for trending regime (H > 0.5)")
+bool   use_bgcolor = input.bool(false, "Enable Background Heatmap", group = "🎨 Display", tooltip = "Apply subtle background color based on regime")
+
+// Get Hurst value for visualization (use 0.5 if regime detection disabled)
+float viz_hurst = use_regime ? regime.hurst : 0.5
+
+// Generate gradient colors based on Hurst exponent
+// Gradient range: 0.35-0.65 to emphasize the critical zone around 0.5
+color heatmap_color = color.from_gradient(
+     viz_hurst,
+     0.35,              // Low end (strongly mean-reverting)
+     0.65,              // High end (strongly trending)
+     heatmap_revert,    // Blue for mean-reverting
+     heatmap_trend      // Orange for trending
+     )
+
+// Plot colors: use heatmap or default colors
+color plot_upper_color = use_heatmap and use_regime ? heatmap_color : color.rgb(0, 255, 0)
+color plot_basis_color = use_heatmap and use_regime ? heatmap_color : color.white
+color plot_lower_color = use_heatmap and use_regime ? heatmap_color : color.rgb(255, 0, 0)
+
+// Background gradient (very subtle, high transparency)
+color bg_heatmap = use_bgcolor and use_regime ? color.new(heatmap_color, 92) : na
+
+// --- Plotting ---
+plot(final_upper, 'Upper', color=plot_upper_color, style=plot.style_circles, linewidth = 3)
+plot(final_basis, 'Basis', color=plot_basis_color, style=plot.style_circles, linewidth = 2)
+plot(final_lower, 'Lower', color=plot_lower_color, style=plot.style_circles, linewidth = 3)
+
+// Background heatmap (optional)
+bgcolor(bg_heatmap, title="Regime Background")
+
+// ————— Auto-Anchored VWAP Lines
+// Draw lines for each active anchor's VWAP
+if use_auto_anchor and barstate.islast and anchors.size() > 0
+    // Clear old lines
+    if anchor_lines.size() > 0
+        for i = 0 to anchor_lines.size() - 1
+            line.delete(anchor_lines.get(i))
+        anchor_lines.clear()
+    
+    // Draw new lines from anchor start to current bar
+    for i = 0 to anchors.size() - 1
+        Anchor a = anchors.get(i)
+        if not na(a.vwap_val)
+            color line_color = a.is_high ? anchor_hi_color : anchor_lo_color
+            line new_line = line.new(
+                 x1 = a.start_idx,
+                 y1 = a.vwap_val,
+                 x2 = bar_index,
+                 y2 = a.vwap_val,
+                 color = line_color,
+                 width = 2,
+                 style = line.style_solid
+                 )
+            anchor_lines.push(new_line)
+            
+            // Add label showing anchor type and age
+            int bars_since = bar_index - a.start_idx
+            string anchor_label = (a.is_high ? "▲" : "▼") + " " + str.tostring(bars_since) + "b"
+            label.new(
+                 x = bar_index + 2,
+                 y = a.vwap_val,
+                 text = anchor_label,
+                 style = label.style_label_left,
+                 color = color.new(color.black, 100),
+                 textcolor = line_color,
+                 size = size.tiny
+                 )
+
+// ————— Info Label (shows active TF settings)
+show_info = input.bool(true, "Show Info Label", group = "🎨 Display", tooltip = "Shows current mode and active settings")
+
+if barstate.islast and show_info
+    var label info_label = na
+    label.delete(info_label)
+    
+    string mode_str = tf_mode == MODE_AUTO ? "🔄 AUTO" : "📊 MANUAL"
+    string band_str = band_method == BAND_MAD ? " | MAD" : " | σ"
+    string cf_str = use_cf ? " | CF S:" + str.tostring(cf_skew, "#.##") : ""
+    string anchor_str = use_auto_anchor ? " | 📍" + str.tostring(anchors.size()) : ""
+    string asset_str = use_asset_map ? " | 🗺️" + str.tostring(final_asset_factor, "#.##") + "x" : ""
+    string filter_str = use_filter ? (allow_trend_signal ? " | ✅Trend" : " | ❌Trend") : ""
+    string regime_str = use_regime ? " | " + regime.get_regime_label(hurst_threshold) + " H:" + str.tostring(regime.hurst, "#.##") + filter_str : ""
+    string info_text = mode_str + " | TF: " + tf_category + " | Len: " + str.tostring(length) + " | Mult: " + str.tostring(base_mult, "#.##") + band_str + cf_str + anchor_str + asset_str + regime_str
+    
+    info_label := label.new(
+         bar_index, 
+         final_upper + ta.atr(14) * 0.3, 
+         info_text, 
+         style = label.style_label_down, 
+         color = color.new(#1e1e1e, 20), 
+         textcolor = color.white, 
+         size = size.small
+         )

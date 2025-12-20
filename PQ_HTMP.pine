@@ -1,0 +1,172 @@
+//@version=6
+indicator("Heatmap [PQ_MOD] Speed Scalper", shorttitle = "HTMP0.9.6", overlay = true, precision = 2, max_bars_back = 500)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// CONSTANTS & COLOR PALETTE
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// ————— Standard Colors (Preserved)
+color COLOR_TEAL      = #00bcd4
+color COLOR_RED       = #f44336
+color COLOR_GREEN     = #00e676
+color COLOR_YELLOW    = #ffeb3b
+color COLOR_DARK      = #1e1e1e
+color COLOR_WHITE     = #ffffff
+color COLOR_GRAY      = #9e9e9e
+
+// ————— Gradient Stops (Replaces Array for Smoothness)
+// These anchor points create a smooth "Turbo" style liquid gradient
+color GRAD_0_MIN      = #008e8c  // Deep Purple (Extreme Low)
+color GRAD_1_LOW      = #4675ed  // Blue
+color GRAD_2_MID_LO   = #1bcfd4  // Cyan
+color GRAD_3_MID_HI   = #a4fc3c  // Lime
+color GRAD_4_HIGH     = #fe9b2d  // Orange
+color GRAD_5_MAX      = COLOR_RED  // Dark Red (Extreme High)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// ————— Main Settings
+string GROUP_MAIN     = "🚀 Scalping Settings"
+int    INPUT_LEN      = input.int(50, "Baseline Length", minval=10, maxval=500, group=GROUP_MAIN, tooltip="Lookback period for Regression and Z-Score")
+float  INPUT_SENS     = input.float(2.0, "Signal Sensitivity", minval=0.5, maxval=5.0, step=0.1, group=GROUP_MAIN, tooltip="Higher = Less Signals (Stronger extremes only)")
+string INPUT_SOURCE   = input.string("AKF", "Primary Baseline", options=["AKF", "Linear Reg", "Kalman"], group=GROUP_MAIN)
+
+// ————— Visuals
+string GROUP_VISUAL   = "🎨 Visuals"
+bool   INPUT_SHOW_LINE= input.bool(true, "Show Baseline", group=GROUP_VISUAL)
+int    INPUT_OPACITY  = input.int(0, "Bar Opacity", minval=0, maxval=90, group=GROUP_VISUAL)
+int    INPUT_COL_SMOOTH = input.int(3, "Color Smoothing", minval=1, maxval=10, group=GROUP_VISUAL, tooltip="Smoothes the color transitions to prevent 'flickering'.")
+
+// ————— Adaptive Kalman
+string GROUP_AKF      = "🧠 Adaptive Logic"
+float  INPUT_AKF_Q    = input.float(0.01, "Response Speed (Q)", minval=0.001, step=0.001, group=GROUP_AKF)
+float  INPUT_AKF_R    = input.float(0.1, "Noise Reduction (R)", minval=0.01, step=0.01, group=GROUP_AKF)
+int    INPUT_VOL_LEN  = input.int(14, "Volatility Lookback", minval=5, group=GROUP_AKF)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// CALCULATIONS & LOGIC
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+type KalmanFilter
+    float state = 0.0
+    float covariance = 1.0
+    float Q = 0.01
+    float R = 0.1
+
+method init(KalmanFilter this, float _q, float _r, float _initVal) =>
+    this.state := _initVal
+    this.covariance := 1.0
+    this.Q := math.max(_q, 1e-10)
+    this.R := math.max(_r, 1e-10)
+    this
+
+method update(KalmanFilter this, float _measurement) =>
+    float P_pred = this.covariance + this.Q
+    float K = P_pred / (P_pred + this.R)
+    this.state := this.state + K * (_measurement - this.state)
+    this.covariance := (1.0 - K) * P_pred
+    this.state
+
+type AdaptiveKalmanFilter
+    float state = 0.0
+    float covariance = 1.0
+    float base_Q = 0.01
+    float base_R = 0.1
+    float Q = 0.01
+    float R = 0.1
+
+method init(AdaptiveKalmanFilter this, float _baseQ, float _baseR, float _initVal) =>
+    this.state := _initVal
+    this.covariance := 1.0
+    this.base_Q := math.max(_baseQ, 1e-10)
+    this.base_R := math.max(_baseR, 1e-10)
+    this.Q := this.base_Q
+    this.R := this.base_R
+    this
+
+method update(AdaptiveKalmanFilter this, float _measurement, float _vol_ratio) =>
+    float safe_ratio = math.max(0.1, math.min(10.0, _vol_ratio))
+    this.Q := this.base_Q * safe_ratio
+    this.R := this.base_R / safe_ratio
+    float P_pred = this.covariance + this.Q
+    float K = P_pred / (P_pred + this.R)
+    this.state := this.state + K * (_measurement - this.state)
+    this.covariance := (1.0 - K) * P_pred
+    this.state
+
+var KalmanFilter kf = KalmanFilter.new()
+var AdaptiveKalmanFilter akf = AdaptiveKalmanFilter.new()
+
+// ————— Gradient Function (Uses Top Variables)
+f_getSmoothGradient(float _normValue) =>
+    // _normValue is 0.0 to 1.0. We split into 5 zones for the 6 colors.
+    color c = na
+    if _normValue <= 0.2
+        c := color.from_gradient(_normValue, 0.0, 0.2, GRAD_0_MIN, GRAD_1_LOW)
+    else if _normValue <= 0.4
+        c := color.from_gradient(_normValue, 0.2, 0.4, GRAD_1_LOW, GRAD_2_MID_LO)
+    else if _normValue <= 0.6
+        c := color.from_gradient(_normValue, 0.4, 0.6, GRAD_2_MID_LO, GRAD_3_MID_HI)
+    else if _normValue <= 0.8
+        c := color.from_gradient(_normValue, 0.6, 0.8, GRAD_3_MID_HI, GRAD_4_HIGH)
+    else
+        c := color.from_gradient(_normValue, 0.8, 1.0, GRAD_4_HIGH, GRAD_5_MAX)
+    color.new(c, INPUT_OPACITY)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// EXECUTION
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+if barstate.isfirst
+    kf.init(INPUT_AKF_Q, INPUT_AKF_R, close)
+    akf.init(INPUT_AKF_Q, INPUT_AKF_R, close)
+
+float atr_fast = ta.atr(INPUT_VOL_LEN)
+float atr_slow = ta.sma(atr_fast, INPUT_VOL_LEN * 4)
+float vol_ratio = atr_slow > 0 ? atr_fast / atr_slow : 1.0
+
+float val_linreg = ta.linreg(hl2, INPUT_LEN, 0)
+float val_kalman = kf.update(close)
+float val_akf    = akf.update(close, vol_ratio)
+
+float baseline = switch INPUT_SOURCE
+    "AKF"        => val_akf
+    "Kalman"     => val_kalman
+    => val_linreg
+
+float deviation = close - baseline
+float dev_mean  = ta.sma(deviation, INPUT_LEN)
+float dev_stdev = ta.stdev(deviation, INPUT_LEN)
+float z_score   = dev_stdev > 0 ? (deviation - dev_mean) / dev_stdev : 0.0
+
+float clamped_z = math.max(-INPUT_SENS, math.min(INPUT_SENS, z_score))
+float heat_norm = 0.5 + (0.5 * (clamped_z / INPUT_SENS)) 
+
+// Apply user smoothing to the color index only (visual fix)
+float smoothed_heat = ta.ema(heat_norm, INPUT_COL_SMOOTH)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// PLOTTING
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+barcolor(f_getSmoothGradient(smoothed_heat))
+
+color line_col = math.abs(z_score) < 1.0 ? color.new(COLOR_GRAY, 50) : z_score > 0 ? GRAD_5_MAX : GRAD_2_MID_LO
+plot(INPUT_SHOW_LINE ? baseline : na, "Baseline", color=line_col, linewidth=2)
+
+bool signal_overbought = ta.crossunder(z_score, INPUT_SENS * 0.9)
+bool signal_oversold   = ta.crossover(z_score, -INPUT_SENS * 0.9)
+
+plotshape(signal_overbought, "Short Scalp", shape.triangledown, location.abovebar, color=COLOR_RED, size=size.tiny, text="▼")
+plotshape(signal_oversold, "Long Scalp", shape.triangleup, location.belowbar, color=COLOR_GREEN, size=size.tiny, text="▲")
+
+plot(z_score, "Z-Score Deviation", display=display.data_window)
+plot(vol_ratio, "Volatility Ratio", display=display.data_window)
+
+if signal_overbought
+    alert("Heatmap Scalp: Overbought (Short) | " + syminfo.ticker, alert.freq_once_per_bar_close)
+
+if signal_oversold
+    alert("Heatmap Scalp: Oversold (Long) | " + syminfo.ticker, alert.freq_once_per_bar_close)

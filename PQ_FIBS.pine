@@ -1,425 +1,390 @@
 //@version=6
-
-indicator(title = 'Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS [v0.1.17]', overlay = true, format = format.price, max_lines_count = 500, max_labels_count = 500)
-
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//
-// Fibonacci Retracement / Extentions and Pivot Points 
-//
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Theme 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-t_color_transarpency_main = 25
-t_color_transarpency_suplementary = 70
-
-t_color_1 = color.new(chart.fg_color, 15)
-
-t_tzColor = color.new(chart.fg_color, 80)
-t_zzColor = color.new(chart.fg_color, 75)
-t_textcolor = color.new(chart.fg_color, 0)
+indicator(title = 'Fibonacci Pivots [PQ_MOD] + Stat Position', shorttitle = 'FIBS0.1.26', overlay = true, format = format.price, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//
-// Logs
-//
+// CONSTANTS & THEME
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-const int levelsCount = 22
+// Colors
+COLOR_FG_MAIN       = chart.fg_color
+COLOR_RED           = #f44336
+COLOR_GREEN         = #4caf50
+COLOR_TEAL          = #009688
+COLOR_BLUE          = #2196f3
+COLOR_PURPLE        = #9c27b0
+COLOR_PINK          = #e91e63
+COLOR_GRAY          = #a2a2a2
+COLOR_LIGHT_GREEN   = #81c784
+COLOR_LIGHT_BLUE    = #64b5f6
 
-var array<float> l_pivotLevelsLog_retracements = array.new<float>(levelsCount)
-var array<float> l_pivotLevelsLog_crossed_retracements = array.new<float>(levelsCount)
+// Theme Transparencies
+TRANS_MAIN          = 25
+TRANS_SUPP          = 70
 
+// Static Colors
+COLOR_TZ            = color.new(COLOR_FG_MAIN, 80)
+COLOR_ZZ            = color.new(COLOR_FG_MAIN, 75)
+COLOR_TEXT          = color.new(COLOR_FG_MAIN, 0)
+
+// Configuration Constants
+LEVELS_COUNT        = 22
+
+// Alert IDs
+ALERT_ID_UPDATE     = 'FBU'
+ALERT_ID_EXHAUSTION = 'EXH'
+ALERT_ID_VOLATILITY = 'HVO'
+ALERT_ID_CROSSING   = 'RCL'
+
+// Tooltips
+TOOLTIP_THRESHOLD   = 'Deviation is a multiplier that affects how much the price should deviate from the previous pivot in order for the bar to become a new pivot\n\nDepth affects the minimum number of bars that will be taken into account when building'
+TOOLTIP_PIVOT_POINT = 'A pivot point is a technical analysis indicator used to determine the overall trend of the market over different time frames'
+TOOLTIP_ZIGZAG      = 'The Zig Zag indicator is used to identify price trends then connected by straight lines that help the trader visual the price action.'
+TOOLTIP_VOL_EXHAUST = 'Moments where huge volume detected'
+TOOLTIP_HIGH_VOL    = 'Moments where price range of the current bar is greater than average true range'
+TOOLTIP_STAT_POS    = 'Calculates the Statistical "Golden Pocket" (0.618-0.65) entry zone.\n\nStop Loss is placed at the Pivot Start (Invalidation) adjusted by an ATR variance to prevent Stop Hunting.\n\nTake Profit targets the Pivot End (Conservative) or 1.272 Extension (Aggressive).'
+
+// Groups
+GROUP_PICK          = 'Pick a Fibonacci Tool'
+GROUP_PIVOT         = 'Fibonacci Pivot Points Settings'
+GROUP_THRESH_SEC    = 'Threshold (sec)'
+GROUP_THRESH_MIN    = 'Threshold (minutes)'
+GROUP_THRESH_H      = 'Threshold (hours)'
+GROUP_THRESH_D      = 'Threshold (days)'
+GROUP_THRESH_W      = 'Threshold (weeks)'
+GROUP_THRESH_M      = 'Threshold (months)'
+GROUP_DEPTH_SEC     = 'Depth (seconds)'
+GROUP_DEPTH_MIN     = 'Depth (minutes)'
+GROUP_DEPTH_H       = 'Depth (hours)'
+GROUP_DEPTH_D       = 'Depth (days)'
+GROUP_DEPTH_W       = 'Depth (weeks)'
+GROUP_DEPTH_M       = 'Depth (months)'
+GROUP_FIB_TOOL      = 'Fibonacci Extention / Retracement / TimeZone Settings'
+GROUP_FIB_LEVELS    = 'Fibonacci Levels'
+GROUP_ZIGZAG        = 'ZigZag Settings'
+GROUP_VOL_VOL       = 'Volume / Volatility AddOns'
+GROUP_ALERTS        = 'Alerts'
+GROUP_STAT_POS      = 'Statistical Position Engine'
+
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// INPUTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//
-// Constants
-//
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-const string i_alert_id_update = 'FBU'
-const string i_alert_id_crossoverExhaustion = 'EXH'
-const string i_alert_id_crossoverVolatility = 'HVO'
-const string i_alert_id_crossingLevelRetracements = 'RCL'
+INPUT_SHOW_FIB_TIME     = input.bool(true, 'Fib Time Zones', inline='TZ', group=GROUP_PICK)
+INPUT_CUSTOM_THRESHOLD  = input.bool(true, 'Custom thresholds', inline='C')
+INPUT_CUSTOM_DEPTH      = input.bool(true, 'Custom depths', inline='C')
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Pivot Settings
+INPUT_HTF_MODE          = input.string('Auto', 'Pivot Points TimeFrame', options=['Auto', 'User Defined'], inline='HTF', group=GROUP_PIVOT, tooltip=TOOLTIP_PIVOT_POINT)
+INPUT_HTF_USER_RAW      = input.string('15 Min', '          or User Defined', options=['15 Min', '1 Hour', '4 Hour', 'Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'], inline='HTF1', group=GROUP_PIVOT)
 
-const string tooltip_threshold   = 'Deviation is a multiplier that affects how much the price should deviate from the previous pivot in order for the bar to become a new pivot' + 
-                      '\n\nDepth affects the minimum number of bars that will be taken into account when building'
+// Parse HTF input
+htf_user_parsed = INPUT_HTF_USER_RAW == '15 Min'? '15' : 
+                  INPUT_HTF_USER_RAW == '1 Hour'? '60' : 
+                  INPUT_HTF_USER_RAW == '4 Hour'? '240' : 
+                  INPUT_HTF_USER_RAW == 'Daily'? 'D' : 
+                  INPUT_HTF_USER_RAW == 'Weekly'? 'W' : 
+                  INPUT_HTF_USER_RAW == 'Monthly'? 'M' : 
+                  INPUT_HTF_USER_RAW == 'Quarterly'? '3M' : '12M'
 
-const string tooltip_pivot_point = 'A pivot point is a technical analysis indicator used to determine the overall trend of the market over different time frames'
+INPUT_LEVELS_PVT        = input.string('Prices', 'Level Labels', options=['Levels', 'Prices', 'Levels + Prices', 'None'], inline='pvt', group=GROUP_PIVOT)
+INPUT_LEVELS_PVT_POS    = input.string('Pivot End', '', options=['Last Bar', 'Pivot End'], inline='pvt', group=GROUP_PIVOT)
+INPUT_LEVELS_PVT_SIZE   = input.string('Small', '', options=['Small', 'Normal'], inline='pvt', group=GROUP_PIVOT)
+INPUT_EXTEND_PVT        = input.bool(false, 'Extend Pivot Point Lines', inline='fLines', group=GROUP_PIVOT)
 
-const string tooltip_zigzag      = 'The Zig Zag indicator is used to identify price trends then connected by straight lines that help the trader visual the price action' + 
-                      'This indicator works to eliminate confusion over small price changes or fluctuations and aims to project trend changes overtime'
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-const string group_pick   = 'Pick a Fibonacci Tool'
-const string group_pivot  = 'Fibonacci Pivot Points Settings'
-const string group_fib_threshold_sec = 'Threshold (sec)'
-const string group_fib_threshold_min = 'Threshold (minutes)'
-const string group_fib_threshold_h = 'Threshold (hours)'
-const string group_fib_threshold_d = 'Threshold (days)'
-const string group_fib_threshold_w = 'Threshold (weeks)'
-const string group_fib_threshold_m = 'Threshold (months)'
-
-const string group_fib_depth_sec = 'Depth (seconds)'
-const string group_fib_depth_min = 'Depth (minutes)'
-const string group_fib_depth_h = 'Depth (hours)'
-const string group_fib_depth_d = 'Depth (days)'
-const string group_fib_depth_w= 'Depth (weeks)'
-const string group_fib_depth_m = 'Depth (months)'
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-const string group_fib_tool = 'Fibonacci Extention / Retracement / TimeZone Settings'
-const string group_fib_levels = 'Fibonacci Levels'
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-const string group_zigzag = 'ZigZag Settings'
-const string group_vol_vol = 'Volume / Volatility AddOns'
-const string tooltip_volume_spike_sign_of_exhaustion = 'Moments where\n' + 'huge volume detected : current volume is grater than the product of the theshold value and volume moving average'
-const string tooltip_high_volatility = 'Moments where\n' + 'price range of the current bar is grater than the product of the theshold value and average true range value of defined period'
-const string tooltip_volume_weighted_colored_bars = 'Volume Weighted Colored Bars\nColors bars based on the bar\'s volume relative to volume moving average'
-
-
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//
-// Inputs
-//
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-
-i_fibTime    = input.bool (true, 'Fib Time Zones', inline='TZ', group=group_pick)
-// i_tzColor    = input.color(t_tzColor, '', inline='TZ', group=group_pick)
-i_tzColor = t_tzColor
-
-i_customThreshold = input.bool (true, 'Custom thresholds', inline='C')
-i_customDepth = input.bool(true, 'Custom depths', inline='C')
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-i_htf_mode   = input.string('Auto', 'Pivot Points TimeFrame', options=['Auto', 'User Defined'], inline='HTF', group=group_pivot, tooltip=tooltip_pivot_point)
-i_htf_user_  = input.string('15 Min', '          or User Defined', 
-                             options=['15 Min', '1 Hour', '4 Hour', 'Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'], inline='HTF1', group=group_pivot)
-
-i_htf_user   = i_htf_user_ == '15 Min'    ? '15'  : 
-               i_htf_user_ == '1 Hour'    ? '60'  : 
-               i_htf_user_ == '4 Hour'    ? '240' : 
-               i_htf_user_ == 'Daily'     ? 'D'   : 
-               i_htf_user_ == 'Weekly'    ? 'W'   : 
-               i_htf_user_ == 'Monthly'   ? 'M'   : 
-               i_htf_user_ == 'Quarterly' ? '3M'  : '12M'
-
-i_levelsPvt  = input.string('Prices', 'Level Labels', options=['Levels', 'Prices', 'Levels + Prices', 'None'], inline='pvt', group=group_pivot)
-i_levelsPvtP = input.string('Pivot End', '', options=['Last Bar', 'Pivot End'], inline='pvt', group=group_pivot)
-i_levelsPvtS = input.string('Small', '', options=['Small', 'Normal'], inline='pvt', group=group_pivot)
-
-i_extend     = input.bool(false, 'Extend Pivot Point Lines', inline='fLines', group=group_pivot)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
+// Deviation Thresholds
 dev_treshold(float dev_treshold) => ta.atr(2) / close * 100 * dev_treshold
+INPUT_DEV_THRESH_DEFAULT = dev_treshold(input.float(2.0, 'Deviation (default)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC, tooltip=TOOLTIP_THRESHOLD))
+INPUT_DEV_THRESH_1S     = dev_treshold(input.float(2.0, 'Deviation (1S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
+INPUT_DEV_THRESH_5S     = dev_treshold(input.float(2.0, 'Deviation (5S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
+INPUT_DEV_THRESH_10S    = dev_treshold(input.float(2.0, 'Deviation (10S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
+INPUT_DEV_THRESH_15S    = dev_treshold(input.float(2.0, 'Deviation (15S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
+INPUT_DEV_THRESH_30S    = dev_treshold(input.float(2.0, 'Deviation (30S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
+INPUT_DEV_THRESH_45S    = dev_treshold(input.float(2.0, 'Deviation (45S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
+INPUT_DEV_THRESH_1M     = dev_treshold(input.float(2.0, 'Deviation (1M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
+INPUT_DEV_THRESH_2M     = dev_treshold(input.float(2.0, 'Deviation (2M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
+INPUT_DEV_THRESH_3M     = dev_treshold(input.float(2.0, 'Deviation (3M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
+INPUT_DEV_THRESH_5M     = dev_treshold(input.float(2.0, 'Deviation (5M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
+INPUT_DEV_THRESH_10M    = dev_treshold(input.float(2.0, 'Deviation (10M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
+INPUT_DEV_THRESH_15M    = dev_treshold(input.float(2.0, 'Deviation (15M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
+INPUT_DEV_THRESH_30M    = dev_treshold(input.float(2.0, 'Deviation (30M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
+INPUT_DEV_THRESH_45M    = dev_treshold(input.float(2.0, 'Deviation (45M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
+INPUT_DEV_THRESH_1H     = dev_treshold(input.float(2.0, 'Deviation (1H)', minval=0, inline='Pivots', group=GROUP_THRESH_H))
+INPUT_DEV_THRESH_2H     = dev_treshold(input.float(2.0, 'Deviation (2H)', minval=0, inline='Pivots', group=GROUP_THRESH_H))
+INPUT_DEV_THRESH_3H     = dev_treshold(input.float(2.0, 'Deviation (3H)', minval=0, inline='Pivots', group=GROUP_THRESH_H))
+INPUT_DEV_THRESH_4H     = dev_treshold(input.float(2.0, 'Deviation (4H)', minval=0, inline='Pivots', group=GROUP_THRESH_H))
+INPUT_DEV_THRESH_1D     = dev_treshold(input.float(2.0, 'Deviation (1D)', minval=0, inline='Pivots', group=GROUP_THRESH_D))
+INPUT_DEV_THRESH_7D     = dev_treshold(input.float(2.0, 'Deviation (7D)', minval=0, inline='Pivots', group=GROUP_THRESH_D))
+INPUT_DEV_THRESH_4W     = dev_treshold(input.float(2.0, 'Deviation (4W)', minval=0, inline='Pivots', group=GROUP_THRESH_W))
+INPUT_DEV_THRESH_3MO    = dev_treshold(input.float(2.0, 'Deviation (3M)', minval=0, inline='Pivots', group=GROUP_THRESH_M))
+INPUT_DEV_THRESH_6MO    = dev_treshold(input.float(2.0, 'Deviation (6M)', minval=0, inline='Pivots', group=GROUP_THRESH_M))
+INPUT_DEV_THRESH_12MO   = dev_treshold(input.float(2.0, 'Deviation (12M)', minval=0, inline='Pivots', group=GROUP_THRESH_M))
 
-float i_dev_threshold_default     = dev_treshold(input.float(3, 'Deviation (default)', minval=0, inline='Pivots', group=group_fib_threshold_sec, tooltip=tooltip_threshold))
+// Depths
+INPUT_DEPTH_DEFAULT     = input.int(10, 'Depth (default)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
+INPUT_DEPTH_1S          = input.int(10, 'Depth (1S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
+INPUT_DEPTH_5S          = input.int(10, 'Depth (5S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
+INPUT_DEPTH_10S         = input.int(10, 'Depth (10S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
+INPUT_DEPTH_15S         = input.int(10, 'Depth (15S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
+INPUT_DEPTH_30S         = input.int(10, 'Depth (30S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
+INPUT_DEPTH_45S         = input.int(10, 'Depth (45S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
+INPUT_DEPTH_1M          = input.int(10, 'Depth (1M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
+INPUT_DEPTH_2M          = input.int(10, 'Depth (2M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
+INPUT_DEPTH_3M          = input.int(10, 'Depth (3M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
+INPUT_DEPTH_5M          = input.int(10, 'Depth (5M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
+INPUT_DEPTH_10M         = input.int(10, 'Depth (10M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
+INPUT_DEPTH_15M         = input.int(10, 'Depth (15M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
+INPUT_DEPTH_30M         = input.int(10, 'Depth (30M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
+INPUT_DEPTH_45M         = input.int(10, 'Depth (45M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
+INPUT_DEPTH_1H          = input.int(10, 'Depth (1H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H)
+INPUT_DEPTH_2H          = input.int(10, 'Depth (2H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H)
+INPUT_DEPTH_3H          = input.int(10, 'Depth (3H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H)
+INPUT_DEPTH_4H          = input.int(10, 'Depth (4H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H)
+INPUT_DEPTH_1D          = input.int(10, 'Depth (1D)', minval=1, inline='Pivots', group=GROUP_DEPTH_D)
+INPUT_DEPTH_7D          = input.int(10, 'Depth (7D)', minval=1, inline='Pivots', group=GROUP_DEPTH_D)
+INPUT_DEPTH_4W          = input.int(10, 'Depth (4W)', minval=1, inline='Pivots', group=GROUP_DEPTH_W)
+INPUT_DEPTH_3MO         = input.int(10, 'Depth (3M)', minval=1, inline='Pivots', group=GROUP_DEPTH_M)
+INPUT_DEPTH_6MO         = input.int(10, 'Depth (6M)', minval=1, inline='Pivots', group=GROUP_DEPTH_M)
+INPUT_DEPTH_12MO        = input.int(10, 'Depth (12M)', minval=1, inline='Pivots', group=GROUP_DEPTH_M)
 
-float i_dev_threshold_1S  = dev_treshold(input.float(3, 'Deviation (1S)', minval=0, inline='Pivots', group=group_fib_threshold_sec, tooltip=tooltip_threshold))
-float i_dev_threshold_5S  = dev_treshold(input.float(3, 'Deviation (5S)', minval=0, inline='Pivots', group=group_fib_threshold_sec, tooltip=tooltip_threshold))
-float i_dev_threshold_10S = dev_treshold(input.float(3, 'Deviation (10S)', minval=0, inline='Pivots', group=group_fib_threshold_sec, tooltip=tooltip_threshold))
-float i_dev_threshold_15S = dev_treshold(input.float(3, 'Deviation (15S)', minval=0, inline='Pivots', group=group_fib_threshold_sec, tooltip=tooltip_threshold))
-float i_dev_threshold_30S = dev_treshold(input.float(3, 'Deviation (30S)', minval=0, inline='Pivots', group=group_fib_threshold_sec, tooltip=tooltip_threshold))
-float i_dev_threshold_45S = dev_treshold(input.float(3, 'Deviation (45S)', minval=0, inline='Pivots', group=group_fib_threshold_sec, tooltip=tooltip_threshold))
+// Fibonacci Tools
+INPUT_LEVELS_LABEL      = input.string('Prices', 'Level Labels', options=['Levels', 'Prices', 'Levels + Prices', 'None'], inline='fLines', group=GROUP_FIB_TOOL)
+INPUT_LEVELS_POS        = input.string('Pivot Start', '', options=['Last Bar', 'Pivot Start'], inline='fLines', group=GROUP_FIB_TOOL)
+INPUT_LEVELS_SIZE       = input.string('Small', '', options=['Small', 'Normal'], inline='fLines', group=GROUP_FIB_TOOL)
+INPUT_REVERSE           = input.bool(false, 'Reverse Extention / Retracement Levels', group=GROUP_FIB_TOOL)
+INPUT_EXTEND_ER         = input.bool(false, 'Extend Extention / Retracement Lines', inline='fLine', group=GROUP_FIB_TOOL)
+INPUT_HIST_PIVOT        = input.int (0, 'Historical Extention / Retracement Levels', minval=0, group=GROUP_FIB_TOOL)
+INPUT_HIST_PIVOT_2      = input.int(0, 'Historical Time Zones', minval=0, group=GROUP_FIB_TOOL)
+INPUT_FIB_TZ_LABEL      = input.bool(false, 'Time Zone Lables', inline='tz poz', group=GROUP_FIB_TOOL)
+INPUT_FIB_TZ_POS_X      = input.string('Left', '', options=['Right', 'Left'], inline='tz poz', group=GROUP_FIB_TOOL)
+fib_tzlp                = INPUT_FIB_TZ_POS_X == 'Left' ? label.style_label_left : label.style_label_right
+INPUT_FIB_TZ_POS_Y      = input.string('Bottom', '', options=['Bottom', 'Top'], inline='tz poz', group=GROUP_FIB_TOOL)
 
-float i_dev_threshold_1   = dev_treshold(input.float(3, 'Deviation (1M)', minval=0, inline='Pivots', group=group_fib_threshold_min, tooltip=tooltip_threshold))
-float i_dev_threshold_2   = dev_treshold(input.float(3, 'Deviation (2M)', minval=0, inline='Pivots', group=group_fib_threshold_min, tooltip=tooltip_threshold))
-float i_dev_threshold_3   = dev_treshold(input.float(3, 'Deviation (3M)', minval=0, inline='Pivots', group=group_fib_threshold_min, tooltip=tooltip_threshold))
-float i_dev_threshold_5   = dev_treshold(input.float(3, 'Deviation (5M)', minval=0, inline='Pivots', group=group_fib_threshold_min, tooltip=tooltip_threshold))
-float i_dev_threshold_10  = dev_treshold(input.float(3, 'Deviation (10M)', minval=0, inline='Pivots', group=group_fib_threshold_min, tooltip=tooltip_threshold))
-float i_dev_threshold_15  = dev_treshold(input.float(3, 'Deviation (15M)', minval=0, inline='Pivots', group=group_fib_threshold_min, tooltip=tooltip_threshold))
-float i_dev_threshold_30  = dev_treshold(input.float(3, 'Deviation (30M)', minval=0, inline='Pivots', group=group_fib_threshold_min, tooltip=tooltip_threshold))
-float i_dev_threshold_45  = dev_treshold(input.float(3, 'Deviation (45M)', minval=0, inline='Pivots', group=group_fib_threshold_min, tooltip=tooltip_threshold))
+// --- STATISTICAL POSITION ENGINE INPUTS ---
+INPUT_SHOW_POS          = input.bool(true, 'Show Stat Position Preview', group=GROUP_STAT_POS, tooltip=TOOLTIP_STAT_POS)
+INPUT_POS_SL_MULT       = input.float(1.5, 'Stop Loss Variance (ATR Mult)', minval=0.1, step=0.1, group=GROUP_STAT_POS, tooltip="Buffer added to the Structural Invalidation Point (Pivot Start) to prevent Stop Hunts.")
+INPUT_POS_TP_MODE       = input.string('Conservative', 'Take Profit Mode', options=['Conservative', 'Aggressive'], group=GROUP_STAT_POS, tooltip="Conservative: Targets Pivot End (0.0).\nAggressive: Targets 1.272 Extension.")
+// ------------------------------------------
 
-float i_dev_threshold_60  = dev_treshold(input.float(2, 'Deviation (1H)', minval=0, inline='Pivots', group=group_fib_threshold_h, tooltip=tooltip_threshold))
-float i_dev_threshold_120 = dev_treshold(input.float(2, 'Deviation (2H)', minval=0, inline='Pivots', group=group_fib_threshold_h, tooltip=tooltip_threshold))
-float i_dev_threshold_180 = dev_treshold(input.float(2, 'Deviation (3H)', minval=0, inline='Pivots', group=group_fib_threshold_h, tooltip=tooltip_threshold))
-float i_dev_threshold_240 = dev_treshold(input.float(2, 'Deviation (4H)', minval=0, inline='Pivots', group=group_fib_threshold_h, tooltip=tooltip_threshold))
+// Fibonacci Levels
+INPUT_SHOW_0            = input.bool(true, '', inline='Level0', group=GROUP_FIB_LEVELS)
+INPUT_VAL_0             = input.float(0., '', inline='Level0', group=GROUP_FIB_LEVELS)
+INPUT_COL_0             = input.color(color.new(COLOR_GRAY, TRANS_MAIN), '', inline='Level0', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_0_236        = input.bool(true, '', inline='Level0', group=GROUP_FIB_LEVELS)
+INPUT_VAL_0_236         = input.float(0.236, '', inline='Level0', group=GROUP_FIB_LEVELS)
+INPUT_COL_0_236         = input.color(color.new(COLOR_RED, TRANS_MAIN), '', inline='Level0', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_0_382        = input.bool(true, '', inline='Level1', group=GROUP_FIB_LEVELS)
+INPUT_VAL_0_382         = input.float(0.382, '', inline='Level1', group=GROUP_FIB_LEVELS)
+INPUT_COL_0_382         = input.color(color.new(COLOR_LIGHT_GREEN, TRANS_MAIN), '', inline='Level1', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_0_5          = input.bool(true, '', inline='Level1', group=GROUP_FIB_LEVELS)
+INPUT_VAL_0_5           = input.float(0.5, '', inline='Level1', group=GROUP_FIB_LEVELS)
+INPUT_COL_0_5           = input.color(color.new(COLOR_GREEN, TRANS_MAIN), '', inline='Level1', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_0_618        = input.bool(true, '', inline='Level2', group=GROUP_FIB_LEVELS)
+INPUT_VAL_0_618         = input.float(0.618, '', inline='Level2', group=GROUP_FIB_LEVELS)
+INPUT_COL_0_618         = input.color(color.new(COLOR_TEAL, TRANS_MAIN), '', inline='Level2', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_0_65         = input.bool(true, '', inline='Level2', group=GROUP_FIB_LEVELS)
+INPUT_VAL_0_65          = input.float(0.65, '', inline='Level2', group=GROUP_FIB_LEVELS)
+INPUT_COL_0_65          = input.color(color.new(COLOR_TEAL, TRANS_SUPP), '', inline='Level2', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_0_786        = input.bool(true, '', inline='Level3', group=GROUP_FIB_LEVELS)
+INPUT_VAL_0_786         = input.float(0.786, '', inline='Level3', group=GROUP_FIB_LEVELS)
+INPUT_COL_0_786         = input.color(color.new(COLOR_LIGHT_BLUE, TRANS_MAIN), '', inline='Level3', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_1            = input.bool(true, '', inline='Level3', group=GROUP_FIB_LEVELS)
+INPUT_VAL_1             = input.float(1., '', inline='Level3', group=GROUP_FIB_LEVELS)
+INPUT_COL_1             = input.color(color.new(#787b86, 15), '', inline='Level3', group=GROUP_FIB_LEVELS) 
+INPUT_SHOW_1_272        = input.bool(true, '', inline='Level4', group=GROUP_FIB_LEVELS)
+INPUT_VAL_1_272         = input.float(1.272, '', inline='Level4', group=GROUP_FIB_LEVELS)
+INPUT_COL_1_272         = input.color(color.new(COLOR_LIGHT_GREEN, TRANS_MAIN), '', inline='Level4', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_1_414        = input.bool(false, '', inline='Level4', group=GROUP_FIB_LEVELS)
+INPUT_VAL_1_414         = input.float(1.414, '', inline='Level4', group=GROUP_FIB_LEVELS)
+INPUT_COL_1_414         = input.color(color.new(COLOR_RED, TRANS_SUPP), '', inline='Level4', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_1_618        = input.bool(true, '', inline='Level5', group=GROUP_FIB_LEVELS)
+INPUT_VAL_1_618         = input.float(1.618, '', inline='Level5', group=GROUP_FIB_LEVELS)
+INPUT_COL_1_618         = input.color(color.new(COLOR_BLUE, TRANS_MAIN), '', inline='Level5', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_1_65         = input.bool(false, '', inline='Level5', group=GROUP_FIB_LEVELS)
+INPUT_VAL_1_65          = input.float(1.65, '', inline='Level5', group=GROUP_FIB_LEVELS)
+INPUT_COL_1_65          = input.color(color.new(COLOR_BLUE, TRANS_SUPP), '', inline='Level5', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_2_618        = input.bool(false, '', inline='Level6', group=GROUP_FIB_LEVELS)
+INPUT_VAL_2_618         = input.float(2.618, '', inline='Level6', group=GROUP_FIB_LEVELS)
+INPUT_COL_2_618         = input.color(color.new(COLOR_RED, TRANS_SUPP), '', inline='Level6', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_2_65         = input.bool(true, '', inline='Level6', group=GROUP_FIB_LEVELS)
+INPUT_VAL_2_65          = input.float(2.65, '', inline='Level6', group=GROUP_FIB_LEVELS)
+INPUT_COL_2_65          = input.color(color.new(COLOR_RED, TRANS_SUPP), '', inline='Level6', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_3_618        = input.bool(false, '', inline='Level7', group=GROUP_FIB_LEVELS)
+INPUT_VAL_3_618         = input.float(3.618, '', inline='Level7', group=GROUP_FIB_LEVELS)
+INPUT_COL_3_618         = input.color(color.new(COLOR_PURPLE, TRANS_SUPP), '', inline='Level7', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_3_65         = input.bool(true, '', inline='Level7', group=GROUP_FIB_LEVELS)
+INPUT_VAL_3_65          = input.float(3.65, '', inline='Level7', group=GROUP_FIB_LEVELS)
+INPUT_COL_3_65          = input.color(color.new(COLOR_PURPLE, TRANS_SUPP), '', inline='Level7', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_4_236        = input.bool(true, '', inline='Level8', group=GROUP_FIB_LEVELS)
+INPUT_VAL_4_236         = input.float(4.236, '', inline='Level8', group=GROUP_FIB_LEVELS)
+INPUT_COL_4_236         = input.color(color.new(COLOR_PINK, TRANS_SUPP), '', inline='Level8', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_4_618        = input.bool(true, '', inline='Level8', group=GROUP_FIB_LEVELS)
+INPUT_VAL_4_618         = input.float(4.669, '', inline='Level8', group=GROUP_FIB_LEVELS)
+INPUT_COL_4_618         = input.color(color.new(COLOR_LIGHT_GREEN, TRANS_SUPP) , '', inline='Level8', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_NEG_0_236    = input.bool(true, '', inline='Level9', group=GROUP_FIB_LEVELS)
+INPUT_VAL_NEG_0_236     = input.float(-0.236, '', inline='Level9', group=GROUP_FIB_LEVELS)
+INPUT_COL_NEG_0_236     = input.color(color.new(COLOR_RED, TRANS_SUPP), '', inline='Level9', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_NEG_0_382    = input.bool(true, '', inline='Level9', group=GROUP_FIB_LEVELS)
+INPUT_VAL_NEG_0_382     = input.float(-0.382, '', inline='Level9', group=GROUP_FIB_LEVELS)
+INPUT_COL_NEG_0_382     = input.color(color.new(COLOR_LIGHT_GREEN, TRANS_SUPP), '', inline='Level9', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_NEG_0_618    = input.bool(false, '', inline='Level10', group=GROUP_FIB_LEVELS)
+INPUT_VAL_NEG_0_618     = input.float(-0.618, '', inline='Level10', group=GROUP_FIB_LEVELS)
+INPUT_COL_NEG_0_618     = input.color(color.new(COLOR_TEAL, TRANS_SUPP), '', inline='Level10', group=GROUP_FIB_LEVELS)
+INPUT_SHOW_NEG_0_65     = input.bool(true, '', inline='Level10', group=GROUP_FIB_LEVELS)
+INPUT_VAL_NEG_0_65      = input.float(-0.65, '', inline='Level10', group=GROUP_FIB_LEVELS)
+INPUT_COL_NEG_0_65      = input.color(color.new(COLOR_TEAL, TRANS_SUPP), '', inline='Level10', group=GROUP_FIB_LEVELS)
 
-float i_dev_threshold_1D  = dev_treshold(input.float(2, 'Deviation (1D)', minval=0, inline='Pivots', group=group_fib_threshold_d, tooltip=tooltip_threshold))
-float i_dev_threshold_7D  = dev_treshold(input.float(2, 'Deviation (7D)', minval=0, inline='Pivots', group=group_fib_threshold_d, tooltip=tooltip_threshold))
+// ZigZag
+INPUT_SHOW_ZIGZAG       = input.bool(true, 'Zig Zag  ', inline='ZZ', group=GROUP_ZIGZAG, tooltip=TOOLTIP_ZIGZAG)
 
-float i_dev_threshold_4W  = dev_treshold(input.float(2, 'Deviation (4W)', minval=0, inline='Pivots', group=group_fib_threshold_w, tooltip=tooltip_threshold))
+// Alerts
+INPUT_ALERT_ENABLED     = input.bool(false, 'Enable Alerts', group=GROUP_ALERTS)
+INPUT_ALERT_MODE        = input.string('calculateAlertUpdates', 'Alert data collection mode', options=['calculateAlertData', 'calculateAlertUpdates'], group = GROUP_ALERTS)
+INPUT_ALERT_SEPARATOR   = input.string('|', 'Alert data separator', group = GROUP_ALERTS)
 
-float i_dev_threshold_3M  = dev_treshold(input.float(2, 'Deviation (3M)', minval=0, inline='Pivots', group=group_fib_threshold_m, tooltip=tooltip_threshold))
-float i_dev_threshold_6M  = dev_treshold(input.float(2, 'Deviation (6M)', minval=0, inline='Pivots', group=group_fib_threshold_m, tooltip=tooltip_threshold))
-float i_dev_threshold_12M = dev_treshold(input.float(2, 'Deviation (12M)', minval=0, inline='Pivots', group=group_fib_threshold_m, tooltip=tooltip_threshold))
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-int i_depth_default         = input.int(3, 'Depth (default)', minval=1, inline='Pivots', group=group_fib_depth_sec)
-
-int i_depth_1S      = input.int(4, 'Depth (1S)', minval=1, inline='Pivots', group=group_fib_depth_sec)
-int i_depth_5S      = input.int(6, 'Depth (5S)', minval=1, inline='Pivots', group=group_fib_depth_sec)
-int i_depth_10S     = input.int(6, 'Depth (10S)', minval=1, inline='Pivots', group=group_fib_depth_sec)
-int i_depth_15S     = input.int(6, 'Depth (15S)', minval=1, inline='Pivots', group=group_fib_depth_sec)
-int i_depth_30S     = input.int(6, 'Depth (30S)', minval=1, inline='Pivots', group=group_fib_depth_sec)
-int i_depth_45S     = input.int(6, 'Depth (45S)', minval=1, inline='Pivots', group=group_fib_depth_sec)
-
-int i_depth_1       = input.int(3, 'Depth (1M)', minval=1, inline='Pivots', group=group_fib_depth_min)
-int i_depth_2       = input.int(3, 'Depth (2M)', minval=1, inline='Pivots', group=group_fib_depth_min)
-int i_depth_3       = input.int(3, 'Depth (3M)', minval=1, inline='Pivots', group=group_fib_depth_min)
-int i_depth_5       = input.int(3, 'Depth (5M)', minval=1, inline='Pivots', group=group_fib_depth_min)
-int i_depth_10      = input.int(3, 'Depth (10M)', minval=1, inline='Pivots', group=group_fib_depth_min)
-int i_depth_15      = input.int(3, 'Depth (15M)', minval=1, inline='Pivots', group=group_fib_depth_min)
-int i_depth_30      = input.int(3, 'Depth (30M)', minval=1, inline='Pivots', group=group_fib_depth_min)
-int i_depth_45      = input.int(3, 'Depth (45M)', minval=1, inline='Pivots', group=group_fib_depth_min)
-
-int i_depth_60      = input.int(2, 'Depth (1H)', minval=1, inline='Pivots', group=group_fib_depth_h)
-int i_depth_120     = input.int(2, 'Depth (2H)', minval=1, inline='Pivots', group=group_fib_depth_h)
-int i_depth_180     = input.int(2, 'Depth (3H)', minval=1, inline='Pivots', group=group_fib_depth_h)
-int i_depth_240     = input.int(2, 'Depth (4H)', minval=1, inline='Pivots', group=group_fib_depth_h)
-
-int i_depth_1D      = input.int(3, 'Depth (1D)', minval=1, inline='Pivots', group=group_fib_depth_d)
-int i_depth_7D      = input.int(3, 'Depth (7D)', minval=1, inline='Pivots', group=group_fib_depth_d)
-
-int i_depth_4W      = input.int(3, 'Depth (4W)', minval=1, inline='Pivots', group=group_fib_depth_w)
-
-int i_depth_3M      = input.int(3, 'Depth (3M)', minval=1, inline='Pivots', group=group_fib_depth_m)
-int i_depth_6M      = input.int(3, 'Depth (6M)', minval=1, inline='Pivots', group=group_fib_depth_m)
-int i_depth_12M     = input.int(3, 'Depth (12M)', minval=1, inline='Pivots', group=group_fib_depth_m)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-i_levels     = input.string('Prices', 'Level Labels', options=['Levels', 'Prices', 'Levels + Prices', 'None'], inline='fLines', group=group_fib_tool)
-i_levelsP    = input.string('Pivot Start', '', options=['Last Bar', 'Pivot Start'], inline='fLines', group=group_fib_tool)
-i_levelsS    = input.string('Small', '', options=['Small', 'Normal'], inline='fLines', group=group_fib_tool)
-
-i_reverse    = input.bool(false, 'Reverse Extention / Retracement Levels', group=group_fib_tool)
-i_extendER   = input.bool(false, 'Extend Extention / Retracement Lines', inline='fLine', group=group_fib_tool)
-i_histPivot  = input.int (0, 'Historical Extention / Retracement Levels', minval=0, group=group_fib_tool)
-
-i_histPivot2 = input.int(0, 'Historical Time Zones', minval=0, group=group_fib_tool)
-i_fib_tzl    = input.bool(false, 'Time Zone Lables', inline='tz poz', group=group_fib_tool)
-i_fib_tzlp   = input.string('Left', '', options=['Right', 'Left'], inline='tz poz', group=group_fib_tool)
-fib_tzlp     = i_fib_tzlp == 'Left' ? label.style_label_left : label.style_label_right
-i_fib_tzlp2  = input.string('Bottom', '', options=['Bottom', 'Top'], inline='tz poz', group=group_fib_tool)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-show_0  = input.bool(true, '', inline='Level0', group=group_fib_levels)
-value_0 = input.float(0., '', inline='Level0', group=group_fib_levels)
-color_0 = input.color(color.new(#a2a2a2, t_color_transarpency_main), '', inline='Level0', group=group_fib_levels)
-
-show_0_236  = input.bool(true, '', inline='Level0', group=group_fib_levels)
-value_0_236 = input.float(0.236, '', inline='Level0', group=group_fib_levels)
-color_0_236 = input.color(color.new(#f44336, t_color_transarpency_main), '', inline='Level0', group=group_fib_levels)
-
-show_0_382  = input.bool(true, '', inline='Level1', group=group_fib_levels)
-value_0_382 = input.float(0.382, '', inline='Level1', group=group_fib_levels)
-color_0_382 = input.color(color.new(#81c784, t_color_transarpency_main), '', inline='Level1', group=group_fib_levels)
-
-show_0_5  = input.bool(true, '', inline='Level1', group=group_fib_levels)
-value_0_5 = input.float(0.5, '', inline='Level1', group=group_fib_levels)
-color_0_5 = input.color(color.new(#4caf50, t_color_transarpency_main), '', inline='Level1', group=group_fib_levels)
-
-show_0_618  = input.bool(true, '', inline='Level2', group=group_fib_levels)
-value_0_618 = input.float(0.618, '', inline='Level2', group=group_fib_levels)
-color_0_618 = input.color(color.new(#009688, t_color_transarpency_main), '', inline='Level2', group=group_fib_levels)
-
-show_0_65  = input.bool(false, '', inline='Level2', group=group_fib_levels)
-value_0_65 = input.float(0.65, '', inline='Level2', group=group_fib_levels)
-color_0_65 = input.color(color.new(#009688, t_color_transarpency_suplementary), '', inline='Level2', group=group_fib_levels)
-
-show_0_786  = input.bool(true, '', inline='Level3', group=group_fib_levels)
-value_0_786 = input.float(0.786, '', inline='Level3', group=group_fib_levels)
-color_0_786 = input.color(color.new(#64b5f6, t_color_transarpency_main), '', inline='Level3', group=group_fib_levels)
-
-show_1  = input.bool(true, '', inline='Level3', group=group_fib_levels)
-value_1 = input.float(1., '', inline='Level3', group=group_fib_levels)
-// color_1 = input.color(t_color_1, '', inline='Level3', group=group_fib_levels)
-color_1 = t_color_1
-
-show_1_272  = input.bool(true, '', inline='Level4', group=group_fib_levels)
-value_1_272 = input.float(1.272, '', inline='Level4', group=group_fib_levels)
-color_1_272 = input.color(color.new(#81c784, t_color_transarpency_main), '', inline='Level4', group=group_fib_levels)
-
-show_1_414  = input.bool(false, '', inline='Level4', group=group_fib_levels)
-value_1_414 = input.float(1.414, '', inline='Level4', group=group_fib_levels)
-color_1_414 = input.color(color.new(#f44336, t_color_transarpency_suplementary), '', inline='Level4', group=group_fib_levels)
-
-show_1_618  = input.bool(true, '', inline='Level5', group=group_fib_levels)
-value_1_618 = input.float(1.618, '', inline='Level5', group=group_fib_levels)
-color_1_618 = input.color(color.new(#2196f3, t_color_transarpency_main), '', inline='Level5', group=group_fib_levels)
-
-show_1_65  = input.bool(false, '', inline='Level5', group=group_fib_levels)
-value_1_65 = input.float(1.65, '', inline='Level5', group=group_fib_levels)
-color_1_65 = input.color(color.new(#2196f3, t_color_transarpency_suplementary), '', inline='Level5', group=group_fib_levels)
-
-show_2_618  = input.bool(false, '', inline='Level6', group=group_fib_levels)
-value_2_618 = input.float(2.618, '', inline='Level6', group=group_fib_levels)
-color_2_618 = input.color(color.new(#f44336, t_color_transarpency_suplementary), '', inline='Level6', group=group_fib_levels)
-
-show_2_65  = input.bool(true, '', inline='Level6', group=group_fib_levels)
-value_2_65 = input.float(2.65, '', inline='Level6', group=group_fib_levels)
-color_2_65 = input.color(color.new(#f44336, t_color_transarpency_suplementary), '', inline='Level6', group=group_fib_levels)
-
-show_3_618  = input.bool(false, '', inline='Level7', group=group_fib_levels)
-value_3_618 = input.float(3.618, '', inline='Level7', group=group_fib_levels)
-color_3_618 = input.color(color.new(#9c27b0, t_color_transarpency_suplementary), '', inline='Level7', group=group_fib_levels)
-
-show_3_65  = input.bool(true, '', inline='Level7', group=group_fib_levels)
-value_3_65 = input.float(3.65, '', inline='Level7', group=group_fib_levels)
-color_3_65 = input.color(color.new(#9c27b0, t_color_transarpency_suplementary), '', inline='Level7', group=group_fib_levels)
-
-show_4_236  = input.bool(true, '', inline='Level8', group=group_fib_levels)
-value_4_236 = input.float(4.236, '', inline='Level8', group=group_fib_levels)
-color_4_236 = input.color(color.new(#e91e63, t_color_transarpency_suplementary), '', inline='Level8', group=group_fib_levels)
-
-show_4_618  = input.bool(true, '', inline='Level8', group=group_fib_levels)
-value_4_618 = input.float(4.618, '', inline='Level8', group=group_fib_levels)
-color_4_618 = input.color(color.new(#81c784, t_color_transarpency_suplementary) , '', inline='Level8', group=group_fib_levels)
-
-show_neg_0_236  = input.bool(true, '', inline='Level9', group=group_fib_levels)
-value_neg_0_236 = input.float(-0.236, '', inline='Level9', group=group_fib_levels)
-color_neg_0_236 = input.color(color.new(#f44336, t_color_transarpency_suplementary), '', inline='Level9', group=group_fib_levels)
-
-show_neg_0_382  = input.bool(true, '', inline='Level9', group=group_fib_levels)
-value_neg_0_382 = input.float(-0.382, '', inline='Level9', group=group_fib_levels)
-color_neg_0_382 = input.color(color.new(#81c784, t_color_transarpency_suplementary), '', inline='Level9', group=group_fib_levels)
-
-show_neg_0_618  = input.bool(false, '', inline='Level10', group=group_fib_levels)
-value_neg_0_618 = input.float(-0.618, '', inline='Level10', group=group_fib_levels)
-color_neg_0_618 = input.color(color.new(#009688, t_color_transarpency_suplementary), '', inline='Level10', group=group_fib_levels)
-
-show_neg_0_65  = input.bool(true, '', inline='Level10', group=group_fib_levels)
-value_neg_0_65 = input.float(-0.65, '', inline='Level10', group=group_fib_levels)
-color_neg_0_65 = input.color(color.new(#009688, t_color_transarpency_suplementary), '', inline='Level10', group=group_fib_levels)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-i_zigZag     = input.bool(true, 'Zig Zag  ', inline='ZZ', group=group_zigzag, tooltip=tooltip_zigzag)
-// i_zzColor    = input.color(t_zzColor, '', inline='ZZ', group=group_zigzag)
-i_zzColor = t_zzColor
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-alertEnabled = input.bool(false, 'Enable Alerts', group='Alerts')
-alertMode = input.string('calculateAlertUpdates', 'Alert data collection mode', options=['calculateAlertData', 'calculateAlertUpdates'], group = 'Alerts')
-s = input.string('|', 'Alert data separator', group = 'Alerts')
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// High Volatility
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-i_hATRLb = input.bool(false, '⚡', inline='ATR', group=group_vol_vol, tooltip=tooltip_high_volatility)
-i_weightedATR = ta.atr(input.int(13, 'ATR : Length', inline='ATR', group=group_vol_vol)) * input.float(2.718, 'Mult', minval=.1, step=.1, inline='ATR', group=group_vol_vol)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Volume Moving Average : Base
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-i_vSMA = ta.sma(nz(volume), input.int(89, 'Volume Moving Average Length', group=group_vol_vol))
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Volume Spike - Sign of Exhaustion
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-i_vSpikeLb = input.bool(false, '🚦', inline='SRS1', group=group_vol_vol, tooltip=tooltip_volume_spike_sign_of_exhaustion)
-i_vSpikeThresh = input.float(4.669, 'Volume Spike Theshold           ', minval=.1, step=.1, inline='SRS1', group=group_vol_vol)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Volatility & Volume AddOns
+INPUT_SHOW_HIGH_ATR     = input.bool(false, '⚡', inline='ATR', group=GROUP_VOL_VOL, tooltip=TOOLTIP_HIGH_VOL)
+INPUT_ATR_LENGTH        = input.int(7, 'ATR : Length', inline='ATR', group=GROUP_VOL_VOL)
+INPUT_ATR_MULT          = input.float(2.0, 'Mult', minval=.1, step=.1, inline='ATR', group=GROUP_VOL_VOL)
+INPUT_VOL_SMA_LEN       = input.int(89, 'Volume Moving Average Length', group=GROUP_VOL_VOL)
+INPUT_SHOW_VOL_SPIKE    = input.bool(false, '🚦', inline='SRS1', group=GROUP_VOL_VOL, tooltip=TOOLTIP_VOL_EXHAUST)
+INPUT_VOL_SPIKE_THRESH  = input.float(2.5, 'Volume Spike Theshold           ', minval=.1, step=.1, inline='SRS1', group=GROUP_VOL_VOL)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//
-// Variables
-//
+// CALCULATIONS & LOGIC
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Data Structures
+var map<float, float> l_pivotLevelsLog_retracements = map.new<float, float>()
+var map<float, float> l_pivotLevelsLog_crossed_retracements = map.new<float, float>()
+
+type FibLevel
+    float level
+    color col
+    bool show
+    line ln = na
+    label lb = na
+
+var fibLevels = array.new<FibLevel>()
+if barstate.isfirst
+    fibLevels.push(FibLevel.new(INPUT_VAL_0, INPUT_COL_0, INPUT_SHOW_0))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_236, INPUT_COL_0_236, INPUT_SHOW_0_236))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_382, INPUT_COL_0_382, INPUT_SHOW_0_382))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_5, INPUT_COL_0_5, INPUT_SHOW_0_5))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_618, INPUT_COL_0_618, INPUT_SHOW_0_618))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_65, INPUT_COL_0_65, INPUT_SHOW_0_65))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_786, INPUT_COL_0_786, INPUT_SHOW_0_786))
+    fibLevels.push(FibLevel.new(INPUT_VAL_1, INPUT_COL_1, INPUT_SHOW_1))
+    fibLevels.push(FibLevel.new(INPUT_VAL_1_272, INPUT_COL_1_272, INPUT_SHOW_1_272))
+    fibLevels.push(FibLevel.new(INPUT_VAL_1_414, INPUT_COL_1_414, INPUT_SHOW_1_414))
+    fibLevels.push(FibLevel.new(INPUT_VAL_1_618, INPUT_COL_1_618, INPUT_SHOW_1_618))
+    fibLevels.push(FibLevel.new(INPUT_VAL_1_65, INPUT_COL_1_65, INPUT_SHOW_1_65))
+    fibLevels.push(FibLevel.new(INPUT_VAL_2_618, INPUT_COL_2_618, INPUT_SHOW_2_618))
+    fibLevels.push(FibLevel.new(INPUT_VAL_2_65, INPUT_COL_2_65, INPUT_SHOW_2_65))
+    fibLevels.push(FibLevel.new(INPUT_VAL_3_618, INPUT_COL_3_618, INPUT_SHOW_3_618))
+    fibLevels.push(FibLevel.new(INPUT_VAL_3_65, INPUT_COL_3_65, INPUT_SHOW_3_65))
+    fibLevels.push(FibLevel.new(INPUT_VAL_4_236, INPUT_COL_4_236, INPUT_SHOW_4_236))
+    fibLevels.push(FibLevel.new(INPUT_VAL_4_618, INPUT_COL_4_618, INPUT_SHOW_4_618))
+    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_236, INPUT_COL_NEG_0_236, INPUT_SHOW_NEG_0_236))
+    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_382, INPUT_COL_NEG_0_382, INPUT_SHOW_NEG_0_382))
+    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_618, INPUT_COL_NEG_0_618, INPUT_SHOW_NEG_0_618))
+    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_65, INPUT_COL_NEG_0_65, INPUT_SHOW_NEG_0_65))
 
 int decimalsCount = math.round(math.abs(math.log(1 / syminfo.mintick) / math.log(10)))
 
+// AddOn Logic: Volatility & Volume
+i_weightedATR = ta.atr(INPUT_ATR_LENGTH) * INPUT_ATR_MULT
+i_vSMA = ta.sma(nz(volume), INPUT_VOL_SMA_LEN)
+
+nzVolume = nz(volume)
+bullCandle = close > open
+bearCandle = close < open
+range_1 = math.abs(high - low)
+exhaustVol = nzVolume > INPUT_VOL_SPIKE_THRESH * i_vSMA
+bool crossover_exhaustion = ta.crossover(nzVolume, i_vSMA * INPUT_VOL_SPIKE_THRESH)
+highVolatility = range_1 > i_weightedATR
+bool crossover_volatility = ta.crossover(range_1, i_weightedATR)
+
+// Variable Declarations
 var line lineLast = na
 var int iLast = 0
 var int iPrev = 0
 var float pLast = 0
-var isHighLast = false  // otherwise the last pivot is a low pivot
-
+var isHighLast = false 
 var iPrevPivot = 0
 var pPrevPivot = 0.
 var iLastPivot = 0
 var pLastPivot = 0.
 
-var int i_depth = i_depth_default
+// Track pivot changes to optimize drawing
+var bool pivotChanged = false
 
-if i_customDepth
-    i_depth := switch timeframe.period
-        "1S" => i_depth_1S
-        "5S" => i_depth_5S
-        "10S" => i_depth_10S
-        "15S" => i_depth_15S
-        "30S" => i_depth_30S
-        "45S" => i_depth_45S
-        "1" => i_depth_1
-        "2" => i_depth_2
-        "3" => i_depth_3
-        "5" => i_depth_5
-        "10" => i_depth_10
-        "15" => i_depth_15
-        "30" => i_depth_30
-        "45" => i_depth_45
-        "60" => i_depth_60
-        "120" => i_depth_120
-        "180" => i_depth_180
-        "240" => i_depth_240
-        "1D" => i_depth_1D
-        "7D" => i_depth_7D
-        "4W" => i_depth_4W
-        "3M" => i_depth_3M
-        "6M" => i_depth_6M
-        "12M" => i_depth_12M
-        => 3
+// Cached pivot coordinates for stable Fibonacci drawing
+var int cachedIMidPivot = na
+var float cachedPMidPivot = na
+var int cachedIEndBase = na
+var float cachedPEndBase = na
+var int cachedIMidPivot2 = na
+var float cachedPMidPivot2 = na
+var int cachedIEndBase2 = na
+var float cachedPEndBase2 = na
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
+// Determine Global Deviation Threshold based on Timeframe
+float GLOBAL_DEV_THRESHOLD = switch
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "1S" => INPUT_DEV_THRESH_1S
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "5S" => INPUT_DEV_THRESH_5S
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "10S" => INPUT_DEV_THRESH_10S
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "15S" => INPUT_DEV_THRESH_15S
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "30S" => INPUT_DEV_THRESH_30S
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "45S" => INPUT_DEV_THRESH_45S
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "1" => INPUT_DEV_THRESH_1M
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "2" => INPUT_DEV_THRESH_2M
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "3" => INPUT_DEV_THRESH_3M
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "5" => INPUT_DEV_THRESH_5M
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "10" => INPUT_DEV_THRESH_10M
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "15" => INPUT_DEV_THRESH_15M
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "30" => INPUT_DEV_THRESH_30M
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "45" => INPUT_DEV_THRESH_45M
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "60" => INPUT_DEV_THRESH_1H
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "120" => INPUT_DEV_THRESH_2H
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "180" => INPUT_DEV_THRESH_3H
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "240" => INPUT_DEV_THRESH_4H
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "1D" => INPUT_DEV_THRESH_1D
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "7D" => INPUT_DEV_THRESH_7D
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "4W" => INPUT_DEV_THRESH_4W
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "3M" => INPUT_DEV_THRESH_3MO
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "6M" => INPUT_DEV_THRESH_6MO
+    INPUT_CUSTOM_THRESHOLD and timeframe.period == "12M" => INPUT_DEV_THRESH_12MO
+    => INPUT_DEV_THRESH_DEFAULT
 
-// This script calculates various pivot points and their corresponding values based on historical pivot data.
-// The calculations are conditional, depending on whether the historical pivot values (i_histPivot and i_histPivot2) are greater than 0.
-// If the historical pivot values are greater than 0, the script uses the `ta.valuewhen` function to get the pivot values at specific conditions.
-// If the historical pivot values are not greater than 0, the script uses the `line.get_x` and `line.get_y` functions to get the pivot values from the last line drawn.
+// Determine Depth based on Timeframe
+int i_depth = switch
+    INPUT_CUSTOM_DEPTH and timeframe.period == "1S" => INPUT_DEPTH_1S
+    INPUT_CUSTOM_DEPTH and timeframe.period == "5S" => INPUT_DEPTH_5S
+    INPUT_CUSTOM_DEPTH and timeframe.period == "10S" => INPUT_DEPTH_10S
+    INPUT_CUSTOM_DEPTH and timeframe.period == "15S" => INPUT_DEPTH_15S
+    INPUT_CUSTOM_DEPTH and timeframe.period == "30S" => INPUT_DEPTH_30S
+    INPUT_CUSTOM_DEPTH and timeframe.period == "45S" => INPUT_DEPTH_45S
+    INPUT_CUSTOM_DEPTH and timeframe.period == "1" => INPUT_DEPTH_1M
+    INPUT_CUSTOM_DEPTH and timeframe.period == "2" => INPUT_DEPTH_2M
+    INPUT_CUSTOM_DEPTH and timeframe.period == "3" => INPUT_DEPTH_3M
+    INPUT_CUSTOM_DEPTH and timeframe.period == "5" => INPUT_DEPTH_5M
+    INPUT_CUSTOM_DEPTH and timeframe.period == "10" => INPUT_DEPTH_10M
+    INPUT_CUSTOM_DEPTH and timeframe.period == "15" => INPUT_DEPTH_15M
+    INPUT_CUSTOM_DEPTH and timeframe.period == "30" => INPUT_DEPTH_30M
+    INPUT_CUSTOM_DEPTH and timeframe.period == "45" => INPUT_DEPTH_45M
+    INPUT_CUSTOM_DEPTH and timeframe.period == "60" => INPUT_DEPTH_1H
+    INPUT_CUSTOM_DEPTH and timeframe.period == "120" => INPUT_DEPTH_2H
+    INPUT_CUSTOM_DEPTH and timeframe.period == "180" => INPUT_DEPTH_3H
+    INPUT_CUSTOM_DEPTH and timeframe.period == "240" => INPUT_DEPTH_4H
+    INPUT_CUSTOM_DEPTH and timeframe.period == "1D" => INPUT_DEPTH_1D
+    INPUT_CUSTOM_DEPTH and timeframe.period == "7D" => INPUT_DEPTH_7D
+    INPUT_CUSTOM_DEPTH and timeframe.period == "4W" => INPUT_DEPTH_4W
+    INPUT_CUSTOM_DEPTH and timeframe.period == "3M" => INPUT_DEPTH_3MO
+    INPUT_CUSTOM_DEPTH and timeframe.period == "6M" => INPUT_DEPTH_6MO
+    INPUT_CUSTOM_DEPTH and timeframe.period == "12M" => INPUT_DEPTH_12MO
+    => INPUT_DEPTH_DEFAULT
 
-// Variables:
-// iStartBase: Initial pivot value for the first set of historical data.
-// pStartBase: Corresponding price value for the initial pivot of the first set of historical data.
-// iEndBase: Ending pivot value for the first set of historical data.
-// pEndBase: Corresponding price value for the ending pivot of the first set of historical data.
-// iMidPivot: Middle pivot value for the first set of historical data.
-// pMidPivot: Corresponding price value for the middle pivot of the first set of historical data.
-// iEndBase2: Ending pivot value for the second set of historical data.
-// pEndBase2: Corresponding price value for the ending pivot of the second set of historical data.
-// iMidPivot2: Middle pivot value for the second set of historical data.
-// pMidPivot2: Corresponding price value for the middle pivot of the second set of historical data.
-//   - If there is no change in the higher time frame, update the high and low prices with the maximum and minimum values respectively.
-//   - Return an array containing the previous and current OHLC values.
-iStartBase = i_histPivot  > 0 ? ta.valuewhen(ta.change(iPrevPivot !=0), iPrevPivot, i_histPivot)      : ta.valuewhen(ta.change(iPrevPivot !=0), iPrevPivot, 0)
-pStartBase = i_histPivot  > 0 ? ta.valuewhen(ta.change(pPrevPivot !=0), pPrevPivot, i_histPivot)      : ta.valuewhen(ta.change(pPrevPivot !=0), pPrevPivot, 0)
-iEndBase   = i_histPivot  > 0 ? ta.valuewhen(ta.change(iLastPivot !=0), iLastPivot, i_histPivot  - 1) : line.get_x2(lineLast)
-pEndBase   = i_histPivot  > 0 ? ta.valuewhen(ta.change(pLastPivot !=0), pLastPivot, i_histPivot  - 1) : line.get_y2(lineLast)
-iMidPivot  = i_histPivot  > 0 ? ta.valuewhen(ta.change(iPrevPivot !=0), iPrevPivot, i_histPivot  - 1) : line.get_x1(lineLast)
-pMidPivot  = i_histPivot  > 0 ? ta.valuewhen(ta.change(pPrevPivot !=0), pPrevPivot, i_histPivot  - 1) : line.get_y1(lineLast)
-iEndBase2  = i_histPivot2 > 0 ? ta.valuewhen(ta.change(iLastPivot !=0), iLastPivot, i_histPivot2 - 1) : line.get_x2(lineLast)
-pEndBase2  = i_histPivot2 > 0 ? ta.valuewhen(ta.change(pLastPivot !=0), pLastPivot, i_histPivot2 - 1) : line.get_y2(lineLast)
-iMidPivot2 = i_histPivot2 > 0 ? ta.valuewhen(ta.change(iPrevPivot !=0), iPrevPivot, i_histPivot2 - 1) : line.get_x1(lineLast)
-pMidPivot2 = i_histPivot2 > 0 ? ta.valuewhen(ta.change(pPrevPivot !=0), pPrevPivot, i_histPivot2 - 1) : line.get_y1(lineLast)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-// This script determines the higher timeframe (htf_auto) based on the current chart's timeframe (timeframe.period).
-// The mapping is as follows:
-// - For 1, 3, and 5-minute charts, the higher timeframe is 240 minutes (4 hours).
-// - For 15, 30, and 45-minute charts, the higher timeframe is 1 day (D).
-// - For 60, 120, 180, and 240-minute charts, the higher timeframe is 1 week (W).
-// - For daily (D) charts, the higher timeframe is 1 month (M).
-// - For weekly (W) charts, the higher timeframe is 3 months (3M).
-// - For all other timeframes, the higher timeframe is 12 months (12M).
+// Determine HTF
 htf_auto = timeframe.period == '1'   ? '240' : 
            timeframe.period == '3'   ? '240' : 
            timeframe.period == '5'   ? '240' : 
@@ -433,218 +398,166 @@ htf_auto = timeframe.period == '1'   ? '240' :
            timeframe.period == 'D'   ? 'M'   : 
            timeframe.period == 'W'   ? '3M'  : '12M'
 
-htf = i_htf_mode == 'Auto' ? htf_auto : i_htf_user
+htf = INPUT_HTF_MODE == 'Auto' ? htf_auto : htf_user_parsed
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-// This script calculates specific time values based on higher timeframe (htf) changes.
-// `time_x10` captures the time of the previous change in the higher timeframe.
-// `time_x11` captures the time of the current change in the higher timeframe.
-// `time_x21` calculates a projected time value based on the current and previous higher timeframe changes.
+// Time Calculations
 time_x10 = ta.valuewhen(ta.change(time(htf)) != 0, time, 1)
 time_x11 = ta.valuewhen(ta.change(time(htf)) != 0, time, 0)
 time_x21 = 2 * time_x11 - time_x10
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-var ln = array.new_line()
-var lb = array.new_label()
-
-nzVolume = nz(volume)
-bullCandle = close > open
-bearCandle = close < open
-range_1 = math.abs(high - low)
-exhaustVol = nzVolume > i_vSpikeThresh * i_vSMA
-bool crossover_exhaustion = ta.crossover(nzVolume, i_vSMA * i_vSpikeThresh)
-highVolatility = range_1 > i_weightedATR
-bool crossover_volatility = ta.crossover(range_1, i_weightedATR)
+var ln = array.new<line>()
+var lb = array.new<label>()
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//
-// Functions
-//
+// FUNCTIONS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: pivots
-// Description: This function identifies pivot points in a given source series.
-// Parameters:
-//   src (series): The source series to analyze for pivot points.
-//   length (int): The length of the window to consider for identifying pivots.
-//   isHigh (bool): A boolean flag indicating whether to identify high pivots (true) or low pivots (false).
-// Returns:
-//   array: An array containing the bar index and the pivot value if a pivot is found, otherwise an array with `na` values.
-pivots(src, length, isHigh) =>
-    l2 = length * 2
-    c = nz(src[length])
-    ok = true
+pivotLength = math.max(1, int(math.round(i_depth / 2)))
+pH = ta.pivothigh(high, pivotLength, pivotLength)
+pL = ta.pivotlow(low, pivotLength, pivotLength)
+iH = not na(pH) ? bar_index[pivotLength] : int(na)
+iL = not na(pL) ? bar_index[pivotLength] : int(na)
 
-    for i = 0 to l2 by 1
-        if isHigh and src[i] > c
-            ok := false
-            ok
-
-        if not isHigh and src[i] < c
-            ok := false
-            ok
-    if ok
-        [bar_index[length], c]
-    else
-        [int(na), float(na)]
-
-[iH, pH] = pivots(high, i_depth / 2, true)
-[iL, pL] = pivots(low, i_depth / 2, false)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: calc_dev
-// Description: This function calculates the percentage deviation between a base price and a given price.
-// Parameters:
-//   base_price (float) - The base price to compare against.
-//   price (float) - The current price to compare with the base price.
-// Returns:
-//   float - The percentage deviation between the base price and the current price.
-calc_dev(base_price, price) =>
+calc_dev(float base_price, float price) =>
     100 * (price - base_price) / price
     
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: pivotFound
-// Description: This function identifies pivot points in price data and draws lines to represent significant price movements.
-// Parameters:
-//   dev (float) - The deviation value indicating the price movement.
-//   isHigh (bool) - A boolean indicating if the current price is a high point.
-//   index (int) - The current index in the price data series.
-//   price (float) - The current price value.
-// Returns:
-//   tuple - A tuple containing the line ID and a boolean indicating if the last point was a high point.
-// Logic:
-//   - If the direction of the pivot point is the same as the last one and the last line is not null:
-//     - If the current price continues in the same direction, update the last line's endpoint.
-//     - Otherwise, return null values.
-//   - If the direction is reversed or it's the very first line:
-//     - If the price movement is significant (greater than a threshold):
-//       - Determine the line's color, width, and style based on the zigzag settings.
-//       - Create a new line from the last point to the current point.
-//       - Return the new line ID and the current direction.
-//     - Otherwise, return null values.
 pivotFound(float dev, bool isHigh, int index, float price) =>
-    var float dev_threshold = i_dev_threshold_default
-
-    if i_customThreshold
-        dev_threshold := switch timeframe.period
-            "1S" => i_dev_threshold_1S
-            "5S" => i_dev_threshold_5S
-            "10S" => i_dev_threshold_10S
-            "15S" => i_dev_threshold_15S
-            "30S" => i_dev_threshold_30S
-            "45S" => i_dev_threshold_45S
-            "1" => i_dev_threshold_1
-            "2" => i_dev_threshold_2
-            "3" => i_dev_threshold_3
-            "5" => i_dev_threshold_5
-            "10" => i_dev_threshold_10
-            "15" => i_dev_threshold_15
-            "30" => i_dev_threshold_30
-            "45" => i_dev_threshold_45
-            "60" => i_dev_threshold_60
-            "120" => i_dev_threshold_120
-            "180" => i_dev_threshold_180
-            "240" => i_dev_threshold_240
-            "1D" => i_dev_threshold_1D
-            "7D" => i_dev_threshold_7D
-            "4W" => i_dev_threshold_4W
-            "3M" => i_dev_threshold_3M
-            "6M" => i_dev_threshold_6M
-            "12M" => i_dev_threshold_12M
-            => 3
-
+    float dev_threshold = GLOBAL_DEV_THRESHOLD
     if isHighLast == isHigh and not na(lineLast)
-        // same direction
         if isHighLast ? price > pLast : price < pLast
             line.set_xy2(lineLast, index, price)
             [lineLast, isHighLast]
         else
             [line(na), bool(na)]
     else
-        // reverse the direction (or create the very first line)
-        if math.abs(dev) > dev_threshold
-            // price move is significant
-
-            id = line.new(iLast, pLast, index, price, color=i_zzColor, width=2, style=line.style_solid)
+        if na(lineLast)
+            id = line.new(iLast, pLast, index, price, color=COLOR_ZZ, width=2, style=line.style_solid)
+            [id, isHigh]
+        else if math.abs(dev) > dev_threshold
+            id = line.new(iLast, pLast, index, price, color=COLOR_ZZ, width=2, style=line.style_solid)
             [id, isHigh]
         else
             [line(na), bool(na)]
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
 
-// This script checks if the variable `iH` is not `na` (not available).
-// If `iH` is available, it calculates the deviation `dev` using the function `calc_dev` with parameters `pLast` and `pH`.
-// It then calls the function `pivotFound` with parameters `dev`, `true`, `iH`, and `pH`, and assigns the returned values to `id` and `isHigh`.
-// If `id` is not `na`, it further checks if `id` is not equal to `lineLast`.
-// If `id` is different from `lineLast`, it retrieves the previous pivot points' coordinates using `line.get_x1`, `line.get_y1`, `line.get_x2`, and `line.get_y2` functions.
-// If `i_zigZag` is not available, it deletes the line represented by `lineLast`.
-// Finally, it updates the variables `lineLast`, `isHighLast`, `iPrev`, `iLast`, and `pLast` with the new pivot information.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// PRE-CALCULATION OF HISTORICAL PIVOT VALUES
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+temp_iMidPivot_hist = INPUT_HIST_PIVOT > 0 ? ta.valuewhen(ta.change(iPrevPivot !=0), iPrevPivot, INPUT_HIST_PIVOT - 1) : int(na)
+temp_pMidPivot_hist = INPUT_HIST_PIVOT > 0 ? ta.valuewhen(ta.change(pPrevPivot !=0), pPrevPivot, INPUT_HIST_PIVOT - 1) : float(na)
+temp_iEndBase_hist = INPUT_HIST_PIVOT > 0 ? ta.valuewhen(ta.change(iLastPivot !=0), iLastPivot, INPUT_HIST_PIVOT - 1) : int(na)
+temp_pEndBase_hist = INPUT_HIST_PIVOT > 0 ? ta.valuewhen(ta.change(pLastPivot !=0), pLastPivot, INPUT_HIST_PIVOT - 1) : float(na)
+
+temp_iMidPivot2_hist = INPUT_HIST_PIVOT_2 > 0 ? ta.valuewhen(ta.change(iPrevPivot !=0), iPrevPivot, INPUT_HIST_PIVOT_2 - 1) : int(na)
+temp_pMidPivot2_hist = INPUT_HIST_PIVOT_2 > 0 ? ta.valuewhen(ta.change(pPrevPivot !=0), pPrevPivot, INPUT_HIST_PIVOT_2 - 1) : float(na)
+temp_iEndBase2_hist = INPUT_HIST_PIVOT_2 > 0 ? ta.valuewhen(ta.change(iLastPivot !=0), iLastPivot, INPUT_HIST_PIVOT_2 - 1) : int(na)
+temp_pEndBase2_hist = INPUT_HIST_PIVOT_2 > 0 ? ta.valuewhen(ta.change(pLastPivot !=0), pLastPivot, INPUT_HIST_PIVOT_2 - 1) : float(na)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// MAIN PIVOT DETECTION AND ZIGZAG CONSTRUCTION
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+pivotChanged := false
+
 if not na(iH)
-    dev = calc_dev(pLast, pH)
-    [id, isHigh] = pivotFound(dev, true, iH, pH)
-
-    if not na(id)
-        if id != lineLast
-            iPrevPivot := line.get_x1(lineLast)
-            pPrevPivot := line.get_y1(lineLast)
-            iLastPivot := line.get_x2(lineLast)
-            pLastPivot := line.get_y2(lineLast)
-
-            if not i_zigZag
-                line.delete(lineLast)
-
-        lineLast := id
-        isHighLast := isHigh
-        iPrev := iLast
+    if na(lineLast) and pLast == 0
         iLast := iH
         pLast := pH
-        pLast
-else
-    if not na(iL)
-        dev = calc_dev(pLast, pL)
-        [id, isHigh] = pivotFound(dev, false, iL, pL)
-
+        isHighLast := true
+    else
+        dev = calc_dev(pLast, pH)
+        [id, isHigh] = pivotFound(dev, true, iH, pH)
         if not na(id)
             if id != lineLast
-                iPrevPivot := line.get_x1(lineLast)
-                pPrevPivot := line.get_y1(lineLast)
-                iLastPivot := line.get_x2(lineLast)
-                pLastPivot := line.get_y2(lineLast)
+                if not na(lineLast)
+                    iPrevPivot := line.get_x1(lineLast)
+                    pPrevPivot := line.get_y1(lineLast)
+                    iLastPivot := line.get_x2(lineLast)
+                    pLastPivot := line.get_y2(lineLast)
+                else
+                    iPrevPivot := iLast
+                    pPrevPivot := pLast
+                    iLastPivot := iH
+                    pLastPivot := pH
+                
+                pivotChanged := true
+                
+                cachedIMidPivot := INPUT_HIST_PIVOT > 0 ? temp_iMidPivot_hist : iPrevPivot
+                cachedPMidPivot := INPUT_HIST_PIVOT > 0 ? temp_pMidPivot_hist : pPrevPivot
+                cachedIEndBase := INPUT_HIST_PIVOT > 0 ? temp_iEndBase_hist : iLastPivot
+                cachedPEndBase := INPUT_HIST_PIVOT > 0 ? temp_pEndBase_hist : pLastPivot
+                
+                cachedIMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iMidPivot2_hist : iPrevPivot
+                cachedPMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : pPrevPivot
+                cachedIEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : iLastPivot
+                cachedPEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : pLastPivot
 
-                if not i_zigZag
+                if not INPUT_SHOW_ZIGZAG and not na(lineLast)
                     line.delete(lineLast)
+            else
+                if INPUT_HIST_PIVOT == 0
+                    cachedIEndBase := iH
+                    cachedPEndBase := pH
+                    cachedIEndBase2 := iH
+                    cachedPEndBase2 := pH
+                    pivotChanged := true 
 
             lineLast := id
             isHighLast := isHigh
             iPrev := iLast
+            iLast := iH
+            pLast := pH
+else
+    if not na(iL)
+        if na(lineLast) and pLast == 0
             iLast := iL
             pLast := pL
-            pLast
+            isHighLast := false
+        else
+            dev = calc_dev(pLast, pL)
+            [id, isHigh] = pivotFound(dev, false, iL, pL)
+            if not na(id)
+                if id != lineLast
+                    if not na(lineLast)
+                        iPrevPivot := line.get_x1(lineLast)
+                        pPrevPivot := line.get_y1(lineLast)
+                        iLastPivot := line.get_x2(lineLast)
+                        pLastPivot := line.get_y2(lineLast)
+                    else
+                        iPrevPivot := iLast
+                        pPrevPivot := pLast
+                        iLastPivot := iL
+                        pLastPivot := pL
+                    
+                    pivotChanged := true
+                    
+                    cachedIMidPivot := INPUT_HIST_PIVOT > 0 ? temp_iMidPivot_hist : iPrevPivot
+                    cachedPMidPivot := INPUT_HIST_PIVOT > 0 ? temp_pMidPivot_hist : pPrevPivot
+                    cachedIEndBase := INPUT_HIST_PIVOT > 0 ? temp_iEndBase_hist : iLastPivot
+                    cachedPEndBase := INPUT_HIST_PIVOT > 0 ? temp_pEndBase_hist : pLastPivot
+                    
+                    cachedIMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iMidPivot2_hist : iPrevPivot
+                    cachedPMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : pPrevPivot
+                    cachedIEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : iLastPivot
+                    cachedPEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : pLastPivot
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: f_htf_ohlc
-// Description: This function calculates the OHLC (Open, High, Low, Close) values for a higher time frame (HTF).
-// Parameters:
-//   _htf (int) - The higher time frame interval.
-// Returns:
-//   array - An array containing the previous and current OHLC values for the higher time frame.
-// Variables:
-//   htf_o (float) - The open price for the higher time frame.
-//   htf_h (float) - The high price for the higher time frame.
-//   htf_l (float) - The low price for the higher time frame.
-//   htf_c (float) - The close price for the higher time frame.
-//   htf_ox (float) - The previous open price for the higher time frame.
-//   htf_hx (float) - The previous high price for the higher time frame.
-//   htf_lx (float) - The previous low price for the higher time frame.
-//   htf_cx (float) - The previous close price for the higher time frame.
-// Logic:
-//   - On a change of the higher time frame, update the previous OHLC values and set the current OHLC values.
-//   - If there is no change in the higher time frame, update the high and low prices with the maximum and minimum values respectively.
-//   - Return an array containing the previous and current OHLC values.
-f_htf_ohlc(_htf) =>
+                    if not INPUT_SHOW_ZIGZAG and not na(lineLast)
+                        line.delete(lineLast)
+                else
+                    if INPUT_HIST_PIVOT == 0
+                        cachedIEndBase := iL
+                        cachedPEndBase := pL
+                        cachedIEndBase2 := iL
+                        cachedPEndBase2 := pL
+                        pivotChanged := true
+
+                lineLast := id
+                isHighLast := isHigh
+                iPrev := iLast
+                iLast := iL
+                pLast := pL
+
+f_htf_ohlc(string _htf) =>
     var htf_o  = 0.
     var htf_h  = 0.
     var htf_l  = 0.
@@ -658,13 +571,10 @@ f_htf_ohlc(_htf) =>
     if ta.change(time(_htf) !=0)
         htf_ox := htf_o
         htf_o  := open
-        
         htf_hx := htf_h
         htf_h  := high
-        
         htf_lx := htf_l
         htf_l  := low
-        
         htf_cx := htf_c[1]
         htf_cx
     else
@@ -676,89 +586,29 @@ f_htf_ohlc(_htf) =>
 
 [_, htf_h1, htf_l1, htf_c1, _, _, _, _] = f_htf_ohlc(htf)
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: f_drawLineX
-// Description: This function draws a line on the chart with specified coordinates and properties.
-// Parameters:
-//   _x1 (float) - The x-coordinate of the first point of the line.
-//   _y1 (float) - The y-coordinate of the first point of the line.
-//   _x2 (float) - The x-coordinate of the second point of the line.
-//   _y2 (float) - The y-coordinate of the second point of the line.
-//   _xloc (string) - The location of the x-coordinates (e.g., bar_index, time).
-//   _extend (string) - The extension of the line (e.g., extend.none, extend.right).
-//   _color (color) - The color of the line.
-//   _style (line.style) - The style of the line (e.g., line.style_solid, line.style_dotted).
-//   _width (int) - The width of the line.
-// Logic:
-//   - Create a new line with the specified coordinates and properties.
-//   - If both y-coordinates are greater than 0, set the line's coordinates and color.
-//   - If either y-coordinate is not greater than 0, set the line's coordinates to the close price and color to transparent.
-f_drawLineX(_x1, _y1, _x2, _y2, _xloc, _extend, _color, _style, _width) =>
-    var id = line.new(_x1, _y1, _x2, _y2, _xloc, _extend, _color, _style, _width)
+f_get_level(float _ratio) =>
+    float _diff = math.abs(cachedPMidPivot - cachedPEndBase)
+    float _result = cachedPEndBase < cachedPMidPivot ? 
+         (INPUT_REVERSE ? cachedPEndBase : cachedPMidPivot) - (INPUT_REVERSE ? -1 : 1) * _diff * _ratio : 
+         (INPUT_REVERSE ? cachedPEndBase : cachedPMidPivot) + (INPUT_REVERSE ? -1 : 1) * _diff * _ratio
+    _result
 
-    if _y1 > 0 and _y2 > 0
-        line.set_xy1(id, _x1, _y1)
-        line.set_xy2(id, _x2, _y2)
-        line.set_color(id, _color)
-    else
-        line.set_xy1(id, _x1, close)
-        line.set_xy2(id, _x2, close)
-        line.set_color(id, color.new(chart.fg_color, 0))
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// PIVOT COORDINATE REFERENCES
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: f_drawLabelX
-// Description: This function creates and customizes a label on the chart at specified coordinates.
-// Parameters:
-//   _x (float) - The x-coordinate for the label.
-//   _y (float) - The y-coordinate for the label.
-//   _text (string) - The text to display on the label.
-//   _xloc (string) - The x-location of the label (e.g., 'bar_index').
-//   _yloc (string) - The y-location of the label (e.g., 'price').
-//   _color (color) - The background color of the label.
-//   _style (label.style) - The style of the label (e.g., label.style_label_down).
-//   _textcolor (color) - The color of the text on the label.
-//   _size (size) - The size of the text on the label.
-//   _textalign (text.align) - The alignment of the text on the label.
-//   _tooltip (string) - The tooltip text to display when hovering over the label.
-// Variables:
-//   id (label) - The identifier for the created label.
-// Logic:
-//   - Create a new label with the specified parameters.
-//   - Set the text of the label, appending additional text if certain conditions are met.
-//   - Set the tooltip of the label.
-//   - If the y-coordinate is greater than 0, set the label's coordinates and text color.
-//   - If the y-coordinate is not greater than 0, set the label's y-coordinate to the close price and the text color to transparent.
-f_drawLabelX(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip) =>
-    var id = label.new(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip)
-    label.set_text(id, i_extend or i_extendER or i_levelsP == 'Last Bar' ? _text + '\n\n' : _text)
-    label.set_tooltip(id, _tooltip)
+iMidPivot  = cachedIMidPivot
+pMidPivot  = cachedPMidPivot
+iEndBase   = cachedIEndBase
+pEndBase   = cachedPEndBase
+iMidPivot2 = cachedIMidPivot2
+pMidPivot2 = cachedPMidPivot2
+iEndBase2  = cachedIEndBase2
+pEndBase2  = cachedPEndBase2
 
-    if _y > 0
-        label.set_xy(id, _x, _y)
-        label.set_textcolor(id, _textcolor)
-    else
-        label.set_xy(id, _x, close)
-        label.set_textcolor(id, _textcolor)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: f_crossingLevel
-// Description: This function checks if a given level crosses the current value.
-// Parameters:
-//   _curret (float) - The current value.
-//   _level (float) - The level to check for crossing.
-// Returns:
-//   bool - True if the level crosses the current value, otherwise false.
-// Logic:
-//   - The function returns true if the level is greater than the current value and less than the previous value, or if the level is less than the current value and greater than the previous value.
-f_crossingLevel(_curret, _level) =>
+f_crossingLevel(float _curret, float _level) =>
     _level > _curret and _level < _curret[1] or _level < _curret and _level > _curret[1]
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// This script checks if there is a change in the 'time' variable and if the array 'ln' has more than 0 elements.
-// If both conditions are met, it iterates through the array 'ln' and deletes each line element.
-// 'ta.change(time)' checks for a change in the 'time' variable.
-// 'array.size(ln)' returns the number of elements in the array 'ln'.
-// 'line.delete(array.shift(ln))' deletes the first element in the array 'ln' and shifts the remaining elements.
 if ta.change(time) != 0 and array.size(ln) > 0
     for i = 1 to array.size(ln) by 1
         line.delete(array.shift(ln))
@@ -767,331 +617,262 @@ if ta.change(time) != 0 and array.size(lb) > 0
     for i = 1 to array.size(lb) by 1
         label.delete(array.shift(lb))
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: f_drawLineTZ
-// Description: This function draws a line on the chart if the starting point of the line is within 500 bars from the current bar index.
-// Parameters:
-//   _x1 (int) - The x-coordinate of the starting point of the line.
-//   _y1 (float) - The y-coordinate of the starting point of the line.
-//   _x2 (int) - The x-coordinate of the ending point of the line.
-//   _y2 (float) - The y-coordinate of the ending point of the line.
-//   _xloc (string) - The location of the x-coordinate (e.g., bar_index or time).
-//   _extend (string) - The extension of the line (e.g., extend.none, extend.left, extend.right, extend.both).
-//   _c (color) - The color of the line.
-//   _s (string) - The style of the line (e.g., line.style_solid, line.style_dotted).
-//   _w (int) - The width of the line.
-// Returns:
-//   void - This function does not return a value.
-// Logic:
-//   - If the difference between the starting x-coordinate and the current bar index is less than 500, draw the line on the chart.
 f_drawLineTZ(_x1, _y1, _x2, _y2, _xloc, _extend, _c, _s, _w) =>
     if _x1 - bar_index < 500
         array.push(ln, line.new(_x1, _y1, _x2, _y2, _xloc, _extend, _c, _s, _w))
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: f_drawLabelTZ
-// Description: This function draws a label on the chart at a specified location with various customizable properties.
-// Parameters:
-//   _x (int) - The x-coordinate (bar index) where the label will be placed.
-//   _y (float) - The y-coordinate (price level) where the label will be placed.
-//   _text (string) - The text to be displayed on the label.
-//   _xloc (string) - The x-location of the label relative to the bar (e.g., 'bar_index').
-//   _yloc (string) - The y-location of the label relative to the price (e.g., 'price').
-//   _color (color) - The background color of the label.
-//   _style (label.style) - The style of the label (e.g., 'label.style_label_down').
-//   _textcolor (color) - The color of the text on the label.
-//   _size (size) - The size of the text on the label.
-//   _textalign (text.align) - The alignment of the text within the label (e.g., 'text.align_center').
-//   _tooltip (string) - The tooltip text to be displayed when hovering over the label.
-// Returns:
-//   void - This function does not return a value.
-// Logic:
-//   - If the difference between the current bar index and the specified x-coordinate is less than 500, create a new label with the specified properties and push it to the array 'lb'.
 f_drawLabelTZ(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip) =>
     if _x - bar_index < 500
         array.push(lb, label.new(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip))
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: f_drawLinePVT
-// Description: This function draws a line on the chart based on the provided coordinates and styling parameters.
-// Parameters:
-//   _x1 (float) - The x-coordinate of the starting point of the line.
-//   _y1 (float) - The y-coordinate of the starting point of the line.
-//   _x2 (float) - The x-coordinate of the ending point of the line.
-//   _y2 (float) - The y-coordinate of the ending point of the line.
-//   _xloc (string) - The location of the x-coordinate (e.g., bar_index or time).
-//   _extend (string) - The extension type of the line (e.g., extend.none, extend.left, extend.right, extend.both).
-//   _c (color) - The color of the line.
-//   _s (string) - The style of the line (e.g., line.style_solid, line.style_dotted).
-//   _w (int) - The width of the line.
-// Returns:
-//   void - This function does not return a value.
-// Logic:
-//   - If the y-coordinate of the starting point (_y1) is greater than 0, a new line is created with the specified parameters and added to the array `ln`.
 f_drawLinePVT(_x1, _y1, _x2, _y2, _xloc, _extend, _c, _s, _w) =>
     if _y1 > 0
         array.push(ln, line.new(_x1, _y1, _x2, _y2, _xloc, _extend, _c, _s, _w))
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: f_drawLabelPVT
-// Description: This function draws a label on the chart at the specified coordinates with the given properties.
-// Parameters:
-//   _x (float) - The x-coordinate for the label.
-//   _y (float) - The y-coordinate for the label.
-//   _text (string) - The text to display on the label.
-//   _xloc (series int) - The x-location of the label (e.g., bar index).
-//   _yloc (series float) - The y-location of the label (e.g., price level).
-//   _color (color) - The background color of the label.
-//   _style (label.style) - The style of the label (e.g., label.style_label_down).
-//   _textcolor (color) - The color of the text on the label.
-//   _size (size) - The size of the text on the label.
-//   _textalign (text.align) - The alignment of the text within the label.
-//   _tooltip (string) - The tooltip text to display when hovering over the label.
-// Logic:
-//   - If the y-coordinate (_y) is greater than 0, push a new label to the array 'lb' with the specified properties.
-//   - The label text is appended with new lines if 'i_extend' or 'i_levelsPvtP' is "Last Bar".
 f_drawLabelPVT(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip) =>
     if _y > 0
-        array.push(lb, label.new(_x, _y, i_extend or i_levelsPvtP == "Last Bar" ? _text + '\n\n' : _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip))
+        array.push(lb, label.new(_x, _y, INPUT_EXTEND_PVT or INPUT_LEVELS_PVT_POS == "Last Bar" ? _text + '\n\n' : _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip))
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
-f_setLog(log) => 
-    array.set(log, 0, 0.0)
-    array.set(log, 1, 0.0)
-    array.set(log, 2, 0.0)
-    array.set(log, 3, 0.0)
-    array.set(log, 4, 0.0)
-    array.set(log, 5, 0.0)
-    array.set(log, 6, 0.0)
-    array.set(log, 7, 0.0)
-    array.set(log, 8, 0.0)
-    array.set(log, 9, 0.0)
-    array.set(log, 10, 0.0)
-    array.set(log, 11, 0.0)
-    array.set(log, 12, 0.0)
-    array.set(log, 13, 0.0)
-    array.set(log, 14, 0.0)
-    array.set(log, 15, 0.0)
-    array.set(log, 16, 0.0)
-    array.set(log, 17, 0.0)
-    array.set(log, 18, 0.0)
-    array.set(log, 19, 0.0)
-    array.set(log, 20, 0.0)
-    array.set(log, 21, 0.0)
+f_setLog(map<float, float> logMap) => 
+    logMap.clear()
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-f_getLevelIndex(float level) =>
-    switch level
-        value_0         => 0
-        value_0_236     => 1
-        value_0_382     => 2
-        value_0_5       => 3
-        value_0_618     => 4
-        value_0_65      => 5
-        value_0_786     => 6
-        value_1         => 7
-        value_1_272     => 8
-        value_1_414     => 9
-        value_1_618     => 10
-        value_1_65      => 11
-        value_2_618     => 12
-        value_2_65      => 13
-        value_3_618     => 14
-        value_3_65      => 15
-        value_4_236     => 16
-        value_4_618     => 17
-        value_neg_0_236 => 18
-        value_neg_0_382 => 19
-        value_neg_0_618 => 20
-        value_neg_0_65  => 21
-        => na
+f_updateLevelsLog(map<float, float> logMap, float level, float value) =>
+    logMap.put(level, value)
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-f_updateLevelsLog(log, float level, float value) =>
-    array.set(log, f_getLevelIndex(level), value)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Function: f_processLevelX
-// Description: This function processes and draws Fibonacci levels (Extensions, Retracements, and Pivot Points) on a chart based on the specified parameters.
-// Parameters:
-//   _show (bool) - A flag to determine whether to display the levels on the chart.
-//   _level (float) - The Fibonacci level to be processed and drawn.
-//   _color (color) - The color to be used for drawing the levels.
-// Variables:
-//   pPivotDiff (float) - The absolute difference between the mid pivot and the end base price.
-//   price (float) - The calculated price level based on the Fibonacci level and other parameters.
-//   offset (float) - The offset value used in calculating the price level for Extensions.
-//   bar (int) - The bar index used for placing labels.
-//   style (label.style) - The style of the label to be drawn.
-//   size (size) - The size of the label to be drawn.
-//   pivot (float) - The pivot point calculated as the average of high, low, and close prices of the higher time frame.
-//   range_2 (float) - The range between the high and low prices of the higher time frame.
-//   time_xx (int) - The time value used for placing labels.
-// Logic:
-//   - Depending on the selected Fibonacci tool (Extensions, Retracements, or Pivot Points), the function calculates and draws the respective levels on the chart.
-//   - For Extensions, it draws lines and labels based on the calculated price levels and offsets.
-//   - For Retracements, it draws lines and labels based on the calculated price levels and pivot differences.
-//   - For Pivot Points, it calculates the pivot point and range, then draws lines and labels for the pivot levels.
-//   - Alerts are triggered if the close price crosses any of the drawn levels.
-f_processLevelX(_show, _level, _color) =>
-    if _show
-        pPivotDiff = math.abs(pMidPivot - pEndBase)
+method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRedraw) =>
+    if this.show and not na(x1) and not na(pMid) and not na(pEnd)
+        pPivotDiff = math.abs(pMid - pEnd)
         price = 0.
-
-        price := pEndBase < pMidPivot ? (i_reverse ? pEndBase : pMidPivot) - (i_reverse ? -1 : 1) * pPivotDiff * _level : (i_reverse ? pEndBase : pMidPivot) + (i_reverse ? -1 : 1) * pPivotDiff * _level
+        price := pEnd < pMid ? (INPUT_REVERSE ? pEnd : pMid) - (INPUT_REVERSE ? -1 : 1) * pPivotDiff * this.level : (INPUT_REVERSE ? pEnd : pMid) + (INPUT_REVERSE ? -1 : 1) * pPivotDiff * this.level
         price := math.round_to_mintick(price)
-        f_drawLineX(_x1=iMidPivot, _y1=price, _x2=bar_index, _y2=price, _xloc=xloc.bar_index, _extend=i_extendER ? extend.both : extend.right, _color=_color, _style=line.style_solid, _width=_level != 1 ? 1 : 2)
-
-        if i_levels != 'None'
-            bar = i_levelsP == "Last Bar" ? bar_index : iMidPivot
-            style = i_levelsP == "Last Bar" ? label.style_label_left : label.style_label_right
-            size = i_levelsS == 'Small' ? size.small : size.normal
-
-            f_drawLabelX(_x=bar, _y=price, _text=(i_levels == 'Prices' ? '' : 'RET ' + str.tostring(_level)) + (i_levels == 'Levels + Prices' or i_levels == 'Prices' ? ' (' + str.tostring(price, format.mintick) + ')' : ''), _xloc=xloc.bar_index, _yloc=yloc.price, _color=color.new(chart.fg_color, 100), _style=style, _textcolor=color.new(chart.fg_color, 0), _size=size, _textalign=text.align_right, _tooltip=str.tostring(price, format.mintick))
-            f_updateLevelsLog(l_pivotLevelsLog_retracements, _level, price)
-
-            if f_crossingLevel(close, price) //crossing level
-                f_updateLevelsLog(l_pivotLevelsLog_crossed_retracements, _level, price)
- 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-f_logToString(log) => 
-    result = ''
-
-    for i = 0 to array.size(log) - 1
-        current = array.get(log, i)
-
-        if na(current)
-            result := result + '0' + (i < array.size(log) - 1 ? s : '')
+        
+        if forceRedraw
+            if not na(this.ln)
+                line.delete(this.ln)
+                this.ln := na
+            if not na(this.lb)
+                label.delete(this.lb)
+                this.lb := na
+            if price > 0
+                this.ln := line.new(x1, price, x2, price, xloc.bar_index, INPUT_EXTEND_ER ? extend.both : extend.right, this.col, line.style_solid, this.level != 1 ? 1 : 2)
+            if INPUT_LEVELS_LABEL != 'None' and price > 0
+                bar_pos = INPUT_LEVELS_POS == "Last Bar" ? x2 : x1
+                style_lbl = INPUT_LEVELS_POS == "Last Bar" ? label.style_label_left : label.style_label_right
+                size_lbl = INPUT_LEVELS_SIZE == 'Small' ? size.small : size.normal
+                text_str = (INPUT_LEVELS_LABEL == 'Prices' ? '' : 'RET ' + str.tostring(this.level)) + (INPUT_LEVELS_LABEL == 'Levels + Prices' or INPUT_LEVELS_LABEL == 'Prices' ? ' (' + str.tostring(price, format.mintick) + ')' : '')
+                tooltip_str = str.tostring(price, format.mintick)
+                this.lb := label.new(bar_pos, price, INPUT_EXTEND_PVT or INPUT_EXTEND_ER or INPUT_LEVELS_POS == 'Last Bar' ? text_str + '\n\n' : text_str, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), style_lbl, color.new(COLOR_FG_MAIN, 0), size_lbl, text.align_right, tooltip_str)
         else
-            result := result + str.tostring(current) + (i < array.size(log) - 1 ? s : '')
+            if not na(this.ln) and price > 0
+                line.set_x2(this.ln, x2)
+            if INPUT_LEVELS_POS == "Last Bar" and not na(this.lb) and price > 0
+                label.set_x(this.lb, x2)
         
-    result
+        f_updateLevelsLog(l_pivotLevelsLog_retracements, this.level, price)
+        if f_crossingLevel(close, price)
+            f_updateLevelsLog(l_pivotLevelsLog_crossed_retracements, this.level, price)
 
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-f_getAlertMessage(id) =>
+f_logToJson(map<float, float> logMap) => 
+    result = '{'
+    for i = 0 to array.size(fibLevels) - 1
+        lvl = array.get(fibLevels, i)
+        val = logMap.get(lvl.level)
+        levelKey = str.replace(str.tostring(lvl.level), '.', '_')
+        if na(val)
+            result := result + '"' + levelKey + '":null'
+        else
+            result := result + '"' + levelKey + '":' + str.tostring(val)
+        if i < array.size(fibLevels) - 1
+            result := result + ','
+    result + '}'
+
+f_getAlertMessage(string id) =>
+    string barstate_json = (
+        '{"is_new":' + (barstate.isnew ? 'true' : 'false') + 
+        ',"is_first":' + (barstate.isfirst ? 'true' : 'false') + 
+        ',"is_last":' + (barstate.islast ? 'true' : 'false') + 
+        ',"is_confirmed":' + (barstate.isconfirmed ? 'true' : 'false') + 
+        ',"is_history":' + (barstate.ishistory ? 'true' : 'false') + 
+        '}')
+    string ohlcv_json = (
+        '{"open":' + str.tostring(open) + 
+        ',"high":' + str.tostring(high) + 
+        ',"low":' + str.tostring(low) + 
+        ',"close":' + str.tostring(close) + 
+        ',"hl2":' + str.tostring(hl2) + 
+        ',"hlc3":' + str.tostring(hlc3) + 
+        ',"hlcc4":' + str.tostring(hlcc4) + 
+        ',"ohlc4":' + str.tostring(ohlc4) + 
+        ',"volume":' + str.tostring(volume) + '}')
+    string base_json = ('"event_id":"' + id + '"' +
+                        ',"bar_index":' + str.tostring(bar_index) + 
+                        ',"last_bar_index":' + str.tostring(last_bar_index) + 
+                        ',"time_tradingday":' + str.tostring(time_tradingday) + 
+                        ',"time_close":' + str.tostring(time_close) + 
+                        ',"session_is_first_bar":' + (session.isfirstbar ? 'true' : 'false') + 
+                        ',"barstate":' + barstate_json + 
+                        ',"ohlcv":' + ohlcv_json)
     string log = ''
-    string alert_base = str.tostring(bar_index) + s + str.tostring(last_bar_index) + s + str.tostring(time_tradingday) + s + str.tostring(time_close) + s + str.tostring(barstate.isnew ? 1 : 0) + s + str.tostring(barstate.isfirst ? 1 : 0) + s + str.tostring(barstate.islast ? 1 : 0) + s + str.tostring(barstate.isconfirmed ? 1 : 0) + s + str.tostring(barstate.ishistory ? 1 : 0) + s + str.tostring(barstate.islastconfirmedhistory ? 1 : 0) + s + str.tostring(session.isfirstbar ? 1 : 0) + s + str.tostring(open) + s + str.tostring(high) + s + str.tostring(low) + s + str.tostring(close) + s + str.tostring(hl2) + s + str.tostring(hlc3) + s + str.tostring(hlcc4) + s + str.tostring(ohlc4) + s + str.tostring(volume)
-
-    if id == i_alert_id_update
-        log := i_alert_id_update + s + alert_base + s + f_logToString(l_pivotLevelsLog_retracements) + s + f_logToString(l_pivotLevelsLog_crossed_retracements)
-        
-    if id == i_alert_id_crossoverExhaustion
-        log := i_alert_id_crossoverExhaustion + s + alert_base + s + str.tostring(bullCandle) + s + str.tostring(bearCandle) + s + str.tostring(exhaustVol)
-    
-    if id == i_alert_id_crossoverVolatility
-        log := i_alert_id_crossoverVolatility + s + alert_base + s + str.tostring(bullCandle) + s + str.tostring(bearCandle) + s + str.tostring(highVolatility)
-    
-    if id == i_alert_id_crossingLevelRetracements
-        log := f_logToString(l_pivotLevelsLog_crossed_retracements)
-        log := i_alert_id_crossingLevelRetracements + s + alert_base + s + log
-
+    if id == ALERT_ID_UPDATE
+        log := ('{' + base_json + 
+                ',"retracements":' + f_logToJson(l_pivotLevelsLog_retracements) + 
+                ',"crossed_retracements":' + f_logToJson(l_pivotLevelsLog_crossed_retracements) + '}')
+    if id == ALERT_ID_EXHAUSTION
+        log := ('{' + base_json + 
+                ',"bull_candle":' + (bullCandle ? 'true' : 'false') + 
+                ',"bear_candle":' + (bearCandle ? 'true' : 'false') + 
+                ',"exhaust_vol":' + (exhaustVol ? 'true' : 'false') + '}')
+    if id == ALERT_ID_VOLATILITY
+        log := ('{' + base_json + 
+                ',"bull_candle":' + (bullCandle ? 'true' : 'false') + 
+                ',"bear_candle":' + (bearCandle ? 'true' : 'false') + 
+                ',"high_volatility":' + (highVolatility ? 'true' : 'false') + '}')
+    if id == ALERT_ID_CROSSING
+        log := ('{' + base_json + 
+                ',"crossed_retracements":' + f_logToJson(l_pivotLevelsLog_crossed_retracements) + '}')
     log
 
-
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//
-// Pivots
-//
+// PLOT EXECUTION
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-// This script draws multiple lines on a chart based on Fibonacci time zones.
-// The lines are drawn at intervals determined by the Fibonacci sequence (1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89).
-// The reference interval is calculated as the rounded difference between `iEndBase2` and `iMidPivot2`.
-// The color of the lines alternates between `i_tzColor` and `color.gray`.
-if i_fibTime
+if INPUT_SHOW_FIB_TIME
     t_lineTZ_style = line.style_dotted
     t_lineTZ_width = 1
-    t_lineTZ_color = color.new(chart.fg_color, 50)
-
+    t_lineTZ_color = color.new(COLOR_FG_MAIN, 50)
     referance = math.round(iEndBase2 - iMidPivot2)
+    f_drawLineTZ(_x1=iMidPivot2 - referance        , _y1=pEndBase2, _x2=iMidPivot2 - referance       , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=COLOR_TZ , _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2                    , _y1=pEndBase2, _x2=iMidPivot2                   , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=t_lineTZ_color, _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2 + referance        , _y1=pEndBase2, _x2=iMidPivot2 + referance       , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=t_lineTZ_color, _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2 + referance * 2    , _y1=pEndBase2, _x2=iMidPivot2 + referance * 2 , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=COLOR_TZ , _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2 + referance * 3    , _y1=pEndBase2, _x2=iMidPivot2 + referance * 3 , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=COLOR_TZ , _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2 + referance * 5    , _y1=pEndBase2, _x2=iMidPivot2 + referance * 5 , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=COLOR_TZ , _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2 + referance * 8    , _y1=pEndBase2, _x2=iMidPivot2 + referance * 8 , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=COLOR_TZ , _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2 + referance * 13   , _y1=pEndBase2, _x2=iMidPivot2 + referance * 13, _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=COLOR_TZ , _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2 + referance * 21   , _y1=pEndBase2, _x2=iMidPivot2 + referance * 21, _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=COLOR_TZ , _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2 + referance * 34   , _y1=pEndBase2, _x2=iMidPivot2 + referance * 34, _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=COLOR_TZ , _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2 + referance * 55   , _y1=pEndBase2, _x2=iMidPivot2 + referance * 55, _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=COLOR_TZ , _s=t_lineTZ_style, _w=t_lineTZ_width)
+    f_drawLineTZ(_x1=iMidPivot2 + referance * 89   , _y1=pEndBase2, _x2=iMidPivot2 + referance * 89, _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=COLOR_TZ , _s=t_lineTZ_style, _w=t_lineTZ_width)
 
-    f_drawLineTZ(_x1=iMidPivot2 - referance       , _y1=pEndBase2, _x2=iMidPivot2 - referance     , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=i_tzColor , _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2                   , _y1=pEndBase2, _x2=iMidPivot2                 , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=t_lineTZ_color, _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2 + referance       , _y1=pEndBase2, _x2=iMidPivot2 + referance     , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=t_lineTZ_color, _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2 + referance * 2   , _y1=pEndBase2, _x2=iMidPivot2 + referance * 2 , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=i_tzColor , _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2 + referance * 3   , _y1=pEndBase2, _x2=iMidPivot2 + referance * 3 , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=i_tzColor , _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2 + referance * 5   , _y1=pEndBase2, _x2=iMidPivot2 + referance * 5 , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=i_tzColor , _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2 + referance * 8   , _y1=pEndBase2, _x2=iMidPivot2 + referance * 8 , _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=i_tzColor , _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2 + referance * 13  , _y1=pEndBase2, _x2=iMidPivot2 + referance * 13, _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=i_tzColor , _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2 + referance * 21  , _y1=pEndBase2, _x2=iMidPivot2 + referance * 21, _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=i_tzColor , _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2 + referance * 34  , _y1=pEndBase2, _x2=iMidPivot2 + referance * 34, _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=i_tzColor , _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2 + referance * 55  , _y1=pEndBase2, _x2=iMidPivot2 + referance * 55, _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=i_tzColor , _s=t_lineTZ_style, _w=t_lineTZ_width)
-    f_drawLineTZ(_x1=iMidPivot2 + referance * 89  , _y1=pEndBase2, _x2=iMidPivot2 + referance * 89, _y2=pMidPivot2, _xloc=xloc.bar_index, _extend=extend.both, _c=i_tzColor , _s=t_lineTZ_style, _w=t_lineTZ_width)
-
-    // This block of code draws Fibonacci time zone labels on a chart.
-    // The labels are drawn at specific intervals based on the Fibonacci sequence (0, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89).
-    if i_fib_tzl
-        t_labelTZ_background = color.new(chart.fg_color, 100)
+    if INPUT_FIB_TZ_LABEL
+        t_labelTZ_background = color.new(COLOR_FG_MAIN, 100)
         t_labelTZ_text_align = text.align_center
         t_labelTZ_size = size.small
-        t_labelTZ_color = color.new(chart.fg_color, 0)
-
-        f_drawLabelTZ(_x=iMidPivot2 + referance * -1, _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='-1', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=i_tzColor, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 0 , _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='0' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=t_labelTZ_color, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 1 , _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='1' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=t_labelTZ_color, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 2 , _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='2' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=i_tzColor, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 3 , _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='3' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=i_tzColor, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 5 , _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='5' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=i_tzColor, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 8 , _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='8' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=i_tzColor, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 13, _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='13', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=i_tzColor, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 21, _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='21', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=i_tzColor, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 34, _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='34', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=i_tzColor, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 55, _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='55', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=i_tzColor, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=iMidPivot2 + referance * 89, _y=i_fib_tzlp2 == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='89', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=i_tzColor, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-f_processLevelX(show_0, value_0, color_0)
-f_processLevelX(show_0_236, value_0_236, color_0_236)
-f_processLevelX(show_0_382, value_0_382, color_0_382)
-f_processLevelX(show_0_5, value_0_5, color_0_5)
-f_processLevelX(show_0_618, value_0_618, color_0_618)
-f_processLevelX(show_0_65, value_0_65, color_0_65)
-f_processLevelX(show_0_786, value_0_786, color_0_786)
-f_processLevelX(show_1, value_1, color_1)
-f_processLevelX(show_1_272, value_1_272, color_1_272)
-f_processLevelX(show_1_414, value_1_414, color_1_414)
-f_processLevelX(show_1_618, value_1_618, color_1_618)
-f_processLevelX(show_1_65, value_1_65, color_1_65)
-f_processLevelX(show_2_618, value_2_618, color_2_618)
-f_processLevelX(show_2_65, value_2_65, color_2_65)
-f_processLevelX(show_3_618, value_3_618, color_3_618)
-f_processLevelX(show_3_65, value_3_65, color_3_65)
-f_processLevelX(show_4_236, value_4_236, color_4_236)
-f_processLevelX(show_4_618, value_4_618, color_4_618)
-f_processLevelX(show_neg_0_236, value_neg_0_236, color_neg_0_236)
-f_processLevelX(show_neg_0_382, value_neg_0_382, color_neg_0_382)
-f_processLevelX(show_neg_0_618, value_neg_0_618, color_neg_0_618)
-f_processLevelX(show_neg_0_65, value_neg_0_65, color_neg_0_65)
-
+        t_labelTZ_color = color.new(COLOR_FG_MAIN, 0)
+        f_drawLabelTZ(_x=iMidPivot2 + referance * -1, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='-1', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=COLOR_TZ, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 0 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='0' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=t_labelTZ_color, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 1 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='1' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=t_labelTZ_color, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 2 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='2' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=COLOR_TZ, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 3 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='3' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=COLOR_TZ, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 5 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='5' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=COLOR_TZ, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 8 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='8' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=COLOR_TZ, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 13, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='13', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=COLOR_TZ, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 21, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='21', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=COLOR_TZ, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 34, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='34', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=COLOR_TZ, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 55, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='55', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=COLOR_TZ, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=iMidPivot2 + referance * 89, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(pEndBase2, pMidPivot2) : math.max(pEndBase2, pMidPivot2), _text='89', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=fib_tzlp, _textcolor=COLOR_TZ, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//
+// CACHED COORDINATE INITIALIZATION AND UPDATE
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+if not na(lineLast)
+    currentX1 = line.get_x1(lineLast)
+    currentY1 = line.get_y1(lineLast)
+    currentX2 = line.get_x2(lineLast)
+    currentY2 = line.get_y2(lineLast)
+    
+    if na(cachedIMidPivot) or pivotChanged
+        cachedIMidPivot := iPrevPivot != 0 ? iPrevPivot : currentX1
+        cachedPMidPivot := pPrevPivot != 0 ? pPrevPivot : currentY1
+        cachedIEndBase := iLastPivot != 0 ? iLastPivot : currentX2
+        cachedPEndBase := pLastPivot != 0 ? pLastPivot : currentY2
+        cachedIMidPivot2 := iPrevPivot != 0 ? iPrevPivot : currentX1
+        cachedPMidPivot2 := pPrevPivot != 0 ? pPrevPivot : currentY1
+        cachedIEndBase2 := iLastPivot != 0 ? iLastPivot : currentX2
+        cachedPEndBase2 := pLastPivot != 0 ? pLastPivot : currentY2
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// FIBONACCI LEVEL DRAWING
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+if not na(cachedIMidPivot) and not na(cachedPEndBase)
+    bool needsFullRedraw = pivotChanged or na(array.get(fibLevels, 0).ln)
+    for lvl in fibLevels
+        lvl.draw(cachedIMidPivot, cachedPMidPivot, bar_index, cachedPEndBase, needsFullRedraw)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// STATISTICAL POSITION ENGINE (NEW)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+var box box_entry = na
+var line line_sl = na
+var line line_tp = na
+var label lbl_risk = na
+
+if INPUT_SHOW_POS and not na(cachedIMidPivot) and not na(cachedPEndBase)
+    bool is_long_setup = cachedPEndBase > cachedPMidPivot
+    float price_618 = f_get_level(0.618)
+    float price_65  = f_get_level(0.65)
+    
+    float current_atr = ta.atr(INPUT_ATR_LENGTH)
+    float sl_price = is_long_setup ? cachedPMidPivot - (current_atr * INPUT_POS_SL_MULT) : cachedPMidPivot + (current_atr * INPUT_POS_SL_MULT)
+    float tp_price = INPUT_POS_TP_MODE == 'Conservative' ? cachedPEndBase : f_get_level(-0.272)
+
+    if pivotChanged or na(box_entry)
+        box.delete(box_entry)
+        line.delete(line_sl)
+        line.delete(line_tp)
+        label.delete(lbl_risk)
+
+        box_entry := box.new(bar_index, price_618, bar_index + 5, price_65, 
+             bgcolor=color.new(is_long_setup ? COLOR_BLUE : COLOR_RED, 75), 
+             border_color=color.new(is_long_setup ? COLOR_BLUE : COLOR_RED, 25),
+             border_style=line.style_dotted)
+
+        line_sl := line.new(bar_index, sl_price, bar_index + 5, sl_price, color=color.new(COLOR_RED, 5), style=line.style_dotted, width = 2)
+        line_tp := line.new(bar_index, tp_price, bar_index + 5, tp_price, color=color.new(COLOR_GREEN, 5), style=line.style_dotted, width = 2)
+        
+        // CHANGED: Position label at the center of the entry zone for better readability
+        float mid_entry = (price_618 + price_65) / 2
+        string pos_text = (is_long_setup ? "LONG" : "SHORT") + " SETUP\nTP: " + str.tostring(tp_price, format.mintick) + "\nSL: " + str.tostring(sl_price, format.mintick)
+        lbl_risk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small)
+
+    else
+        if not na(box_entry)
+            box.set_right(box_entry, bar_index + 5)
+        if not na(line_sl)
+            line.set_x2(line_sl, bar_index + 5)
+        if not na(line_tp)
+            line.set_x2(line_tp, bar_index + 5)
+        if not na(lbl_risk)
+            label.set_x(lbl_risk, bar_index + 5)
+
 // AddOns
-//
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Volume Spike - Sign of Exhaustion and High Volatility
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-plotchar(i_vSpikeLb and nzVolume != 0 ? exhaustVol : false, 'Exhaustion Bar', '🚦', location.abovebar, size=size.tiny)
-
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-// Volume Spike - Sign of Exhaustion and High Volatility
-// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
-
-plotchar(i_hATRLb ? highVolatility : false, 'High Volatile Bar', '⚡', location.belowbar, size=size.tiny)
+plotchar(INPUT_SHOW_VOL_SPIKE and nzVolume != 0 ? exhaustVol : false, 'Exhaustion Bar', '🚦', location.abovebar, size=size.tiny, display = display.pane)
+plotchar(INPUT_SHOW_HIGH_ATR ? highVolatility : false, 'High Volatile Bar', '⚡', location.belowbar, size=size.tiny, display = display.pane)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-//
-// Alerts
-//
+// STATUS LINE VALUES
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-if alertEnabled and alertMode == 'calculateAlertUpdates'
+v_start = cachedPMidPivot
+v_end   = cachedPEndBase
+v_50    = f_get_level(0.5)
+v_618   = f_get_level(0.618)
+
+plot(v_start, "Pivot Start", color = color.new(color.gray, 0), display = display.data_window + display.status_line)
+plot(v_end,   "Pivot End",   color = color.new(color.white, 0), display = display.data_window + display.status_line)
+plot(v_50,    "Fib 0.50",    color = color.new(color.yellow, 0), display = display.data_window + display.status_line)
+plot(v_618,   "Fib 0.618",   color = color.new(color.orange, 0), display = display.data_window + display.status_line)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ALERTS
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+if INPUT_ALERT_ENABLED and INPUT_ALERT_MODE == 'calculateAlertUpdates'
     if barstate.isconfirmed
-        alert(f_getAlertMessage(i_alert_id_update), alert.freq_once_per_bar) 
+        alert(f_getAlertMessage(ALERT_ID_UPDATE), alert.freq_once_per_bar) 
     
     if barstate.ishistory
         f_setLog(l_pivotLevelsLog_retracements)

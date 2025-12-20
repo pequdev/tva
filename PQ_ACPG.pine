@@ -1,0 +1,214 @@
+//@version=6
+indicator("Autocorrelation Periodogram [PQ_MOD]", shorttitle = "ACPG [v0.1.0]", overlay = false, precision = 2)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Autocorrelation Periodogram - Spectral Analysis for Trend/Cycle Detection
+// Uses Roofing Filter (High-Pass + Super Smoother) and Pearson Correlation Matrix
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// ————— Input Settings
+int    hp_period     = input.int(48, "High-Pass Period", minval = 10, maxval = 100, group = "🔬 Roofing Filter", tooltip = "High-pass filter cutoff period to remove trend component")
+int    ss_period     = input.int(10, "Super Smoother Period", minval = 2, maxval = 20, group = "🔬 Roofing Filter", tooltip = "Super smoother period to remove high-frequency noise")
+int    min_lag       = input.int(8, "Minimum Lag", minval = 2, maxval = 20, group = "📊 Periodogram", tooltip = "Minimum lag period for autocorrelation")
+int    max_lag       = input.int(48, "Maximum Lag", minval = 20, maxval = 100, group = "📊 Periodogram", tooltip = "Maximum lag period for autocorrelation")
+int    avg_length    = input.int(3, "Averaging Length", minval = 1, maxval = 10, group = "📊 Periodogram", tooltip = "Smoothing applied to correlation values")
+bool   show_dominant = input.bool(true, "Show Dominant Cycle", group = "🎨 Display")
+bool   show_heatmap  = input.bool(true, "Show Heatmap Table", group = "🎨 Display")
+
+// ════════════════════════════════════════════════════════════════════════════
+// State Management
+// ════════════════════════════════════════════════════════════════════════════
+
+// @type PeriodogramState - Encapsulates filter and correlation state
+// @field hp High-pass filter output
+// @field hp_prev Previous high-pass values for filter recursion
+// @field ss Super smoother output (roofed signal)
+// @field ss_prev Previous super smoother values
+// @field dominantPeriod Detected dominant cycle period
+type PeriodogramState
+    float hp = 0.0
+    float hp_prev1 = 0.0
+    float hp_prev2 = 0.0
+    float ss = 0.0
+    float ss_prev1 = 0.0
+    float ss_prev2 = 0.0
+    int   dominantPeriod = 20
+    table heatmapTable = na
+
+// Initialize persistent state
+var PeriodogramState state = PeriodogramState.new()
+
+// ════════════════════════════════════════════════════════════════════════════
+// Roofing Filter Functions
+// ════════════════════════════════════════════════════════════════════════════
+
+// @function high_pass_filter - Ehlers High-Pass Filter to remove trend
+// @param src Price source
+// @param period Cutoff period
+// @returns Detrended signal
+high_pass_filter(float src, simple int period) =>
+    float alpha = (0.707 * 2.0 * math.pi) / period
+    float alpha1 = (math.cos(alpha) + math.sin(alpha) - 1.0) / math.cos(alpha)
+    
+    float hp = 0.0
+    hp := (1.0 - alpha1 / 2.0) * (1.0 - alpha1 / 2.0) * (src - 2.0 * nz(src[1]) + nz(src[2])) + 2.0 * (1.0 - alpha1) * nz(hp[1]) - (1.0 - alpha1) * (1.0 - alpha1) * nz(hp[2])
+    hp
+
+// @function super_smoother - Ehlers Super Smoother Filter to remove noise
+// @param src Input signal
+// @param period Smoothing period
+// @returns Smoothed signal
+super_smoother(float src, simple int period) =>
+    float a1 = math.exp(-1.414 * math.pi / period)
+    float b1 = 2.0 * a1 * math.cos(1.414 * math.pi / period)
+    float c2 = b1
+    float c3 = -a1 * a1
+    float c1 = 1.0 - c2 - c3
+    
+    float ss = 0.0
+    ss := c1 * (src + nz(src[1])) / 2.0 + c2 * nz(ss[1]) + c3 * nz(ss[2])
+    ss
+
+// @function roofing_filter - Combined High-Pass + Super Smoother
+// @param src Price source
+// @returns Roofed (bandpass-filtered) signal
+roofing_filter(float src) =>
+    float hp = high_pass_filter(src, hp_period)
+    float roofed = super_smoother(hp, ss_period)
+    roofed
+
+// ════════════════════════════════════════════════════════════════════════════
+// Autocorrelation Functions
+// ════════════════════════════════════════════════════════════════════════════
+
+// @function pearson_correlation - Calculate Pearson correlation for a specific lag
+// @param src Roofed signal
+// @param lag Lag period
+// @param length Correlation window length
+// @returns Correlation coefficient (-1 to 1)
+pearson_correlation(series float src, simple int lag, simple int length) =>
+    float sum_x = 0.0
+    float sum_y = 0.0
+    float sum_xy = 0.0
+    float sum_x2 = 0.0
+    float sum_y2 = 0.0
+    
+    for i = 0 to length - 1
+        float x = nz(src[i])
+        float y = nz(src[i + lag])
+        sum_x += x
+        sum_y += y
+        sum_xy += x * y
+        sum_x2 += x * x
+        sum_y2 += y * y
+    
+    float n = float(length)
+    float numerator = n * sum_xy - sum_x * sum_y
+    float denominator = math.sqrt((n * sum_x2 - sum_x * sum_x) * (n * sum_y2 - sum_y * sum_y))
+    
+    float corr = denominator != 0.0 ? numerator / denominator : 0.0
+    math.max(-1.0, math.min(1.0, corr))
+
+// ════════════════════════════════════════════════════════════════════════════
+// Main Calculation
+// ════════════════════════════════════════════════════════════════════════════
+
+// Apply Roofing Filter to remove trend and noise
+float roofed = roofing_filter(close)
+
+// Calculate number of lag periods
+int num_lags = max_lag - min_lag + 1
+
+// Calculate autocorrelation for each lag and find dominant period
+var float[] correlations = array.new_float(num_lags, 0.0)
+float max_corr = 0.0
+int dominant_period = min_lag
+
+// Correlation calculation window
+int corr_window = max_lag * 2
+
+for lag_idx = 0 to num_lags - 1
+    int current_lag = min_lag + lag_idx
+    float corr = pearson_correlation(roofed, current_lag, corr_window)
+    
+    // Apply averaging/smoothing
+    float prev_corr = array.get(correlations, lag_idx)
+    float smooth_corr = (corr + prev_corr * (avg_length - 1)) / avg_length
+    array.set(correlations, lag_idx, smooth_corr)
+    
+    // Track maximum correlation (dominant cycle)
+    if smooth_corr > max_corr
+        max_corr := smooth_corr
+        dominant_period := current_lag
+
+state.dominantPeriod := dominant_period
+
+// ════════════════════════════════════════════════════════════════════════════
+// Visualization
+// ════════════════════════════════════════════════════════════════════════════
+
+// Plot dominant cycle period
+plot(show_dominant ? dominant_period : na, "Dominant Period", color = color.new(#00ff88, 0), linewidth = 2)
+
+// Plot roofed signal (scaled for visibility)
+float roofed_scaled = roofed / ta.atr(14) * 10
+plot(roofed_scaled, "Roofed Signal", color = color.new(#ffcc00, 50), linewidth = 1)
+
+// Reference lines
+hline(min_lag, "Min Lag", color = color.new(color.gray, 70), linestyle = hline.style_dotted)
+hline(max_lag, "Max Lag", color = color.new(color.gray, 70), linestyle = hline.style_dotted)
+hline((min_lag + max_lag) / 2, "Mid", color = color.new(color.gray, 80), linestyle = hline.style_dashed)
+
+// ————— Heatmap Table Visualization
+if barstate.islast and show_heatmap
+    // Create or reference table
+    if na(state.heatmapTable)
+        state.heatmapTable := table.new(position.bottom_right, num_lags + 2, 3, bgcolor = color.new(#1e1e1e, 20))
+    
+    // Header row
+    table.cell(state.heatmapTable, 0, 0, "Lag", text_color = color.white, text_size = size.tiny)
+    table.cell(state.heatmapTable, 0, 1, "Corr", text_color = color.white, text_size = size.tiny)
+    
+    // Populate heatmap cells
+    int display_lags = math.min(num_lags, 20)  // Limit display width
+    int step = num_lags > 20 ? int(num_lags / 20) : 1
+    
+    int col = 1
+    for lag_idx = 0 to num_lags - 1 by step
+        if col <= display_lags
+            int current_lag = min_lag + lag_idx
+            float corr_val = array.get(correlations, lag_idx)
+            
+            // Color based on correlation strength
+            color cell_color = corr_val > 0.5 ? color.from_gradient(corr_val, 0.5, 1.0, #ffcc00, #00ff00) :
+                               corr_val > 0.0 ? color.from_gradient(corr_val, 0.0, 0.5, #666666, #ffcc00) :
+                               color.from_gradient(corr_val, -1.0, 0.0, #ff0000, #666666)
+            
+            // Lag number row
+            table.cell(state.heatmapTable, col, 0, str.tostring(current_lag), 
+                       text_color = current_lag == dominant_period ? color.lime : color.white, 
+                       text_size = size.tiny,
+                       bgcolor = current_lag == dominant_period ? color.new(#00ff00, 80) : color.new(#333333, 50))
+            
+            // Correlation value row (heatmap)
+            table.cell(state.heatmapTable, col, 1, "", 
+                       bgcolor = cell_color)
+            
+            col += 1
+    
+    // Info cell
+    table.cell(state.heatmapTable, 0, 2, "Dom: " + str.tostring(dominant_period) + " (" + str.tostring(max_corr, "#.##") + ")", 
+               text_color = color.lime, text_size = size.tiny, text_halign = text.align_left)
+
+// ————— Info Label
+if barstate.islast
+    string trend_cycle = max_corr > 0.3 ? "🔄 CYCLE MODE" : "📈 TREND MODE"
+    string info = trend_cycle + " | Dom: " + str.tostring(dominant_period) + " bars | Corr: " + str.tostring(max_corr, "#.##")
+    
+    var label info_label = na
+    label.delete(info_label)
+    info_label := label.new(bar_index, dominant_period + 5, info,
+                            style = label.style_label_down,
+                            color = max_corr > 0.3 ? color.new(#00aa00, 20) : color.new(#aa5500, 20),
+                            textcolor = color.white,
+                            size = size.small)
