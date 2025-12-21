@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.0.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.0.1', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -3286,11 +3286,6 @@ if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cache
         na                     // exit_bar: not yet exited
     )
     
-    // DEBUG: Log trade spawn
-    log.info("BACKTEST SPAWN: {0} trade #{1}, Zone=[{2}, {3}], SL={4}, TP={5}", 
-             raw_is_long ? "LONG" : "SHORT", GLOBAL_cachedPivots.iMidPivot, 
-             raw_zone_btm, raw_zone_top, raw_sl_price, raw_tp_price)
-
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // PART B: Managing the Current Simulation (runs every bar AFTER spawn)
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -3315,8 +3310,6 @@ if not na(GLOBAL_backtest.current) and not skip_this_bar
         
         // Handle SL breach before entry (trade invalidated)
         if sl_breached_before_entry
-            log.info("BACKTEST KILLED: {0} trade #{1} - SL breached before entry", 
-                     sim_is_long ? "LONG" : "SHORT", GLOBAL_backtest.current.id)
             GLOBAL_backtest.current := na
         // If zone touched, activate the trade (transition: PENDING -> ACTIVE)
         else if zone_touched
@@ -3325,8 +3318,6 @@ if not na(GLOBAL_backtest.current) and not skip_this_bar
             GLOBAL_backtest.current.entry_price := sim_is_long ? GLOBAL_backtest.current.entry_top : GLOBAL_backtest.current.entry_btm
             GLOBAL_backtest.current.mae := 0.0
             GLOBAL_backtest.current.mfe := 0.0
-            log.info("BACKTEST ACTIVATED: {0} trade #{1} at entry={2}", 
-                     sim_is_long ? "LONG" : "SHORT", GLOBAL_backtest.current.id, GLOBAL_backtest.current.entry_price)
     
     // ACTIVE: In trade, tracking MAE/MFE and checking for exit
     else if GLOBAL_backtest.current.hasFlag(FLAG_ACTIVE)
@@ -3397,16 +3388,6 @@ if not na(GLOBAL_backtest.current) and not skip_this_bar
             // Push completed trade to GLOBAL_backtest.history
             array.push(GLOBAL_backtest.history, GLOBAL_backtest.current)
             
-            // DEBUG: Log trade completion with intrabar resolution info
-            if used_ltf_resolution
-                log.info("BACKTEST CLOSED (LTF): {0} #{1}, Won={2}, LTF_idx={3}/{4}, MAE={5}, MFE={6}", 
-                         sim_is_long ? "LONG" : "SHORT", GLOBAL_backtest.current.id, trade_won,
-                         ltf_hit_idx, array.size(GLOBAL_ltfHighs), GLOBAL_backtest.current.mae, GLOBAL_backtest.current.mfe)
-            else
-                log.info("BACKTEST CLOSED (HTF): {0} #{1}, Entry={2}, Won={3}, MAE={4}, MFE={5}", 
-                         sim_is_long ? "LONG" : "SHORT", 
-                         GLOBAL_backtest.current.id, GLOBAL_backtest.current.entry_price, trade_won, 
-                         GLOBAL_backtest.current.mae, GLOBAL_backtest.current.mfe)
             
             // Clear current simulation
             GLOBAL_backtest.current := na
@@ -3448,10 +3429,6 @@ if barstate.islast and array.size(GLOBAL_backtest.history) > 0 and not GLOBAL_ba
     // Mark stats as ready
     GLOBAL_backtest.stats.statsReady := true
     
-    // Log optimization results
-    log.info("BACKTEST OPTIMIZATION: {0} trades, {1}% WR, Avg Winner MAE={2}, Smart SL Offset={3}, LowConf={4}", 
-             GLOBAL_backtest.stats.totalTrades, math.round(GLOBAL_backtest.stats.winRate * 100), GLOBAL_backtest.stats.avgWinningMae, GLOBAL_backtest.stats.smartSlOffset, GLOBAL_backtest.stats.lowConfidence)
-
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATISTICAL POSITION ENGINE
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -3583,11 +3560,6 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float adjusted_box_bottom = box_bottom - buffer_amount
     
     // DEBUG: Log learning engine values on bar confirmation
-    if barstate.isconfirmed and INPUT_LEARNING_ENABLED
-        int sample_count = GLOBAL_setupHistory.size()
-        log.info("LEARNING: samples={0}, zone_buffer={1}%, sl_mult={2}, win_rate={3}%, sl_price={4}, tp_price={5}", 
-                 sample_count, adaptive_buffer, effective_sl_mult, GLOBAL_learning.winRate * 100, sl_price, tp_price)
-    
     // Near-miss detection: how close did price get to the zone?
     // Distance is positive when price is OUTSIDE the zone, 0 or negative when INSIDE
     float dist_to_zone_pct = 0.0
@@ -4577,15 +4549,6 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         
         // OPTIMIZATION: Set flag to trigger learning recalculation (only on new trade)
         GLOBAL_learning.needsRecalc := true
-        
-        // DEBUG: Log when setup is recorded (using state_mask flags)
-        log.info("RECORDED: bar={0}, mask={1}, samples={2}, long={3}, touched={4}, sl={5}, tp={6}, won={7}", 
-                 GLOBAL_activeTrade.setup_bar, GLOBAL_activeTrade.state_mask, GLOBAL_setupHistory.size(),
-                 GLOBAL_activeTrade.hasFlag(FLAG_IS_LONG),
-                 GLOBAL_activeTrade.hasFlag(FLAG_ZONE_TOUCHED),
-                 GLOBAL_activeTrade.hasFlag(FLAG_SL_HIT),
-                 GLOBAL_activeTrade.hasFlag(FLAG_TP_HIT),
-                 GLOBAL_activeTrade.hasFlag(FLAG_WON))
     
     // Initialize CONFIRMED trade tracking - ONLY reset on GLOBAL_zigzag.changed (never for projections)
     // This ensures Learning Engine data is ONLY from confirmed ZigZag pivots
