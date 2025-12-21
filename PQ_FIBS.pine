@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.5.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.8.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -98,6 +98,21 @@ int   ZSCORE_ATR_LEN_DEFAULT    = 14    // ATR period for normalization
 int   ZSCORE_Z_LEN_DEFAULT      = 50    // Rolling window for Z-score stats
 float ZSCORE_THRESH_DEFAULT     = 2.0   // Z-score threshold for significance
 int   ZSCORE_MIN_SAMPLES        = 10    // Minimum samples for valid Z-score
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// BAYESIAN WIN-RATE & SORTINO CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Beta prior parameters (uninformative Bayes-Laplace prior)
+float BAYES_ALPHA_PRIOR         = 1.0   // Prior alpha (pseudo-wins)
+float BAYES_BETA_PRIOR          = 1.0   // Prior beta (pseudo-losses)
+float BAYES_CONFIDENCE_LEVEL    = 0.95  // Confidence level for credible interval
+float BAYES_PERCENTILE          = 0.05  // Lower bound percentile (1 - CL)
+
+// Sortino ratio parameters
+float SORTINO_MAR               = 0.0   // Minimum Acceptable Return (target)
+float SORTINO_RF                = 0.0   // Risk-free rate
+float SORTINO_MAX_CAP           = 10.0  // Cap Sortino when downside deviation is zero
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS - Bitwise Trade/Setup State Representation
@@ -517,6 +532,94 @@ f_rollingZScore(float norm_slope, int z_len, int min_samples, float z_thresh) =>
     [z_score, strong_momentum]
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// BAYESIAN WIN-RATE - Beta-Binomial Model for Sample-Size Penalized Estimation
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Compute Beta distribution posterior mean
+// @param alpha Posterior alpha (prior + wins)
+// @param beta_param Posterior beta (prior + losses)
+// @returns Posterior mean E[θ] = α / (α + β)
+f_betaMean(float alpha, float beta_param) =>
+    float total = alpha + beta_param
+    total > 0 ? alpha / total : 0.5
+
+// @function Compute Beta distribution variance
+// @param alpha Posterior alpha
+// @param beta_param Posterior beta
+// @returns Variance = αβ / ((α+β)²(α+β+1))
+f_betaVariance(float alpha, float beta_param) =>
+    float total = alpha + beta_param
+    float denom = total * total * (total + 1.0)
+    denom > 1e-10 ? (alpha * beta_param) / denom : 0.0
+
+// @function Compute approximate lower credible bound using Normal approximation
+// @description Uses Normal approximation to Beta: mean ± z * sqrt(variance)
+//              Valid when α, β > 1 and sample size is moderate.
+//              Clamps result to [0, 1] to ensure valid probability.
+// @param alpha Posterior alpha (prior + wins)
+// @param beta_param Posterior beta (prior + losses)
+// @param percentile Lower percentile (e.g., 0.05 for 5th percentile)
+// @returns Conservative lower bound on win rate
+f_betaLowerBound(float alpha, float beta_param, float percentile) =>
+    float mean_val = f_betaMean(alpha, beta_param)
+    float var_val = f_betaVariance(alpha, beta_param)
+    float stdev = math.sqrt(var_val)
+    
+    // Z-score for percentile (approximation for common values)
+    // percentile 0.05 → z ≈ -1.645, percentile 0.10 → z ≈ -1.282
+    // Using inverse normal approximation: z = -sqrt(2) * erfinv(1 - 2*p)
+    // For p=0.05: z ≈ -1.645
+    float z_score = percentile <= 0.05 ? -1.645 : 
+                    percentile <= 0.10 ? -1.282 : 
+                    percentile <= 0.25 ? -0.674 : 0.0
+    
+    float lower_bound = mean_val + z_score * stdev
+    // Clamp to valid probability range
+    math.max(0.0, math.min(1.0, lower_bound))
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SORTINO RATIO - Downside-Risk Adjusted Performance Metric
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Compute Sortino Ratio from trade returns array
+// @description Sortino = (Rp - Rf) / σ_down where σ_down only considers returns below MAR
+// @param returns Array of trade log returns
+// @param mar Minimum Acceptable Return (target threshold)
+// @param rf Risk-free rate
+// @param max_cap Maximum Sortino when downside deviation is zero
+// @returns Sortino ratio (capped)
+f_sortino(array<float> returns, float mar, float rf, float max_cap) =>
+    int n = array.size(returns)
+    if n < 2
+        0.0
+    else
+        // Compute mean return
+        float sum_returns = 0.0
+        for i = 0 to n - 1
+            sum_returns += array.get(returns, i)
+        float mean_return = sum_returns / float(n)
+        
+        // Compute downside deviation (only returns below MAR)
+        float sum_sq_downside = 0.0
+        int downside_count = 0
+        for i = 0 to n - 1
+            float ret = array.get(returns, i)
+            if ret < mar
+                float diff = ret - mar
+                sum_sq_downside += diff * diff
+                downside_count += 1
+        
+        // Downside deviation = sqrt(mean of squared downside deviations)
+        float downside_dev = downside_count > 0 ? math.sqrt(sum_sq_downside / float(n)) : 0.0
+        
+        // Sortino = (mean - rf) / downside_dev
+        if downside_dev > 1e-10
+            (mean_return - rf) / downside_dev
+        else
+            // No downside returns: return capped positive or 0 based on mean
+            mean_return > rf ? max_cap : 0.0
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // LEARNING ENGINE CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -801,6 +904,13 @@ INPUT_ZSCORE_LR_LEN     = input.int(14, '   ↳ Regression Length', minval=5, ma
 INPUT_ZSCORE_ATR_LEN    = input.int(14, '   ↳ ATR Length', minval=5, maxval=50, group=GROUP_STAT_POS, tooltip="ATR period for volatility normalization.\nMakes momentum comparable across assets.\n14 is standard.")
 INPUT_ZSCORE_Z_LEN      = input.int(50, '   ↳ Z-Score Window', minval=20, maxval=200, group=GROUP_STAT_POS, tooltip="Rolling window for mean/stdev of normalized slope.\nLarger = more stable Z-score.\n50 is recommended.")
 INPUT_ZSCORE_THRESH     = input.float(2.0, '   ↳ Z Threshold', minval=1.0, maxval=4.0, step=0.1, group=GROUP_STAT_POS, tooltip="Z-score threshold for significant momentum.\n2.0 = ~95% confidence (2 sigma).\nHigher = stricter filtering.")
+// --- BAYESIAN WIN-RATE & SORTINO ---
+INPUT_BAYES_ENABLED     = input.bool(true, '📊 Bayesian Win-Rate', group=GROUP_STAT_POS, tooltip="Replaces naive win rate with Bayesian Beta-Binomial model.\nAutomatically penalizes small sample sizes.\nOutputs conservative lower credible bound.")
+INPUT_BAYES_ALPHA_PRIOR = input.float(1.0, '   ↳ Prior α (Pseudo-Wins)', minval=0.1, maxval=10.0, step=0.1, group=GROUP_STAT_POS, tooltip="Prior pseudo-wins for Beta distribution.\n1.0 = uninformative Bayes-Laplace prior.\nHigher = more conservative (shrinks toward 0.5).")
+INPUT_BAYES_BETA_PRIOR  = input.float(1.0, '   ↳ Prior β (Pseudo-Losses)', minval=0.1, maxval=10.0, step=0.1, group=GROUP_STAT_POS, tooltip="Prior pseudo-losses for Beta distribution.\n1.0 = uninformative Bayes-Laplace prior.\nHigher = more conservative (shrinks toward 0.5).")
+INPUT_BAYES_CONFIDENCE  = input.float(0.95, '   ↳ Confidence Level', minval=0.80, maxval=0.99, step=0.01, group=GROUP_STAT_POS, tooltip="Confidence level for credible interval.\n0.95 = 95% confidence (5th percentile lower bound).\nHigher = more conservative estimate.")
+INPUT_SORTINO_ENABLED   = input.bool(true, '📉 Sortino Ratio', group=GROUP_STAT_POS, tooltip="Downside-risk adjusted performance metric.\nPenalizes losses/drawdowns without penalizing upside volatility.\nAligns with asymmetric payoff goals.")
+INPUT_SORTINO_MAR       = input.float(0.0, '   ↳ Min Acceptable Return', minval=-0.10, maxval=0.10, step=0.01, group=GROUP_STAT_POS, tooltip="Minimum Acceptable Return (MAR) threshold.\nReturns below this are considered 'downside'.\n0.0 = break-even target.")
 // ------------------------------------------
 
 // Fibonacci Levels
@@ -1094,6 +1204,13 @@ method initFirst(ZigZagEngine this, int index, float price, bool isHigh) =>
 // @field avgLogReturn Average log return per trade
 // @field logReturnStdev Standard deviation of trade log returns
 // @field sharpeRatio Risk-adjusted return (avgLogReturn / logReturnStdev)
+// @field bayesAlpha Posterior alpha for Beta distribution (prior + wins)
+// @field bayesBeta Posterior beta for Beta distribution (prior + losses)
+// @field bayesMean Posterior mean E[θ] = α / (α + β)
+// @field bayesLowerBound Conservative lower credible bound (sample-size penalized)
+// @field sortinoRatio Downside-risk adjusted return (Rp - Rf) / σ_down
+// @field downsideDev Downside deviation (volatility of losses only)
+// @field meanTradeReturn Mean trade log return
 // @field lastOutcomeBar Bar index of last outcome
 // @field isHealthy Learning system health status
 type LearningMetrics
@@ -1150,6 +1267,15 @@ type LearningMetrics
     float avgLogReturn = 0.0
     float logReturnStdev = 0.0
     float sharpeRatio = 0.0
+    // Bayesian win-rate estimation (Beta-Binomial model)
+    float bayesAlpha = 1.0         // Posterior alpha (prior + wins)
+    float bayesBeta = 1.0          // Posterior beta (prior + losses)
+    float bayesMean = 0.5          // Posterior mean E[θ] = α / (α + β)
+    float bayesLowerBound = 0.0    // Conservative lower credible bound
+    // Sortino ratio (downside-risk adjusted)
+    float sortinoRatio = 0.0       // (Rp - Rf) / σ_down
+    float downsideDev = 0.0        // Downside deviation (σ_down)
+    float meanTradeReturn = 0.0    // Mean trade log return
     // Health tracking
     int   lastOutcomeBar = 0
     bool  isHealthy = true
@@ -1528,6 +1654,7 @@ array<float> GLOBAL_ltfLows  = request.security_lower_tf(syminfo.tickerid, INPUT
 // @field hurst_value Hurst exponent at setup (0-1)
 // @field zscore_value Z-score of momentum at setup
 // @field strong_momentum Whether momentum was statistically significant at setup
+// @field log_return Log return of the trade (positive for wins, negative for losses)
 type SetupRecord
     int    setup_bar
     int    state_mask = 0
@@ -1551,6 +1678,7 @@ type SetupRecord
     float  hurst_value = 0.5
     float  zscore_value = 0.0
     bool   strong_momentum = false
+    float  log_return = 0.0
 
 // @function Check if a specific flag is set in this SetupRecord's state_mask
 // @param this SetupRecord instance
@@ -3697,6 +3825,53 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             if GLOBAL_learning.logReturnStdev > 0
                 GLOBAL_learning.sharpeRatio := GLOBAL_learning.avgLogReturn / GLOBAL_learning.logReturnStdev
         
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // PHASE 5: Bayesian Win-Rate & Sortino Ratio
+        // ═══════════════════════════════════════════════════════════════════════════════
+        
+        // 5.1 Bayesian Win-Rate (Beta-Binomial Model)
+        if INPUT_BAYES_ENABLED
+            // Update posterior: α = prior + wins, β = prior + losses
+            GLOBAL_learning.bayesAlpha := INPUT_BAYES_ALPHA_PRIOR + float(wins)
+            GLOBAL_learning.bayesBeta := INPUT_BAYES_BETA_PRIOR + float(losses)
+            // Posterior mean: E[θ] = α / (α + β)
+            GLOBAL_learning.bayesMean := f_betaMean(GLOBAL_learning.bayesAlpha, GLOBAL_learning.bayesBeta)
+            // Lower credible bound (sample-size penalized)
+            float percentile = 1.0 - INPUT_BAYES_CONFIDENCE
+            GLOBAL_learning.bayesLowerBound := f_betaLowerBound(GLOBAL_learning.bayesAlpha, GLOBAL_learning.bayesBeta, percentile)
+        
+        // 5.2 Sortino Ratio (Downside-Risk Adjusted)
+        if INPUT_SORTINO_ENABLED and total_outcomes >= LEARN_MIN_SAMPLES_WR
+            // Build return array from SetupRecord log_return field
+            array<float> trade_returns = array.new_float(0)
+            float sum_returns = 0.0
+            float sum_sq_downside = 0.0
+            int downside_count = 0
+            
+            for i = 0 to samples_to_check - 1
+                SetupRecord rec = GLOBAL_setupHistory.get(i)
+                if not na(rec) and rec.hasFlag(FLAG_ZONE_TOUCHED)
+                    float ret = rec.log_return
+                    array.push(trade_returns, ret)
+                    sum_returns += ret
+                    // Track downside deviation (returns below MAR)
+                    if ret < INPUT_SORTINO_MAR
+                        float diff = ret - INPUT_SORTINO_MAR
+                        sum_sq_downside += diff * diff
+                        downside_count += 1
+            
+            int n_returns = array.size(trade_returns)
+            if n_returns >= 2
+                GLOBAL_learning.meanTradeReturn := sum_returns / float(n_returns)
+                // Downside deviation = sqrt(mean of squared downside deviations over ALL trades)
+                GLOBAL_learning.downsideDev := math.sqrt(sum_sq_downside / float(n_returns))
+                // Sortino = (mean - rf) / downside_dev
+                if GLOBAL_learning.downsideDev > 1e-10
+                    GLOBAL_learning.sortinoRatio := GLOBAL_learning.meanTradeReturn / GLOBAL_learning.downsideDev
+                else
+                    // No downside: cap at max if profitable, 0 otherwise
+                    GLOBAL_learning.sortinoRatio := GLOBAL_learning.meanTradeReturn > 0 ? SORTINO_MAX_CAP : 0.0
+        
         // 4.6 Learning Health Check
         int bars_since_outcome = bar_index - GLOBAL_learning.lastOutcomeBar
         bool is_stale = bars_since_outcome > HEALTH_STALE_BARS and GLOBAL_learning.lastOutcomeBar > 0
@@ -3955,8 +4130,23 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         int bars_to_out = GLOBAL_activeTrade.hasAny(MASK_OUTCOME) and not na(GLOBAL_activeTrade.entry_bar) ? 
                           (bar_index - GLOBAL_activeTrade.entry_bar) : 0
         
+        // Compute trade log return for Sortino calculation
+        // Win: positive R (TP hit), Loss: negative R (SL hit)
+        float trade_entry = nz(GLOBAL_activeTrade.entry_price, (GLOBAL_activeTrade.zone_top + GLOBAL_activeTrade.zone_bottom) / 2)
+        float trade_log_ret = 0.0
+        if GLOBAL_activeTrade.hasFlag(FLAG_TP_HIT) and not GLOBAL_activeTrade.hasFlag(FLAG_SL_HIT)
+            // Win: log return from entry to TP
+            trade_log_ret := f_logReturn(GLOBAL_activeTrade.tp_price, trade_entry)
+            // Ensure sign matches direction (longs profit when price rises, shorts when price falls)
+            if not GLOBAL_activeTrade.hasFlag(FLAG_IS_LONG)
+                trade_log_ret := -trade_log_ret
+        else if GLOBAL_activeTrade.hasFlag(FLAG_SL_HIT)
+            // Loss: log return from entry to SL (negative)
+            trade_log_ret := f_logReturn(GLOBAL_activeTrade.sl_price, trade_entry)
+            if not GLOBAL_activeTrade.hasFlag(FLAG_IS_LONG)
+                trade_log_ret := -trade_log_ret
+        
         // Record the previous CONFIRMED setup's outcome before it changes
-        // Copy state_mask directly from GLOBAL_activeTrade (contains is_long, zone_touched, sl_hit, tp_hit, had_rsi_div, etc.)
         SetupRecord completed_setup = SetupRecord.new(
             GLOBAL_activeTrade.setup_bar,           // setup_bar
             GLOBAL_activeTrade.state_mask,          // state_mask (copy all flags directly)
@@ -3965,10 +4155,10 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             GLOBAL_activeTrade.sl_price,            // sl_level
             GLOBAL_activeTrade.tp_price,            // tp_level
             GLOBAL_activeTrade.min_distance,        // closest_approach
-            bars_to_out,                        // bars_to_outcome
+            bars_to_out,                            // bars_to_outcome
             GLOBAL_activeTrade.max_adverse,         // max_adverse (ATR units)
             GLOBAL_activeTrade.max_favorable,       // max_favorable (ATR units)
-            nz(GLOBAL_activeTrade.entry_price, (GLOBAL_activeTrade.zone_top + GLOBAL_activeTrade.zone_bottom) / 2),  // entry_price
+            trade_entry,                            // entry_price
             nz(GLOBAL_activeTrade.atr_at_setup, 1.0),        // atr_at_setup
             nz(GLOBAL_activeTrade.rsi_at_entry, 50.0),       // rsi_at_entry
             GLOBAL_activeTrade.tp_cons,             // tp_conservative
@@ -3979,7 +4169,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             GLOBAL_hurstRegime,                     // hurst_regime
             GLOBAL_hurst,                           // hurst_value
             GLOBAL_zscore,                          // zscore_value
-            GLOBAL_strongMomentum                   // strong_momentum
+            GLOBAL_strongMomentum,                  // strong_momentum
+            trade_log_ret                           // log_return
         )
         
         // Phase 4: Record last outcome bar for staleness detection
