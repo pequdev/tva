@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.3.5', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.3.8', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -758,6 +758,43 @@ method checkHealth(LearningMetrics this) =>
 method hasDivergenceEdge(LearningMetrics this) =>
     this.divEdge > 0
 
+// @type PositionVisual - Manages all visual elements for the position display
+// @description Encapsulates box, lines, and label for the Golden Pocket setup visualization.
+//              Handles create/update/delete lifecycle and projection vs confirmed styling.
+type PositionVisual
+    box boxEntry = na         // Entry zone box
+    line lineSl = na          // Stop loss line
+    line lineSmartSl = na     // Smart SL line (backtest optimized)
+    line lineTp = na          // Take profit line
+    label lblRisk = na        // Position info label
+
+// @function Delete all visual elements
+// @param this PositionVisual instance
+// @returns PositionVisual instance for chaining
+method deleteAll(PositionVisual this) =>
+    if not na(this.boxEntry)
+        box.delete(this.boxEntry)
+        this.boxEntry := na
+    if not na(this.lineSl)
+        line.delete(this.lineSl)
+        this.lineSl := na
+    if not na(this.lineSmartSl)
+        line.delete(this.lineSmartSl)
+        this.lineSmartSl := na
+    if not na(this.lineTp)
+        line.delete(this.lineTp)
+        this.lineTp := na
+    if not na(this.lblRisk)
+        label.delete(this.lblRisk)
+        this.lblRisk := na
+    this
+
+// @function Check if visuals exist
+// @param this PositionVisual instance
+// @returns True if any visual elements exist
+method exists(PositionVisual this) =>
+    not na(this.boxEntry)
+
 type FibLevel
     float level
     color col
@@ -1107,19 +1144,109 @@ method setLifecycle(BacktestTrade this, int phase) =>
 method setOutcome(BacktestTrade this, int outcome) =>
     this.clearFlag(FLAG_SL_HIT).clearFlag(FLAG_TP_HIT).setFlag(outcome)
 
-// Global Storage for Backtesting Engine
-var array<BacktestTrade> history_log = array.new<BacktestTrade>()  // Completed trade history
-var BacktestTrade current_sim = na  // Single trade currently being simulated in the loop
+// @type BacktestStats - Optimization results calculated from backtest history
+// @description Computed once on barstate.islast from GLOBAL_backtest.history array.
+//              Provides Smart SL offset and confidence metrics for live trading.
+type BacktestStats
+    float avgWinningMae = 0.0     // Average MAE of winning trades (ATR units)
+    float avgLosingMae = 0.0      // Average MAE of losing trades (ATR units)
+    float winRate = 0.0           // Win rate from backtest (0-1)
+    int   totalTrades = 0         // Total completed trades
+    int   winningTrades = 0       // Number of winning trades
+    float smartSlOffset = 0.0     // Smart SL = Avg Winning MAE * 1.1
+    bool  lowConfidence = false   // True if win rate < 40%
+    bool  statsReady = false      // True once stats have been calculated
 
-// Optimization Results (calculated from history_log on barstate.islast)
-var float bt_avg_winning_mae = 0.0     // Average MAE of winning trades
-var float bt_avg_losing_mae = 0.0      // Average MAE of losing trades  
-var float bt_win_rate = 0.0            // Win rate from backtest
-var int   bt_total_trades = 0          // Total completed trades
-var int   bt_winning_trades = 0        // Number of winning trades
-var float bt_smart_sl_offset = 0.0     // Smart SL = Entry - (Avg Winning MAE * 1.1)
-var bool  bt_low_confidence = false    // True if win rate < 40%
-var bool  bt_stats_ready = false       // True once stats have been calculated
+// @function Check if stats are ready for use
+// @param this BacktestStats instance
+// @returns True if statistics have been calculated
+method isReady(BacktestStats this) =>
+    this.statsReady
+
+// @function Check if backtest shows low confidence
+// @param this BacktestStats instance
+// @returns True if win rate < 40%
+method hasLowConfidence(BacktestStats this) =>
+    this.lowConfidence
+
+// @function Get smart SL offset based on MAE analysis
+// @param this BacktestStats instance
+// @returns Smart SL offset in price units
+method getSmartSlOffset(BacktestStats this) =>
+    this.smartSlOffset
+
+// @type BacktestEngine - Manages trade simulation and performance tracking
+// @description Encapsulates GLOBAL_backtest.history, GLOBAL_backtest.current, and stats calculation.
+//              Spawns trades on pivot changes, manages lifecycle, closes on SL/TP.
+type BacktestEngine
+    array<BacktestTrade> history = na  // Completed trade history (replaces GLOBAL_backtest.history)
+    BacktestTrade current = na         // Current trade being simulated (replaces GLOBAL_backtest.current)
+    BacktestStats stats = na           // Optimization results (replaces bt_* vars)
+
+// @function Initialize the backtest engine
+// @param this BacktestEngine instance
+// @returns BacktestEngine instance for chaining
+method init(BacktestEngine this) =>
+    this.history := array.new<BacktestTrade>()
+    this.stats := BacktestStats.new()
+    this
+
+// @function Check if there is an active trade
+// @param this BacktestEngine instance
+// @returns True if current trade exists
+method hasActiveTrade(BacktestEngine this) =>
+    not na(this.current)
+
+// @function Get number of completed trades
+// @param this BacktestEngine instance
+// @returns Size of history array
+method getTradeCount(BacktestEngine this) =>
+    na(this.history) ? 0 : this.history.size()
+
+// @function Add completed trade to history
+// @param this BacktestEngine instance
+// @param trade Completed BacktestTrade to archive
+// @returns BacktestEngine instance for chaining
+method archiveTrade(BacktestEngine this, BacktestTrade trade) =>
+    if not na(this.history)
+        this.history.push(trade)
+    this
+
+// @function Calculate statistics from completed trades (call on barstate.islast)
+// @param this BacktestEngine instance
+// @returns BacktestEngine instance for chaining
+method calculateStats(BacktestEngine this) =>
+    if na(this.history) or na(this.stats) or this.stats.statsReady
+        this
+    else
+        int total = this.history.size()
+        if total > 0
+            int wins = 0
+            float sumWinningMae = 0.0
+            float sumLosingMae = 0.0
+            int losingCount = 0
+            
+            for i = 0 to total - 1
+                BacktestTrade trade = this.history.get(i)
+                if trade.hasFlag(FLAG_WON)
+                    wins += 1
+                    sumWinningMae += trade.mae
+                else
+                    losingCount += 1
+                    sumLosingMae += trade.mae
+            
+            this.stats.totalTrades := total
+            this.stats.winningTrades := wins
+            this.stats.winRate := total > 0 ? float(wins) / float(total) : 0.0
+            this.stats.avgWinningMae := wins > 0 ? sumWinningMae / float(wins) : 0.0
+            this.stats.avgLosingMae := losingCount > 0 ? sumLosingMae / float(losingCount) : 0.0
+            this.stats.smartSlOffset := this.stats.avgWinningMae * 1.1
+            this.stats.lowConfidence := this.stats.winRate < 0.40
+            this.stats.statsReady := true
+        this
+
+// Global BacktestEngine instance (replaces GLOBAL_backtest.history, GLOBAL_backtest.current, bt_* vars)
+var BacktestEngine GLOBAL_backtest = BacktestEngine.new().init()
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // SetupState UDT: Tracks LIVE state of a Golden Pocket setup
@@ -1821,9 +1948,9 @@ for lvl in fibLevels
 // BACKTESTING ENGINE - Historical Trade Simulation Loop
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // This logic runs on EVERY bar to:
-// 1. Manage the current simulation (current_sim) through its lifecycle
+// 1. Manage the current simulation (GLOBAL_backtest.current) through its lifecycle
 // 2. Spawn new trades when ZigZag pivots are confirmed
-// 3. Build history_log with completed trades for learning analysis
+// 3. Build GLOBAL_backtest.history with completed trades for learning analysis
 // Uses RAW Fib levels (cachedPMidPivot, cachedPEndBase) - no learned adjustments
 
 // Calculate RAW Golden Pocket levels using confirmed pivots only
@@ -1852,14 +1979,14 @@ float raw_tp_price = raw_tp_target
 // CRITICAL: Spawn BEFORE management so new trades don't get processed on spawn bar
 // Only spawn when:
 // 1. GLOBAL_zigzag.changed is true (ZigZag confirmed)
-// 2. current_sim is na (not already in a simulation)
+// 2. GLOBAL_backtest.current is na (not already in a simulation)
 // 3. We have valid cached pivot data
-if GLOBAL_zigzag.changed and na(current_sim) and not na(cachedIMidPivot) and not na(cachedPEndBase)
+if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(cachedIMidPivot) and not na(cachedPEndBase)
     // Build initial state_mask: PENDING + direction flag (using arithmetic for raw int)
     int init_state = FLAG_PENDING + (raw_is_long ? FLAG_IS_LONG : 0)
     
     // Create a new BacktestTrade with RAW levels
-    current_sim := BacktestTrade.new(
+    GLOBAL_backtest.current := BacktestTrade.new(
         cachedIMidPivot,       // id: Pivot bar index
         init_state,            // state_mask: FLAG_PENDING + FLAG_IS_LONG if long
         raw_entry_mid,         // entry_price: mid of Golden Pocket (updated on activation)
@@ -1885,62 +2012,62 @@ if GLOBAL_zigzag.changed and na(current_sim) and not na(cachedIMidPivot) and not
 // This prevents the trade from being immediately killed or activated on spawn bar
 bool skip_this_bar = GLOBAL_zigzag.changed  // Don't process newly spawned trades on their creation bar
 
-if not na(current_sim) and not skip_this_bar
-    bool sim_is_long = current_sim.hasFlag(FLAG_IS_LONG)
+if not na(GLOBAL_backtest.current) and not skip_this_bar
+    bool sim_is_long = GLOBAL_backtest.current.hasFlag(FLAG_IS_LONG)
     
     // PENDING: Waiting for price to touch the Golden Pocket zone
-    if current_sim.hasFlag(FLAG_PENDING)
+    if GLOBAL_backtest.current.hasFlag(FLAG_PENDING)
         bool zone_touched = false
         bool sl_breached_before_entry = false
         
         if sim_is_long  // LONG: waiting for price to dip INTO zone
-            zone_touched := low <= current_sim.entry_top and high >= current_sim.entry_btm
-            sl_breached_before_entry := low <= current_sim.sl_price and not zone_touched
+            zone_touched := low <= GLOBAL_backtest.current.entry_top and high >= GLOBAL_backtest.current.entry_btm
+            sl_breached_before_entry := low <= GLOBAL_backtest.current.sl_price and not zone_touched
         else  // SHORT: waiting for price to rise INTO zone
-            zone_touched := high >= current_sim.entry_btm and low <= current_sim.entry_top
-            sl_breached_before_entry := high >= current_sim.sl_price and not zone_touched
+            zone_touched := high >= GLOBAL_backtest.current.entry_btm and low <= GLOBAL_backtest.current.entry_top
+            sl_breached_before_entry := high >= GLOBAL_backtest.current.sl_price and not zone_touched
         
         // Handle SL breach before entry (trade invalidated)
         if sl_breached_before_entry
             log.info("BACKTEST KILLED: {0} trade #{1} - SL breached before entry", 
-                     sim_is_long ? "LONG" : "SHORT", current_sim.id)
-            current_sim := na
+                     sim_is_long ? "LONG" : "SHORT", GLOBAL_backtest.current.id)
+            GLOBAL_backtest.current := na
         // If zone touched, activate the trade (transition: PENDING -> ACTIVE)
         else if zone_touched
-            current_sim.setLifecycle(FLAG_ACTIVE).setFlag(FLAG_ZONE_TOUCHED)
-            current_sim.entry_bar := bar_index
-            current_sim.entry_price := sim_is_long ? current_sim.entry_top : current_sim.entry_btm
-            current_sim.mae := 0.0
-            current_sim.mfe := 0.0
+            GLOBAL_backtest.current.setLifecycle(FLAG_ACTIVE).setFlag(FLAG_ZONE_TOUCHED)
+            GLOBAL_backtest.current.entry_bar := bar_index
+            GLOBAL_backtest.current.entry_price := sim_is_long ? GLOBAL_backtest.current.entry_top : GLOBAL_backtest.current.entry_btm
+            GLOBAL_backtest.current.mae := 0.0
+            GLOBAL_backtest.current.mfe := 0.0
             log.info("BACKTEST ACTIVATED: {0} trade #{1} at entry={2}", 
-                     sim_is_long ? "LONG" : "SHORT", current_sim.id, current_sim.entry_price)
+                     sim_is_long ? "LONG" : "SHORT", GLOBAL_backtest.current.id, GLOBAL_backtest.current.entry_price)
     
     // ACTIVE: In trade, tracking MAE/MFE and checking for exit
-    else if current_sim.hasFlag(FLAG_ACTIVE)
+    else if GLOBAL_backtest.current.hasFlag(FLAG_ACTIVE)
         // Update MAE (Max Adverse Excursion) - worst price against us
         if sim_is_long  // LONG: adverse = price going DOWN
-            float adverse = current_sim.entry_price - low
-            current_sim.mae := math.max(current_sim.mae, adverse)
+            float adverse = GLOBAL_backtest.current.entry_price - low
+            GLOBAL_backtest.current.mae := math.max(GLOBAL_backtest.current.mae, adverse)
         else  // SHORT: adverse = price going UP
-            float adverse = high - current_sim.entry_price
-            current_sim.mae := math.max(current_sim.mae, adverse)
+            float adverse = high - GLOBAL_backtest.current.entry_price
+            GLOBAL_backtest.current.mae := math.max(GLOBAL_backtest.current.mae, adverse)
         
         // Update MFE (Max Favorable Excursion) - best price in our favor
         if sim_is_long  // LONG: favorable = price going UP
-            float favorable = high - current_sim.entry_price
-            current_sim.mfe := math.max(current_sim.mfe, favorable)
+            float favorable = high - GLOBAL_backtest.current.entry_price
+            GLOBAL_backtest.current.mfe := math.max(GLOBAL_backtest.current.mfe, favorable)
         else  // SHORT: favorable = price going DOWN
-            float favorable = current_sim.entry_price - low
-            current_sim.mfe := math.max(current_sim.mfe, favorable)
+            float favorable = GLOBAL_backtest.current.entry_price - low
+            GLOBAL_backtest.current.mfe := math.max(GLOBAL_backtest.current.mfe, favorable)
         
         // Check for exit conditions (HTF level - used for initial screening)
-        bool sl_hit = sim_is_long ? (low <= current_sim.sl_price) : (high >= current_sim.sl_price)
-        bool tp_hit = sim_is_long ? (high >= current_sim.tp_price) : (low <= current_sim.tp_price)
+        bool sl_hit = sim_is_long ? (low <= GLOBAL_backtest.current.sl_price) : (high >= GLOBAL_backtest.current.sl_price)
+        bool tp_hit = sim_is_long ? (high >= GLOBAL_backtest.current.tp_price) : (low <= GLOBAL_backtest.current.tp_price)
         
         // Handle exits (transition: ACTIVE -> CLOSED)
         if sl_hit or tp_hit
-            current_sim.setLifecycle(FLAG_CLOSED)
-            current_sim.exit_bar := bar_index
+            GLOBAL_backtest.current.setLifecycle(FLAG_CLOSED)
+            GLOBAL_backtest.current.exit_bar := bar_index
             
             // ═══════════════════════════════════════════════════════════════════════════
             // INTRABAR PRECISION: Resolve TP/SL order chronologically using LTF data
@@ -1954,22 +2081,22 @@ if not na(current_sim) and not skip_this_bar
                 if INPUT_INTRABAR_ENABLED and array.size(GLOBAL_ltfHighs) > 0
                     // Use intrabar resolution for chronological determination
                     bool conservative = INPUT_INTRABAR_TIEBREAK == "Conservative"
-                    [ltf_outcome, ltf_resolved, hit_idx] = f_resolveIntrabar(GLOBAL_ltfHighs, GLOBAL_ltfLows, sim_is_long, current_sim.sl_price, current_sim.tp_price, conservative)
+                    [ltf_outcome, ltf_resolved, hit_idx] = f_resolveIntrabar(GLOBAL_ltfHighs, GLOBAL_ltfLows, sim_is_long, GLOBAL_backtest.current.sl_price, GLOBAL_backtest.current.tp_price, conservative)
                     
                     if ltf_resolved
                         trade_won := ltf_outcome == 1  // 1 = TP first, -1 = SL first
                         used_ltf_resolution := true
                         ltf_hit_idx := hit_idx
-                        current_sim.setFlag(FLAG_LTF_RESOLVED)
+                        GLOBAL_backtest.current.setFlag(FLAG_LTF_RESOLVED)
                     else
                         // LTF data available but no decisive outcome - use HTF fallback
-                        float dist_to_sl = math.abs(open - current_sim.sl_price)
-                        float dist_to_tp = math.abs(open - current_sim.tp_price)
+                        float dist_to_sl = math.abs(open - GLOBAL_backtest.current.sl_price)
+                        float dist_to_tp = math.abs(open - GLOBAL_backtest.current.tp_price)
                         trade_won := dist_to_tp < dist_to_sl * 0.5
                 else
                     // Intrabar disabled or no LTF data - use HTF heuristic (fallback per FR-7)
-                    float dist_to_sl = math.abs(open - current_sim.sl_price)
-                    float dist_to_tp = math.abs(open - current_sim.tp_price)
+                    float dist_to_sl = math.abs(open - GLOBAL_backtest.current.sl_price)
+                    float dist_to_tp = math.abs(open - GLOBAL_backtest.current.tp_price)
                     trade_won := dist_to_tp < dist_to_sl * 0.5
             else
                 // Only one level hit - straightforward resolution
@@ -1977,35 +2104,35 @@ if not na(current_sim) and not skip_this_bar
             
             // Set outcome flags using setOutcome method for mutual exclusion (SL_HIT xor TP_HIT)
             if trade_won
-                current_sim.setOutcome(FLAG_TP_HIT).setFlag(FLAG_WON)
+                GLOBAL_backtest.current.setOutcome(FLAG_TP_HIT).setFlag(FLAG_WON)
             else
-                current_sim.setOutcome(FLAG_SL_HIT)
+                GLOBAL_backtest.current.setOutcome(FLAG_SL_HIT)
             
-            // Push completed trade to history_log
-            array.push(history_log, current_sim)
+            // Push completed trade to GLOBAL_backtest.history
+            array.push(GLOBAL_backtest.history, GLOBAL_backtest.current)
             
             // DEBUG: Log trade completion with intrabar resolution info
             if used_ltf_resolution
                 log.info("BACKTEST CLOSED (LTF): {0} #{1}, Won={2}, LTF_idx={3}/{4}, MAE={5}, MFE={6}", 
-                         sim_is_long ? "LONG" : "SHORT", current_sim.id, trade_won,
-                         ltf_hit_idx, array.size(GLOBAL_ltfHighs), current_sim.mae, current_sim.mfe)
+                         sim_is_long ? "LONG" : "SHORT", GLOBAL_backtest.current.id, trade_won,
+                         ltf_hit_idx, array.size(GLOBAL_ltfHighs), GLOBAL_backtest.current.mae, GLOBAL_backtest.current.mfe)
             else
                 log.info("BACKTEST CLOSED (HTF): {0} #{1}, Entry={2}, Won={3}, MAE={4}, MFE={5}", 
                          sim_is_long ? "LONG" : "SHORT", 
-                         current_sim.id, current_sim.entry_price, trade_won, 
-                         current_sim.mae, current_sim.mfe)
+                         GLOBAL_backtest.current.id, GLOBAL_backtest.current.entry_price, trade_won, 
+                         GLOBAL_backtest.current.mae, GLOBAL_backtest.current.mfe)
             
             // Clear current simulation
-            current_sim := na
+            GLOBAL_backtest.current := na
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // OPTIMIZATION ENGINE - Calculate Stats from Backtest History (runs on barstate.islast)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// By this point, history_log contains all completed trades from chart history
+// By this point, GLOBAL_backtest.history contains all completed trades from chart history
 // Now we analyze them to optimize the current real-time position
 
-if barstate.islast and array.size(history_log) > 0 and not bt_stats_ready
-    int total = array.size(history_log)
+if barstate.islast and array.size(GLOBAL_backtest.history) > 0 and not GLOBAL_backtest.stats.statsReady
+    int total = array.size(GLOBAL_backtest.history)
     int wins = 0
     float sum_winning_mae = 0.0
     float sum_losing_mae = 0.0
@@ -2013,7 +2140,7 @@ if barstate.islast and array.size(history_log) > 0 and not bt_stats_ready
     
     // Loop through all completed trades
     for i = 0 to total - 1
-        BacktestTrade trade = array.get(history_log, i)
+        BacktestTrade trade = array.get(GLOBAL_backtest.history, i)
         if trade.hasFlag(FLAG_WON)
             wins += 1
             sum_winning_mae += trade.mae
@@ -2022,34 +2149,31 @@ if barstate.islast and array.size(history_log) > 0 and not bt_stats_ready
             sum_losing_mae += trade.mae
     
     // Calculate statistics
-    bt_total_trades := total
-    bt_winning_trades := wins
-    bt_win_rate := total > 0 ? float(wins) / float(total) : 0.0
-    bt_avg_winning_mae := wins > 0 ? sum_winning_mae / float(wins) : 0.0
-    bt_avg_losing_mae := losing_count > 0 ? sum_losing_mae / float(losing_count) : 0.0
+    GLOBAL_backtest.stats.totalTrades := total
+    GLOBAL_backtest.stats.winningTrades := wins
+    GLOBAL_backtest.stats.winRate := total > 0 ? float(wins) / float(total) : 0.0
+    GLOBAL_backtest.stats.avgWinningMae := wins > 0 ? sum_winning_mae / float(wins) : 0.0
+    GLOBAL_backtest.stats.avgLosingMae := losing_count > 0 ? sum_losing_mae / float(losing_count) : 0.0
     
     // Smart SL offset: Avg Winning MAE * 1.1 (give 10% buffer beyond typical drawdown)
-    bt_smart_sl_offset := bt_avg_winning_mae * 1.1
+    GLOBAL_backtest.stats.smartSlOffset := GLOBAL_backtest.stats.avgWinningMae * 1.1
     
     // Confidence flag: Low confidence if win rate < 40%
-    bt_low_confidence := bt_win_rate < 0.40
+    GLOBAL_backtest.stats.lowConfidence := GLOBAL_backtest.stats.winRate < 0.40
     
     // Mark stats as ready
-    bt_stats_ready := true
+    GLOBAL_backtest.stats.statsReady := true
     
     // Log optimization results
     log.info("BACKTEST OPTIMIZATION: {0} trades, {1}% WR, Avg Winner MAE={2}, Smart SL Offset={3}, LowConf={4}", 
-             bt_total_trades, math.round(bt_win_rate * 100), bt_avg_winning_mae, bt_smart_sl_offset, bt_low_confidence)
+             GLOBAL_backtest.stats.totalTrades, math.round(GLOBAL_backtest.stats.winRate * 100), GLOBAL_backtest.stats.avgWinningMae, GLOBAL_backtest.stats.smartSlOffset, GLOBAL_backtest.stats.lowConfidence)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATISTICAL POSITION ENGINE
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-var box box_entry = na
-var line line_sl = na
-var line line_smart_sl = na  // Smart SL line (based on backtest MAE optimization)
-var line line_tp = na
-var label lbl_risk = na
+// UDT: All position visual elements consolidated (see PositionVisual type definition above)
+var PositionVisual GLOBAL_posVisual = PositionVisual.new()
 
 // Use effective pivots (projection if active, otherwise confirmed)
 if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
@@ -2916,15 +3040,15 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // BACKTEST STATS DISPLAY - Show optimization results on the dashboard
     // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
     string backtest_text = ""
-    if bt_stats_ready and bt_total_trades > 0
+    if GLOBAL_backtest.stats.statsReady and GLOBAL_backtest.stats.totalTrades > 0
         // Low confidence warning
-        string conf_warning = bt_low_confidence ? " ⚠️LOW" : ""
-        backtest_text := "\n📈 Backtested " + str.tostring(bt_total_trades) + " Trades: " + str.tostring(math.round(bt_win_rate * 100)) + "% WR" + conf_warning
+        string conf_warning = GLOBAL_backtest.stats.lowConfidence ? " ⚠️LOW" : ""
+        backtest_text := "\n📈 Backtested " + str.tostring(GLOBAL_backtest.stats.totalTrades) + " Trades: " + str.tostring(math.round(GLOBAL_backtest.stats.winRate * 100)) + "% WR" + conf_warning
         // Show Smart SL if available
-        if bt_smart_sl_offset > 0
-            float smart_sl_price = display_is_long ? mid_entry - bt_smart_sl_offset : mid_entry + bt_smart_sl_offset
+        if GLOBAL_backtest.stats.smartSlOffset > 0
+            float smart_sl_price = display_is_long ? mid_entry - GLOBAL_backtest.stats.smartSlOffset : mid_entry + GLOBAL_backtest.stats.smartSlOffset
             backtest_text += "\n   🎯 Smart SL: " + str.tostring(smart_sl_price, format.mintick)
-    else if bt_total_trades == 0
+    else if GLOBAL_backtest.stats.totalTrades == 0
         backtest_text := "\n📈 Backtesting... (0 trades)"
     
     string pos_text = (display_is_long ? TEXT_LONG : TEXT_SHORT) + TEXT_SETUP + trade_state_indicator + status + "\n🎯 TP: " + str.tostring(display_tp_text, format.mintick) + "\n🛑 SL: " + str.tostring(display_sl_text, format.mintick) + "\n⚖️ R:R " + str.tostring(rr_ratio, "#.##") + ev_text + kelly_text + learn_text + backtest_text
@@ -3043,9 +3167,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // Calculate Smart SL price based on backtest optimization
     float smart_sl_price = na
-    bool show_smart_sl = bt_stats_ready and bt_smart_sl_offset > 0
+    bool show_smart_sl = GLOBAL_backtest.stats.statsReady and GLOBAL_backtest.stats.smartSlOffset > 0
     if show_smart_sl
-        smart_sl_price := is_long_setup ? mid_entry - bt_smart_sl_offset : mid_entry + bt_smart_sl_offset
+        smart_sl_price := is_long_setup ? mid_entry - GLOBAL_backtest.stats.smartSlOffset : mid_entry + GLOBAL_backtest.stats.smartSlOffset
     color smart_sl_col = color.new(color.orange, 20)  // Orange for Smart SL (distinct from red structural SL)
     
     // Track projection state changes for object recreation
@@ -3056,63 +3180,54 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // On pivot change OR projection state change, delete old objects and create fresh ones
     bool needsRecreate = GLOBAL_zigzag.changed or projectionStateChanged or (isProjection and (proj_tentative_high or proj_tentative_low))
     if needsRecreate
-        if not na(box_entry)
-            box.delete(box_entry)
-        if not na(line_sl)
-            line.delete(line_sl)
-        if not na(line_smart_sl)
-            line.delete(line_smart_sl)
-        if not na(line_tp)
-            line.delete(line_tp)
-        if not na(lbl_risk)
-            label.delete(lbl_risk)
-        box_entry := box.new(bar_index, display_zone_top, bar_index + 5, display_zone_bottom, bgcolor=bg_col, border_color=border_col, border_style=box_style)
-        line_sl := line.new(bar_index, display_sl, bar_index + 5, display_sl, color=sl_line_col, style=box_style, width=2)
+        GLOBAL_posVisual.deleteAll()
+        GLOBAL_posVisual.boxEntry := box.new(bar_index, display_zone_top, bar_index + 5, display_zone_bottom, bgcolor=bg_col, border_color=border_col, border_style=box_style)
+        GLOBAL_posVisual.lineSl := line.new(bar_index, display_sl, bar_index + 5, display_sl, color=sl_line_col, style=box_style, width=2)
         // Smart SL line (only if backtest data available)
         if show_smart_sl
-            line_smart_sl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=3)
-        line_tp := line.new(bar_index, display_tp, bar_index + 5, display_tp, color=tp_line_col, style=box_style, width=3)
-        lbl_risk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small, text.align_left)
-    else if na(box_entry)
+            GLOBAL_posVisual.lineSmartSl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=3)
+        GLOBAL_posVisual.lineTp := line.new(bar_index, display_tp, bar_index + 5, display_tp, color=tp_line_col, style=box_style, width=3)
+        GLOBAL_posVisual.lblRisk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small, text.align_left)
+    else if not GLOBAL_posVisual.exists()
         // First time creation (no pivot change yet)
-        box_entry := box.new(bar_index, display_zone_top, bar_index + 5, display_zone_bottom, bgcolor=bg_col, border_color=border_col, border_style=line.style_dotted)
-        line_sl := line.new(bar_index, display_sl, bar_index + 5, display_sl, color=sl_line_col, style=line.style_dotted, width=3)
+        GLOBAL_posVisual.boxEntry := box.new(bar_index, display_zone_top, bar_index + 5, display_zone_bottom, bgcolor=bg_col, border_color=border_col, border_style=line.style_dotted)
+        GLOBAL_posVisual.lineSl := line.new(bar_index, display_sl, bar_index + 5, display_sl, color=sl_line_col, style=line.style_dotted, width=3)
         if show_smart_sl
-            line_smart_sl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=3)
-        line_tp := line.new(bar_index, display_tp, bar_index + 5, display_tp, color=tp_line_col, style=line.style_dotted, width=3)
-        lbl_risk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small, text.align_left)
+            GLOBAL_posVisual.lineSmartSl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=3)
+        GLOBAL_posVisual.lineTp := line.new(bar_index, display_tp, bar_index + 5, display_tp, color=tp_line_col, style=line.style_dotted, width=3)
+        GLOBAL_posVisual.lblRisk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small, text.align_left)
     else
         // Update existing objects with current values (dynamic learning adjustments)
-        box.set_top(box_entry, display_zone_top)
-        box.set_bottom(box_entry, display_zone_bottom)
-        box.set_right(box_entry, bar_index + 5)
-        box.set_bgcolor(box_entry, bg_col)
-        box.set_border_color(box_entry, border_col)
+        box.set_top(GLOBAL_posVisual.boxEntry, display_zone_top)
+        box.set_bottom(GLOBAL_posVisual.boxEntry, display_zone_bottom)
+        box.set_right(GLOBAL_posVisual.boxEntry, bar_index + 5)
+        box.set_bgcolor(GLOBAL_posVisual.boxEntry, bg_col)
+        box.set_border_color(GLOBAL_posVisual.boxEntry, border_col)
         
         // Update SL line - price and color (dynamic learning adjustments)
-        line.set_x2(line_sl, bar_index + 5)
-        line.set_y1(line_sl, display_sl)
-        line.set_y2(line_sl, display_sl)
-        line.set_color(line_sl, sl_line_col)
+        line.set_x2(GLOBAL_posVisual.lineSl, bar_index + 5)
+        line.set_y1(GLOBAL_posVisual.lineSl, display_sl)
+        line.set_y2(GLOBAL_posVisual.lineSl, display_sl)
+        line.set_color(GLOBAL_posVisual.lineSl, sl_line_col)
         
         // Update Smart SL line (if available)
-        if show_smart_sl and not na(line_smart_sl)
-            line.set_x2(line_smart_sl, bar_index + 5)
-            line.set_y1(line_smart_sl, smart_sl_price)
-            line.set_y2(line_smart_sl, smart_sl_price)
-        else if show_smart_sl and na(line_smart_sl)
-            line_smart_sl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=2)
+        if show_smart_sl and not na(GLOBAL_posVisual.lineSmartSl)
+            line.set_x2(GLOBAL_posVisual.lineSmartSl, bar_index + 5)
+            line.set_y1(GLOBAL_posVisual.lineSmartSl, smart_sl_price)
+            line.set_y2(GLOBAL_posVisual.lineSmartSl, smart_sl_price)
+        else if show_smart_sl and na(GLOBAL_posVisual.lineSmartSl)
+            GLOBAL_posVisual.lineSmartSl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=2)
         
         // Update TP line - price and color (dynamic learning adjustments)
-        line.set_x2(line_tp, bar_index + 5)
-        line.set_y1(line_tp, display_tp)
-        line.set_y2(line_tp, display_tp)
-        line.set_color(line_tp, tp_line_col)
+        line.set_x2(GLOBAL_posVisual.lineTp, bar_index + 5)
+        line.set_y1(GLOBAL_posVisual.lineTp, display_tp)
+        line.set_y2(GLOBAL_posVisual.lineTp, display_tp)
+        line.set_color(GLOBAL_posVisual.lineTp, tp_line_col)
         
         // Update label
-        label.set_x(lbl_risk, bar_index + 5)
-        label.set_y(lbl_risk, mid_entry)
-        label.set_text(lbl_risk, pos_text)
+        label.set_x(GLOBAL_posVisual.lblRisk, bar_index + 5)
+        label.set_y(GLOBAL_posVisual.lblRisk, mid_entry)
+        label.set_text(GLOBAL_posVisual.lblRisk, pos_text)
     
     // Alert on zone entry
     if zone_entry and INPUT_ALERT_ENABLED
