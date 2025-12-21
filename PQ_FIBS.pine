@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.9.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.10.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -694,7 +694,7 @@ f_monteCarloDD(array<float> returns, int num_sims, int seed_base) =>
         int current_seed = seed_base
         
         for sim = 0 to num_sims - 1
-            array.copy(returns, shuffled)
+            shuffled := array.copy(returns)
             current_seed := f_fisherYatesShuffle(shuffled, current_seed + sim)
             float shuffled_dd = f_maxDrawdown(shuffled)
             sum_shuffled_dd += shuffled_dd
