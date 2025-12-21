@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.3.8', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.3.10', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -98,8 +98,6 @@ int STATE_MAX_BIT       = 12
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // INTRABAR RESOLUTION - Chronological TP/SL Resolution Using LTF Data
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// Resolves which outcome (TP or SL) occurred first when both are hit in the same HTF bar
-// by iterating through LTF bars chronologically. Returns: 1 = TP first, -1 = SL first, 0 = neither/undetermined
 
 // @function Resolve TP/SL outcome chronologically using LTF intrabar data
 // @param ltf_highs Array of LTF high values within current HTF bar
@@ -319,7 +317,9 @@ INPUT_LEVELS_PVT_POS    = input.string('Pivot End', '', options=['Last Bar', 'Pi
 INPUT_LEVELS_PVT_SIZE   = input.string('Small', '', options=['Small', 'Normal'], inline='pvt', group=GROUP_PIVOT)
 INPUT_EXTEND_PVT        = input.bool(false, 'Extend Pivot Point Lines', inline='fLines', group=GROUP_PIVOT)
 
-// Deviation Thresholds
+// @function Calculate deviation threshold based on ATR and multiplier
+// @param dev_treshold Deviation multiplier
+// @returns Deviation threshold as percentage
 dev_treshold(float dev_treshold) => ta.atr(2) / close * 100 * dev_treshold
 INPUT_DEV_THRESH_DEFAULT = dev_treshold(input.float(2.0, 'Deviation (default)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC, tooltip=TOOLTIP_THRESHOLD))
 INPUT_DEV_THRESH_1S     = dev_treshold(input.float(2.0, 'Deviation (1S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
@@ -510,6 +510,8 @@ var map<float, float> GLOBAL_pivotLevelsLogRetracementsMap = map.new<float, floa
 var map<float, float> GLOBAL_pivotLevelsLogCrossedMap = map.new<float, float>()
 
 // @type LevelLog - Wraps a map for tracking Fibonacci level prices and crossings
+// @description Stores price levels for each Fibonacci ratio and tracks which ones have been crossed.
+//              Used for generating alert data.
 // @field data Map storing level ratio -> price mappings
 type LevelLog
     map<float, float> data
@@ -540,6 +542,7 @@ method get(LevelLog this, float level) =>
 // NOTE: toJson method is defined after fibLevels array is available (see below FibLevel type)
 
 // @type PivotContext - Encapsulates pivot coordinates for Fibonacci level calculations
+// @description Holds the start and end prices of a swing for calculating Fibonacci retracement/extension levels.
 // @field pMid Price of the mid pivot (swing point)
 // @field pEnd Price of the end base (retracement target)
 // @field reverse Whether to reverse the calculation direction
@@ -595,7 +598,7 @@ method resetChanged(ZigZagEngine this) =>
 method wasChanged(ZigZagEngine this) =>
     this.changed
 
-// @function Calculate deviation between two prices (standalone function - no state needed)
+// @function Calculate deviation between two prices
 // @param base_price Base price for deviation calculation
 // @param price Current price to compare
 // @returns Deviation as percentage
@@ -674,45 +677,74 @@ method initFirst(ZigZagEngine this, int index, float price, bool isHigh) =>
 // @description Consolidates 28 GLOBAL_learned* variables into a single UDT.
 //              Updated only when new trade is recorded (GLOBAL_learningNeedsRecalc flag).
 //              Provides accessor methods for key metrics and health status.
+// @field zoneBuffer Adaptive zone buffer from near-miss analysis
+// @field winRate Overall empirical win rate
+// @field slMult Optimal SL multiplier from MAE analysis
+// @field avgMae Average MAE of winning trades (ATR units)
+// @field avgMfe Average MFE before outcome (ATR units)
+// @field avgBars Average bars to outcome
+// @field wrWithDiv Win rate when RSI divergence present
+// @field wrWithoutDiv Win rate when no RSI divergence
+// @field divEdge Edge from RSI divergence (wrWithDiv - wrWithoutDiv)
+// @field rsiWeight Weight for RSI in Kelly (0=ignore, 1=full)
+// @field wrLong Win rate for LONG setups
+// @field wrShort Win rate for SHORT setups
+// @field losingMae Average MAE of losing trades
+// @field optimalHold Optimal holding period (bars)
+// @field decayRate Time decay rate per threshold
+// @field tpAggressive Should use aggressive TP mode?
+// @field consWr Win rate for conservative TP
+// @field aggrWr Win rate for aggressive TP
+// @field consEv Expected value for conservative TP
+// @field aggrEv Expected value for aggressive TP
+// @field confidence Unified confidence score (0-100)
+// @field profitFactor Total R won / Total R lost
+// @field expectancy Average R per trade
+// @field winStreak Current winning streak
+// @field lossStreak Current losing streak
+// @field wrHighVol Win rate in high volatility
+// @field wrLowVol Win rate in low volatility
+// @field lastOutcomeBar Bar index of last outcome
+// @field isHealthy Learning system health status
 type LearningMetrics
     // Core metrics
-    float zoneBuffer = 0.0           // Adaptive zone buffer from near-miss analysis
-    float winRate = 0.55             // Overall empirical win rate
-    float slMult = 1.5               // Optimal SL multiplier from MAE analysis
-    float avgMae = 0.0               // Average MAE of winning trades (ATR units)
-    float avgMfe = 0.0               // Average MFE before outcome (ATR units)
-    int   avgBars = 0                // Average bars to outcome
+    float zoneBuffer = 0.0
+    float winRate = 0.55
+    float slMult = 1.5
+    float avgMae = 0.0
+    float avgMfe = 0.0
+    int   avgBars = 0
     // RSI divergence analytics
-    float wrWithDiv = 0.55           // Win rate when RSI divergence present
-    float wrWithoutDiv = 0.5         // Win rate when no RSI divergence
-    float divEdge = 0.0              // Edge from RSI divergence (wrWithDiv - wrWithoutDiv)
-    float rsiWeight = 0.0            // Weight for RSI in Kelly (0=ignore, 1=full)
+    float wrWithDiv = 0.55
+    float wrWithoutDiv = 0.5
+    float divEdge = 0.0
+    float rsiWeight = 0.0
     // Direction-specific win rates
-    float wrLong = 0.55              // Win rate for LONG setups
-    float wrShort = 0.55             // Win rate for SHORT setups
+    float wrLong = 0.55
+    float wrShort = 0.55
     // Loss analysis
-    float losingMae = 0.0            // Average MAE of losing trades
+    float losingMae = 0.0
     // Time-based
-    int   optimalHold = 0            // Optimal holding period (bars)
-    float decayRate = 0.03           // Time decay rate per threshold
+    int   optimalHold = 0
+    float decayRate = 0.03
     // TP mode comparison
-    bool  tpAggressive = false       // Should use aggressive TP mode?
-    float consWr = 0.0               // Win rate for conservative TP
-    float aggrWr = 0.0               // Win rate for aggressive TP
-    float consEv = 0.0               // Expected value for conservative TP
-    float aggrEv = 0.0               // Expected value for aggressive TP
+    bool  tpAggressive = false
+    float consWr = 0.0
+    float aggrWr = 0.0
+    float consEv = 0.0
+    float aggrEv = 0.0
     // Performance metrics
-    float confidence = 50.0          // Unified confidence score (0-100)
-    float profitFactor = 1.0         // Total R won / Total R lost
-    float expectancy = 0.0           // Average R per trade
-    int   winStreak = 0              // Current winning streak
-    int   lossStreak = 0             // Current losing streak
+    float confidence = 50.0
+    float profitFactor = 1.0
+    float expectancy = 0.0
+    int   winStreak = 0
+    int   lossStreak = 0
     // Volatility regime
-    float wrHighVol = 0.55           // Win rate in high volatility
-    float wrLowVol = 0.55            // Win rate in low volatility
+    float wrHighVol = 0.55
+    float wrLowVol = 0.55
     // Health tracking
-    int   lastOutcomeBar = 0         // Bar index of last outcome
-    bool  isHealthy = true           // Learning system health status
+    int   lastOutcomeBar = 0
+    bool  isHealthy = true
 
 // @function Get win rate for specific direction
 // @param this LearningMetrics instance
@@ -761,12 +793,17 @@ method hasDivergenceEdge(LearningMetrics this) =>
 // @type PositionVisual - Manages all visual elements for the position display
 // @description Encapsulates box, lines, and label for the Golden Pocket setup visualization.
 //              Handles create/update/delete lifecycle and projection vs confirmed styling.
+// @field boxEntry Entry zone box
+// @field lineSl Stop loss line
+// @field lineSmartSl Smart SL line (backtest optimized)
+// @field lineTp Take profit line
+// @field lblRisk Position info label
 type PositionVisual
-    box boxEntry = na         // Entry zone box
-    line lineSl = na          // Stop loss line
-    line lineSmartSl = na     // Smart SL line (backtest optimized)
-    line lineTp = na          // Take profit line
-    label lblRisk = na        // Position info label
+    box boxEntry = na
+    line lineSl = na
+    line lineSmartSl = na
+    line lineTp = na
+    label lblRisk = na
 
 // @function Delete all visual elements
 // @param this PositionVisual instance
@@ -795,13 +832,190 @@ method deleteAll(PositionVisual this) =>
 method exists(PositionVisual this) =>
     not na(this.boxEntry)
 
+// @function Create all visual elements with specified parameters
+// @param this PositionVisual instance
+// @param zoneTop Top of entry zone
+// @param zoneBottom Bottom of entry zone
+// @param slPrice Stop loss price
+// @param tpPrice Take profit price
+// @param labelPrice Y position for label
+// @param labelText Text for position label
+// @param bgCol Background color for box
+// @param borderCol Border color for box
+// @param slCol Stop loss line color
+// @param tpCol Take profit line color
+// @param lineStyle Line style (solid for confirmed, dotted for projection)
+// @param smartSlPrice Smart SL price (na if not available)
+// @param smartSlCol Smart SL line color
+// @returns PositionVisual instance for chaining
+method create(PositionVisual this, float zoneTop, float zoneBottom, float slPrice, float tpPrice, float labelPrice, string labelText, color bgCol, color borderCol, color slCol, color tpCol, string lineStyle, float smartSlPrice, color smartSlCol, color textCol) =>
+    this.boxEntry := box.new(bar_index, zoneTop, bar_index + 5, zoneBottom, bgcolor=bgCol, border_color=borderCol, border_style=lineStyle == "solid" ? line.style_solid : line.style_dotted)
+    this.lineSl := line.new(bar_index, slPrice, bar_index + 5, slPrice, color=slCol, style=lineStyle == "solid" ? line.style_solid : line.style_dotted, width=2)
+    if not na(smartSlPrice)
+        this.lineSmartSl := line.new(bar_index, smartSlPrice, bar_index + 5, smartSlPrice, color=smartSlCol, style=line.style_dotted, width=3)
+    this.lineTp := line.new(bar_index, tpPrice, bar_index + 5, tpPrice, color=tpCol, style=lineStyle == "solid" ? line.style_solid : line.style_dotted, width=3)
+    this.lblRisk := label.new(bar_index + 5, labelPrice, labelText, xloc.bar_index, yloc.price, color.new(textCol, 100), label.style_label_left, color.new(textCol, 0), size.small, text.align_left)
+    this
+
+// @function Update existing visual elements with new values
+// @param this PositionVisual instance
+// @param zoneTop Top of entry zone
+// @param zoneBottom Bottom of entry zone
+// @param slPrice Stop loss price
+// @param tpPrice Take profit price
+// @param labelPrice Y position for label
+// @param labelText Text for position label
+// @param bgCol Background color for box
+// @param borderCol Border color for box
+// @param slCol Stop loss line color
+// @param tpCol Take profit line color
+// @param smartSlPrice Smart SL price (na if not available)
+// @param smartSlCol Smart SL line color
+// @returns PositionVisual instance for chaining
+method update(PositionVisual this, float zoneTop, float zoneBottom, float slPrice, float tpPrice, float labelPrice, string labelText, color bgCol, color borderCol, color slCol, color tpCol, float smartSlPrice, color smartSlCol) =>
+    // Update box
+    box.set_top(this.boxEntry, zoneTop)
+    box.set_bottom(this.boxEntry, zoneBottom)
+    box.set_right(this.boxEntry, bar_index + 5)
+    box.set_bgcolor(this.boxEntry, bgCol)
+    box.set_border_color(this.boxEntry, borderCol)
+    // Update SL line
+    line.set_x2(this.lineSl, bar_index + 5)
+    line.set_y1(this.lineSl, slPrice)
+    line.set_y2(this.lineSl, slPrice)
+    line.set_color(this.lineSl, slCol)
+    // Update Smart SL line (if available)
+    if not na(smartSlPrice) and not na(this.lineSmartSl)
+        line.set_x2(this.lineSmartSl, bar_index + 5)
+        line.set_y1(this.lineSmartSl, smartSlPrice)
+        line.set_y2(this.lineSmartSl, smartSlPrice)
+    else if not na(smartSlPrice) and na(this.lineSmartSl)
+        this.lineSmartSl := line.new(bar_index, smartSlPrice, bar_index + 5, smartSlPrice, color=smartSlCol, style=line.style_dotted, width=2)
+    // Update TP line
+    line.set_x2(this.lineTp, bar_index + 5)
+    line.set_y1(this.lineTp, tpPrice)
+    line.set_y2(this.lineTp, tpPrice)
+    line.set_color(this.lineTp, tpCol)
+    // Update label
+    label.set_x(this.lblRisk, bar_index + 5)
+    label.set_y(this.lblRisk, labelPrice)
+    label.set_text(this.lblRisk, labelText)
+    this
+
+// @type ProjectionState - Manages projection mode state and tentative pivot detection
+// @description Encapsulates local extreme tracking, tentative pivot detection, and projection pivot values.
+//              Provides methods for updating state and checking projection activity.
+// @field localHigh Local high since last confirmed pivot
+// @field localHighBar Bar index of local high
+// @field localLow Local low since last confirmed pivot
+// @field localLowBar Bar index of local low
+// @field isHighLast Was last confirmed pivot a high?
+// @field iMidPivot Projection mid pivot bar index
+// @field pMidPivot Projection mid pivot price
+// @field iEndBase Projection end base bar index
+// @field pEndBase Projection end base price
+// @field active Is projection currently active?
+type ProjectionState
+    float localHigh = na
+    int localHighBar = na
+    float localLow = na
+    int localLowBar = na
+    bool isHighLast = true
+    int iMidPivot = na
+    float pMidPivot = na
+    int iEndBase = na
+    float pEndBase = na
+    bool active = false
+
+// @function Reset local extreme tracking on confirmed pivot
+// @param this ProjectionState instance
+// @param currentHigh Current bar high
+// @param currentLow Current bar low
+// @param wasHigh Whether the confirmed pivot was a high
+// @returns ProjectionState instance for chaining
+method resetLocals(ProjectionState this, float currentHigh, float currentLow, bool wasHigh) =>
+    this.localHigh := currentHigh
+    this.localHighBar := bar_index
+    this.localLow := currentLow
+    this.localLowBar := bar_index
+    this.isHighLast := wasHigh
+    this
+
+// @function Update local extremes on each bar
+// @param this ProjectionState instance
+// @param currentHigh Current bar high
+// @param currentLow Current bar low
+// @returns ProjectionState instance for chaining
+method updateLocals(ProjectionState this, float currentHigh, float currentLow) =>
+    if currentHigh > nz(this.localHigh, currentHigh)
+        this.localHigh := currentHigh
+        this.localHighBar := bar_index
+    if currentLow < nz(this.localLow, currentLow)
+        this.localLow := currentLow
+        this.localLowBar := bar_index
+    this
+
+// @function Check if tentative HIGH pivot detected
+// @param this ProjectionState instance
+// @param closePrice Current close price
+// @param threshold Deviation threshold
+// @returns True if tentative high pivot detected
+method detectTentativeHigh(ProjectionState this, float closePrice, float threshold) =>
+    float devFromHigh = this.localHigh > 0 ? 100 * (this.localHigh - closePrice) / this.localHigh : 0
+    devFromHigh > threshold and not this.isHighLast
+
+// @function Check if tentative LOW pivot detected
+// @param this ProjectionState instance
+// @param closePrice Current close price
+// @param threshold Deviation threshold
+// @returns True if tentative low pivot detected
+method detectTentativeLow(ProjectionState this, float closePrice, float threshold) =>
+    float devFromLow = this.localLow > 0 ? 100 * (closePrice - this.localLow) / this.localLow : 0
+    devFromLow > threshold and this.isHighLast
+
+// @function Activate projection with tentative pivot values
+// @param this ProjectionState instance
+// @param isHigh Whether tentative pivot is a high
+// @param currentExtreme Current bar extreme (low if high pivot, high if low pivot)
+// @returns ProjectionState instance for chaining
+method activate(ProjectionState this, bool isHigh, float currentExtreme) =>
+    this.iMidPivot := isHigh ? this.localHighBar : this.localLowBar
+    this.pMidPivot := isHigh ? this.localHigh : this.localLow
+    this.iEndBase := bar_index
+    this.pEndBase := currentExtreme
+    this.active := true
+    this
+
+// @function Deactivate projection (confirmed pivot overrides)
+// @param this ProjectionState instance
+// @returns ProjectionState instance for chaining
+method deactivate(ProjectionState this) =>
+    this.active := false
+    this
+
+// @function Check if projection is currently active
+// @param this ProjectionState instance
+// @returns True if projection mode is active
+method isActive(ProjectionState this) =>
+    this.active
+
+// Global projection state instance
+var ProjectionState GLOBAL_projection = ProjectionState.new()
+
+// @type FibLevel - Represents a single Fibonacci level configuration and state
+// @field level The Fibonacci ratio (e.g., 0.618)
+// @field col Color for the level line/label
+// @field show Whether to display this level
+// @field ln The line object for this level
+// @field lb The label object for this level
+// @field crossed Pre-computed crossing flag (Pine v6 best practice)
 type FibLevel
     float level
     color col
     bool show
     line ln = na
     label lb = na
-    bool crossed = false  // Pre-computed crossing flag (Pine v6 best practice)
+    bool crossed = false
 
 var array<FibLevel> fibLevels = array.new<FibLevel>()
 if barstate.isfirst
@@ -856,11 +1070,7 @@ int decimalsCount = math.round(math.abs(math.log(1 / syminfo.mintick) / math.log
 // INTRABAR DATA REQUEST - Lower Timeframe Arrays for Chronological TP/SL Resolution
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // NOTE: request.security_lower_tf MUST be called at global scope (not inside conditionals)
-// Returns arrays of LTF values contained within each HTF bar
-// These arrays are iterated chronologically when resolving TP/SL outcomes
 
-// Fetch LTF high/low arrays for intrabar resolution (uses configured timeframe)
-// The arrays contain all LTF bars that fall within the current HTF bar
 array<float> GLOBAL_ltfHighs = request.security_lower_tf(syminfo.tickerid, INPUT_INTRABAR_TF, high)
 array<float> GLOBAL_ltfLows  = request.security_lower_tf(syminfo.tickerid, INPUT_INTRABAR_TF, low)
 
@@ -886,6 +1096,24 @@ array<float> GLOBAL_ltfLows  = request.security_lower_tf(syminfo.tickerid, INPUT
 // @field tp_aggressive Aggressive TP price (1.272 Extension)
 // @field vol_percentile ATR percentile at setup (0-100)
 // NOTE: Must be declared before CircularBufferSetupRecord which references it
+// @type SetupRecord - Compact storage for historical setup data
+// @description Used in CircularBuffer for machine learning. Stores outcome and context of past trades.
+// @field setup_bar Bar index of the setup pivot
+// @field state_mask Bitwise flags for setup state (won/lost, long/short, etc.)
+// @field zone_top Upper boundary of entry zone
+// @field zone_bottom Lower boundary of entry zone
+// @field sl_level Stop loss price level
+// @field tp_level Take profit price level
+// @field closest_approach Closest distance to zone before outcome (for near-miss analysis)
+// @field bars_to_outcome Duration of trade in bars
+// @field max_adverse Maximum adverse excursion (drawdown)
+// @field max_favorable Maximum favorable excursion (profit)
+// @field entry_price Price at entry
+// @field atr_at_setup Volatility at setup time
+// @field rsi_at_entry Momentum at entry time
+// @field tp_conservative Conservative TP target price
+// @field tp_aggressive Aggressive TP target price
+// @field vol_percentile Volatility percentile rank (0-100)
 type SetupRecord
     int    setup_bar
     int    state_mask = 0
@@ -976,7 +1204,9 @@ method setOutcome(SetupRecord this, int outcome) =>
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CIRCULAR BUFFER - O(1) Fixed-Size Ring Buffer for Historical Data
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// @type CircularBuffer - Fixed-size ring buffer with O(1) operations
+// @type CircularBufferSetupRecord - Fixed-size ring buffer with O(1) operations
+// @description Efficiently stores historical SetupRecord instances for machine learning analysis.
+//              Overwrites oldest entries when capacity is reached.
 // @field data Preallocated array of SetupRecord (size = capacity)
 // @field head Index of next write position (0 to capacity-1)
 // @field count Number of valid entries (0 to capacity)
@@ -1039,17 +1269,16 @@ method isFull(CircularBufferSetupRecord this) =>
 
 var CircularBufferSetupRecord GLOBAL_setupHistory = CircularBufferSetupRecord.new()
 
-// Initialize the circular buffer on first bar
 if barstate.isfirst
     GLOBAL_setupHistory.init(INPUT_LEARNING_SAMPLES)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // BACKTESTING ENGINE - Trade Mining System
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// This engine "mines" historical trades as the script loads, building a complete trade history
-// bar-by-bar. Uses RAW Fib levels (no learned adjustments) to keep data pure for learning.
 
 // @type BacktestTrade - Represents a single simulated trade position
+// @description Stores all data for a single backtested trade, including entry/exit points,
+//              outcome flags, and performance metrics (MAE/MFE).
 // @field id Pivot Bar Index (unique identifier)
 // @field state_mask Bitwise flags: FLAG_IS_LONG for direction, FLAG_PENDING/ACTIVE/CLOSED for lifecycle, FLAG_WON for outcome
 //                   NOTE: Must be initialized via BacktestTrade.new() with proper flags (see lines ~1470-1485)
@@ -1147,15 +1376,23 @@ method setOutcome(BacktestTrade this, int outcome) =>
 // @type BacktestStats - Optimization results calculated from backtest history
 // @description Computed once on barstate.islast from GLOBAL_backtest.history array.
 //              Provides Smart SL offset and confidence metrics for live trading.
+// @field avgWinningMae Average MAE of winning trades (ATR units)
+// @field avgLosingMae Average MAE of losing trades (ATR units)
+// @field winRate Win rate from backtest (0-1)
+// @field totalTrades Total completed trades
+// @field winningTrades Number of winning trades
+// @field smartSlOffset Smart SL = Avg Winning MAE * 1.1
+// @field lowConfidence True if win rate < 40%
+// @field statsReady True once stats have been calculated
 type BacktestStats
-    float avgWinningMae = 0.0     // Average MAE of winning trades (ATR units)
-    float avgLosingMae = 0.0      // Average MAE of losing trades (ATR units)
-    float winRate = 0.0           // Win rate from backtest (0-1)
-    int   totalTrades = 0         // Total completed trades
-    int   winningTrades = 0       // Number of winning trades
-    float smartSlOffset = 0.0     // Smart SL = Avg Winning MAE * 1.1
-    bool  lowConfidence = false   // True if win rate < 40%
-    bool  statsReady = false      // True once stats have been calculated
+    float avgWinningMae = 0.0
+    float avgLosingMae = 0.0
+    float winRate = 0.0
+    int   totalTrades = 0
+    int   winningTrades = 0
+    float smartSlOffset = 0.0
+    bool  lowConfidence = false
+    bool  statsReady = false
 
 // @function Check if stats are ready for use
 // @param this BacktestStats instance
@@ -1178,10 +1415,13 @@ method getSmartSlOffset(BacktestStats this) =>
 // @type BacktestEngine - Manages trade simulation and performance tracking
 // @description Encapsulates GLOBAL_backtest.history, GLOBAL_backtest.current, and stats calculation.
 //              Spawns trades on pivot changes, manages lifecycle, closes on SL/TP.
+// @field history Completed trade history (replaces GLOBAL_backtest.history)
+// @field current Current trade being simulated (replaces GLOBAL_backtest.current)
+// @field stats Optimization results (replaces bt_* vars)
 type BacktestEngine
-    array<BacktestTrade> history = na  // Completed trade history (replaces GLOBAL_backtest.history)
-    BacktestTrade current = na         // Current trade being simulated (replaces GLOBAL_backtest.current)
-    BacktestStats stats = na           // Optimization results (replaces bt_* vars)
+    array<BacktestTrade> history = na
+    BacktestTrade current = na
+    BacktestStats stats = na
 
 // @function Initialize the backtest engine
 // @param this BacktestEngine instance
@@ -1253,8 +1493,9 @@ var BacktestEngine GLOBAL_backtest = BacktestEngine.new().init()
 // Used to separate CONFIRMED trade tracking (for learning) from PROJECTION preview (visual only)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // @type SetupState - Tracks live state of a Golden Pocket setup
+// @description Separates confirmed trade tracking (learning) from projection preview (visual only).
 // @field setup_bar Bar index when setup formed (pivot bar)
-// @field creation_bar Bar index when this setup was CREATED (for time decay)
+// @field creation_bar Bar index when setup was created (for time decay)
 // @field state_mask Bitwise flags for boolean states (see FLAG_* constants)
 // @field zone_top Golden Pocket upper boundary (with buffer)
 // @field zone_bottom Golden Pocket lower boundary (with buffer)
@@ -1384,25 +1625,20 @@ f_new_setup_state() =>
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE SEPARATION: Active Trade vs Projection Preview
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// GLOBAL_activeTrade: ONLY updated on GLOBAL_zigzag.changed (confirmed ZigZag pivots)
-//                 Learning Engine reads/writes ONLY this state
-//                 Recorded to GLOBAL_setupHistory when next pivot confirms
-//                 Used for SOLID visual elements (confirmed state)
+// GLOBAL_activeTrade: Updated on confirmed ZigZag pivots (GLOBAL_zigzag.changed)
+//                     Source of truth for learning engine and setup history
+//                     Rendered with solid visual elements
 var SetupState GLOBAL_activeTrade = f_new_setup_state()
 
-// GLOBAL_projectionPreview: Recalculated EVERY bar when projection mode is active
-//                       Used for VISUAL display only - NEVER recorded to history
-//                       Does NOT affect learning engine calculations
-//                       Used for DASHED visual elements (tentative state)
-// Note: Not persistent (no var) - recalculated fresh each bar
+// GLOBAL_projectionPreview: Recalculated each bar during projection mode
+//                           Visual preview only - not recorded to history
+//                           Rendered with dashed visual elements
 SetupState GLOBAL_projectionPreview = f_new_setup_state()
 
-// Learning engine computed values (updated only when new trade recorded)
-// LearningMetrics UDT consolidates all 28 learned values into single instance
+// Learning engine state
 var LearningMetrics GLOBAL_learning = LearningMetrics.new()
 var int    GLOBAL_nearMissCount = 0
 var int    GLOBAL_totalSetups = 0
-// Flag to track when learning recalculation is needed (only after new trade recorded)
 var bool   GLOBAL_learningNeedsRecalc = false
 
 // AddOn Logic: Volatility & Volume
@@ -1431,15 +1667,71 @@ bool crossover_volatility = ta.crossover(range_1, i_weightedATR)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 var ZigZagEngine GLOBAL_zigzag = ZigZagEngine.new()
 
-// Cached pivot coordinates for stable Fibonacci drawing
-var int cachedIMidPivot = na
-var float cachedPMidPivot = na
-var int cachedIEndBase = na
-var float cachedPEndBase = na
-var int cachedIMidPivot2 = na
-var float cachedPMidPivot2 = na
-var int cachedIEndBase2 = na
-var float cachedPEndBase2 = na
+// @type CachedPivots - Stores cached pivot coordinates for stable Fibonacci drawing
+// @description Encapsulates bar index (i) and price (p) for both primary and secondary pivot pairs.
+//              Used to prevent flicker during intrabar updates by caching confirmed values.
+// @field iMidPivot Bar index of mid pivot (primary)
+// @field pMidPivot Price of mid pivot (primary)
+// @field iEndBase Bar index of end base (primary)
+// @field pEndBase Price of end base (primary)
+// @field iMidPivot2 Bar index of mid pivot (secondary)
+// @field pMidPivot2 Price of mid pivot (secondary)
+// @field iEndBase2 Bar index of end base (secondary)
+// @field pEndBase2 Price of end base (secondary)
+type CachedPivots
+    int iMidPivot = na
+    float pMidPivot = na
+    int iEndBase = na
+    float pEndBase = na
+    int iMidPivot2 = na
+    float pMidPivot2 = na
+    int iEndBase2 = na
+    float pEndBase2 = na
+
+// @function Reset all cached pivot values
+// @param this CachedPivots instance
+// @returns CachedPivots instance for chaining
+method reset(CachedPivots this) =>
+    this.iMidPivot := na
+    this.pMidPivot := na
+    this.iEndBase := na
+    this.pEndBase := na
+    this.iMidPivot2 := na
+    this.pMidPivot2 := na
+    this.iEndBase2 := na
+    this.pEndBase2 := na
+    this
+
+// @function Update primary pivot pair
+// @param this CachedPivots instance
+// @param iMid Bar index of mid pivot
+// @param pMid Price of mid pivot
+// @param iEnd Bar index of end base
+// @param pEnd Price of end base
+// @returns CachedPivots instance for chaining
+method updatePrimary(CachedPivots this, int iMid, float pMid, int iEnd, float pEnd) =>
+    this.iMidPivot := iMid
+    this.pMidPivot := pMid
+    this.iEndBase := iEnd
+    this.pEndBase := pEnd
+    this
+
+// @function Update secondary pivot pair
+// @param this CachedPivots instance
+// @param iMid Bar index of mid pivot
+// @param pMid Price of mid pivot
+// @param iEnd Bar index of end base
+// @param pEnd Price of end base
+// @returns CachedPivots instance for chaining
+method updateSecondary(CachedPivots this, int iMid, float pMid, int iEnd, float pEnd) =>
+    this.iMidPivot2 := iMid
+    this.pMidPivot2 := pMid
+    this.iEndBase2 := iEnd
+    this.pEndBase2 := pEnd
+    this
+
+// Global cached pivots instance
+var CachedPivots GLOBAL_cachedPivots = CachedPivots.new()
 
 // Determine Global Deviation Threshold based on Timeframe
 float GLOBAL_DEV_THRESHOLD = switch
@@ -1533,45 +1825,25 @@ iL = not na(pL) ? bar_index[pivotLength] : int(na)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // PROJECTION MODE: Tentative Pivot Detection (real-time, before depth confirmation)
+// UDT: Uses GLOBAL_projection for state management
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// Track local high/low since last confirmed pivot
-var float proj_local_high = na
-var int   proj_local_high_bar = na
-var float proj_local_low = na
-var int   proj_local_low_bar = na
-var bool  proj_is_high_last = true  // Was last confirmed pivot a high?
 
-// Reset local tracking on confirmed pivot
+// Reset or update local extreme tracking
 if not na(pH) or not na(pL)
-    proj_local_high := high
-    proj_local_high_bar := bar_index
-    proj_local_low := low
-    proj_local_low_bar := bar_index
-    proj_is_high_last := not na(pH)
+    GLOBAL_projection.resetLocals(high, low, not na(pH))
 else
-    // Track running local high/low
-    if high > nz(proj_local_high, high)
-        proj_local_high := high
-        proj_local_high_bar := bar_index
-    if low < nz(proj_local_low, low)
-        proj_local_low := low
-        proj_local_low_bar := bar_index
-
-// Detect tentative pivot via deviation from local extremes
-float proj_dev_from_high = proj_local_high > 0 ? 100 * (proj_local_high - close) / proj_local_high : 0
-float proj_dev_from_low = proj_local_low > 0 ? 100 * (close - proj_local_low) / proj_local_low : 0
+    GLOBAL_projection.updateLocals(high, low)
 
 // Scaled threshold for projection: INPUT_PROJ_SENSITIVITY < 1.0 reduces lag (earlier signals)
 float proj_scaled_threshold = GLOBAL_DEV_THRESHOLD * INPUT_PROJ_SENSITIVITY
 
-// Tentative HIGH pivot: price retraced down from local high by scaled threshold
-bool proj_tentative_high = INPUT_PROJECTION_MODE and proj_dev_from_high > proj_scaled_threshold and not proj_is_high_last
-// Tentative LOW pivot: price retraced up from local low by scaled threshold  
-bool proj_tentative_low = INPUT_PROJECTION_MODE and proj_dev_from_low > proj_scaled_threshold and proj_is_high_last
+// Detect tentative pivots using UDT methods
+bool proj_tentative_high = INPUT_PROJECTION_MODE and GLOBAL_projection.detectTentativeHigh(close, proj_scaled_threshold)
+bool proj_tentative_low = INPUT_PROJECTION_MODE and GLOBAL_projection.detectTentativeLow(close, proj_scaled_threshold)
 
 // Projection pivot values (use local extreme as tentative pivot)
-float proj_pivot_price = proj_tentative_high ? proj_local_high : (proj_tentative_low ? proj_local_low : na)
-int   proj_pivot_bar = proj_tentative_high ? proj_local_high_bar : (proj_tentative_low ? proj_local_low_bar : int(na))
+float proj_pivot_price = proj_tentative_high ? GLOBAL_projection.localHigh : (proj_tentative_low ? GLOBAL_projection.localLow : na)
+int   proj_pivot_bar = proj_tentative_high ? GLOBAL_projection.localHighBar : (proj_tentative_low ? GLOBAL_projection.localLowBar : int(na))
 bool  proj_pivot_is_high = proj_tentative_high
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1624,22 +1896,22 @@ if not na(iH)
         
         if newSegment
             // New line segment was created - update cached pivot values
-            cachedIMidPivot := INPUT_HIST_PIVOT > 0 ? temp_iMidPivot_hist : GLOBAL_zigzag.iPrevPivot
-            cachedPMidPivot := INPUT_HIST_PIVOT > 0 ? temp_pMidPivot_hist : GLOBAL_zigzag.pPrevPivot
-            cachedIEndBase := INPUT_HIST_PIVOT > 0 ? temp_iEndBase_hist : GLOBAL_zigzag.iLastPivot
-            cachedPEndBase := INPUT_HIST_PIVOT > 0 ? temp_pEndBase_hist : GLOBAL_zigzag.pLastPivot
+            GLOBAL_cachedPivots.iMidPivot := INPUT_HIST_PIVOT > 0 ? temp_iMidPivot_hist : GLOBAL_zigzag.iPrevPivot
+            GLOBAL_cachedPivots.pMidPivot := INPUT_HIST_PIVOT > 0 ? temp_pMidPivot_hist : GLOBAL_zigzag.pPrevPivot
+            GLOBAL_cachedPivots.iEndBase := INPUT_HIST_PIVOT > 0 ? temp_iEndBase_hist : GLOBAL_zigzag.iLastPivot
+            GLOBAL_cachedPivots.pEndBase := INPUT_HIST_PIVOT > 0 ? temp_pEndBase_hist : GLOBAL_zigzag.pLastPivot
             
-            cachedIMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iMidPivot2_hist : GLOBAL_zigzag.iPrevPivot
-            cachedPMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
-            cachedIEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : GLOBAL_zigzag.iLastPivot
-            cachedPEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : GLOBAL_zigzag.pLastPivot
+            GLOBAL_cachedPivots.iMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iMidPivot2_hist : GLOBAL_zigzag.iPrevPivot
+            GLOBAL_cachedPivots.pMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
+            GLOBAL_cachedPivots.iEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : GLOBAL_zigzag.iLastPivot
+            GLOBAL_cachedPivots.pEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : GLOBAL_zigzag.pLastPivot
         else if not na(GLOBAL_zigzag.ln) and INPUT_HIST_PIVOT == 0
             // Line was extended (same direction) - update endpoint caches
             if GLOBAL_zigzag.isHighLast and pH > (GLOBAL_zigzag[1]).pLast
-                cachedIEndBase := iH
-                cachedPEndBase := pH
-                cachedIEndBase2 := iH
-                cachedPEndBase2 := pH
+                GLOBAL_cachedPivots.iEndBase := iH
+                GLOBAL_cachedPivots.pEndBase := pH
+                GLOBAL_cachedPivots.iEndBase2 := iH
+                GLOBAL_cachedPivots.pEndBase2 := pH
                 GLOBAL_zigzag.changed := true
 else
     if not na(iL)
@@ -1651,24 +1923,27 @@ else
             
             if newSegment
                 // New line segment was created - update cached pivot values
-                cachedIMidPivot := INPUT_HIST_PIVOT > 0 ? temp_iMidPivot_hist : GLOBAL_zigzag.iPrevPivot
-                cachedPMidPivot := INPUT_HIST_PIVOT > 0 ? temp_pMidPivot_hist : GLOBAL_zigzag.pPrevPivot
-                cachedIEndBase := INPUT_HIST_PIVOT > 0 ? temp_iEndBase_hist : GLOBAL_zigzag.iLastPivot
-                cachedPEndBase := INPUT_HIST_PIVOT > 0 ? temp_pEndBase_hist : GLOBAL_zigzag.pLastPivot
+                GLOBAL_cachedPivots.iMidPivot := INPUT_HIST_PIVOT > 0 ? temp_iMidPivot_hist : GLOBAL_zigzag.iPrevPivot
+                GLOBAL_cachedPivots.pMidPivot := INPUT_HIST_PIVOT > 0 ? temp_pMidPivot_hist : GLOBAL_zigzag.pPrevPivot
+                GLOBAL_cachedPivots.iEndBase := INPUT_HIST_PIVOT > 0 ? temp_iEndBase_hist : GLOBAL_zigzag.iLastPivot
+                GLOBAL_cachedPivots.pEndBase := INPUT_HIST_PIVOT > 0 ? temp_pEndBase_hist : GLOBAL_zigzag.pLastPivot
                 
-                cachedIMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iMidPivot2_hist : GLOBAL_zigzag.iPrevPivot
-                cachedPMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
-                cachedIEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : GLOBAL_zigzag.iLastPivot
-                cachedPEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : GLOBAL_zigzag.pLastPivot
+                GLOBAL_cachedPivots.iMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iMidPivot2_hist : GLOBAL_zigzag.iPrevPivot
+                GLOBAL_cachedPivots.pMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
+                GLOBAL_cachedPivots.iEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : GLOBAL_zigzag.iLastPivot
+                GLOBAL_cachedPivots.pEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : GLOBAL_zigzag.pLastPivot
             else if not na(GLOBAL_zigzag.ln) and INPUT_HIST_PIVOT == 0
                 // Line was extended (same direction) - update endpoint caches
                 if not GLOBAL_zigzag.isHighLast and pL < (GLOBAL_zigzag[1]).pLast
-                    cachedIEndBase := iL
-                    cachedPEndBase := pL
-                    cachedIEndBase2 := iL
-                    cachedPEndBase2 := pL
+                    GLOBAL_cachedPivots.iEndBase := iL
+                    GLOBAL_cachedPivots.pEndBase := pL
+                    GLOBAL_cachedPivots.iEndBase2 := iL
+                    GLOBAL_cachedPivots.pEndBase2 := pL
                     GLOBAL_zigzag.changed := true
 
+// @function Get OHLC values for a higher timeframe
+// @param _htf Higher timeframe string (e.g., "240", "D")
+// @returns Tuple of [open, high, low, close, open_real, high_real, low_real, close_real]
 f_htf_ohlc(string _htf) =>
     var htf_o  = 0.
     var htf_h  = 0.
@@ -1702,50 +1977,44 @@ f_htf_ohlc(string _htf) =>
 // PIVOT COORDINATE REFERENCES
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-iMidPivot  = cachedIMidPivot
-pMidPivot  = cachedPMidPivot
-iEndBase   = cachedIEndBase
-pEndBase   = cachedPEndBase
-iMidPivot2 = cachedIMidPivot2
-pMidPivot2 = cachedPMidPivot2
-iEndBase2  = cachedIEndBase2
-pEndBase2  = cachedPEndBase2
+iMidPivot  = GLOBAL_cachedPivots.iMidPivot
+pMidPivot  = GLOBAL_cachedPivots.pMidPivot
+iEndBase   = GLOBAL_cachedPivots.iEndBase
+pEndBase   = GLOBAL_cachedPivots.pEndBase
+iMidPivot2 = GLOBAL_cachedPivots.iMidPivot2
+pMidPivot2 = GLOBAL_cachedPivots.pMidPivot2
+iEndBase2  = GLOBAL_cachedPivots.iEndBase2
+pEndBase2  = GLOBAL_cachedPivots.pEndBase2
 
 // PivotContext for confirmed pivots (uses cached values)
-PivotContext GLOBAL_confirmedPivot = PivotContext.new(cachedPMidPivot, cachedPEndBase, INPUT_REVERSE)
+PivotContext GLOBAL_confirmedPivot = PivotContext.new(GLOBAL_cachedPivots.pMidPivot, GLOBAL_cachedPivots.pEndBase, INPUT_REVERSE)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // PROJECTION PIVOT INTEGRATION (for Statistical Position Engine)
+// UDT: Uses GLOBAL_projection for state management
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // When projection mode is active and we have a tentative pivot, use it for earlier Golden Pocket display
 // The projection creates a "lookahead" pivot using the current bar as the new EndBase
-var int   projIMidPivot = na
-var float projPMidPivot = na
-var int   projIEndBase = na
-var float projPEndBase = na
-var bool  projectionActive = false
 
-// Update projection pivots when tentative pivot detected
+// Update projection state when tentative pivot detected
 if proj_tentative_high or proj_tentative_low
-    // Tentative pivot becomes the new MidPivot, current price action becomes EndBase
-    projIMidPivot := proj_pivot_bar
-    projPMidPivot := proj_pivot_price
-    projIEndBase := bar_index
-    projPEndBase := proj_tentative_high ? low : high  // Current extreme in opposite direction
-    projectionActive := true
+    GLOBAL_projection.activate(proj_tentative_high, proj_tentative_high ? low : high)
 else if GLOBAL_zigzag.changed
-    // Confirmed pivot overrides projection
-    projectionActive := false
+    GLOBAL_projection.deactivate()
 
 // Effective pivot values: use projection if active, otherwise confirmed
-int   effIMidPivot = projectionActive ? projIMidPivot : cachedIMidPivot
-float effPMidPivot = projectionActive ? projPMidPivot : cachedPMidPivot
-int   effIEndBase = projectionActive ? projIEndBase : cachedIEndBase
-float effPEndBase = projectionActive ? projPEndBase : cachedPEndBase
+int   effIMidPivot = GLOBAL_projection.isActive() ? GLOBAL_projection.iMidPivot : GLOBAL_cachedPivots.iMidPivot
+float effPMidPivot = GLOBAL_projection.isActive() ? GLOBAL_projection.pMidPivot : GLOBAL_cachedPivots.pMidPivot
+int   effIEndBase = GLOBAL_projection.isActive() ? GLOBAL_projection.iEndBase : GLOBAL_cachedPivots.iEndBase
+float effPEndBase = GLOBAL_projection.isActive() ? GLOBAL_projection.pEndBase : GLOBAL_cachedPivots.pEndBase
 
 // PivotContext for effective pivots (includes projection if active)
 PivotContext GLOBAL_effectivePivot = PivotContext.new(effPMidPivot, effPEndBase, INPUT_REVERSE)
 
+// @function Check if price crossed a level
+// @param _curret Current price
+// @param _level Level price to check against
+// @returns True if price crossed the level
 f_crossingLevel(float _curret, float _level) =>
     _level > _curret and _level < _curret[1] or _level < _curret and _level > _curret[1]
 
@@ -1757,22 +2026,78 @@ if ta.change(time) != 0 and array.size(lb) > 0
     for i = 1 to array.size(lb) by 1
         label.delete(array.shift(lb))
 
-f_drawLineTZ(_x1, _y1, _x2, _y2, _xloc, _extend, _c, _s, _w) =>
+// @function Draw a Time Zone line (thin wrapper with bounds check)
+// @param _x1 Start x-coordinate
+// @param _y1 Start y-coordinate
+// @param _x2 End x-coordinate
+// @param _y2 End y-coordinate
+// @param _xloc X-location type
+// @param _extend Extension type
+// @param _c Line color
+// @param _s Line style
+// @param _w Line width
+// @returns void
+f_drawLineTZ(int _x1, float _y1, int _x2, float _y2, string _xloc, string _extend, color _c, string _s, int _w) =>
     if _x1 - bar_index < 500
         array.push(ln, line.new(_x1, _y1, _x2, _y2, _xloc, _extend, _c, _s, _w))
 
-f_drawLabelTZ(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip) =>
+// @function Draw a Time Zone label (thin wrapper with bounds check)
+// @param _x X-coordinate
+// @param _y Y-coordinate
+// @param _text Label text
+// @param _xloc X-location type
+// @param _yloc Y-location type
+// @param _color Background color
+// @param _style Label style
+// @param _textcolor Text color
+// @param _size Label size
+// @param _textalign Text alignment
+// @param _tooltip Tooltip text
+// @returns void
+f_drawLabelTZ(int _x, float _y, string _text, string _xloc, string _yloc, color _color, string _style, color _textcolor, string _size, string _textalign, string _tooltip) =>
     if _x - bar_index < 500
         array.push(lb, label.new(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip))
 
-f_drawLinePVT(_x1, _y1, _x2, _y2, _xloc, _extend, _c, _s, _w) =>
+// @function Draw a Pivot line (thin wrapper with validity check)
+// @param _x1 Start x-coordinate
+// @param _y1 Start y-coordinate
+// @param _x2 End x-coordinate
+// @param _y2 End y-coordinate
+// @param _xloc X-location type
+// @param _extend Extension type
+// @param _c Line color
+// @param _s Line style
+// @param _w Line width
+// @returns void
+f_drawLinePVT(int _x1, float _y1, int _x2, float _y2, string _xloc, string _extend, color _c, string _s, int _w) =>
     if _y1 > 0
         array.push(ln, line.new(_x1, _y1, _x2, _y2, _xloc, _extend, _c, _s, _w))
 
-f_drawLabelPVT(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip) =>
+// @function Draw a Pivot label (thin wrapper with validity check)
+// @param _x X-coordinate
+// @param _y Y-coordinate
+// @param _text Label text
+// @param _xloc X-location type
+// @param _yloc Y-location type
+// @param _color Background color
+// @param _style Label style
+// @param _textcolor Text color
+// @param _size Label size
+// @param _textalign Text alignment
+// @param _tooltip Tooltip text
+// @returns void
+f_drawLabelPVT(int _x, float _y, string _text, string _xloc, string _yloc, color _color, string _style, color _textcolor, string _size, string _textalign, string _tooltip) =>
     if _y > 0
         array.push(lb, label.new(_x, _y, INPUT_EXTEND_PVT or INPUT_LEVELS_PVT_POS == "Last Bar" ? _text + '\n\n' : _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip))
 
+// @function Draw or update Fibonacci level line and label
+// @param this FibLevel instance
+// @param x1 Start bar index
+// @param pMid Mid pivot price
+// @param x2 End bar index
+// @param pEnd End pivot price
+// @param forceRedraw True to delete and recreate visuals
+// @returns void
 method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRedraw) =>
     if this.show and not na(x1) and not na(pMid) and not na(pEnd)
         pPivotDiff = math.abs(pMid - pEnd)
@@ -1807,6 +2132,9 @@ method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRed
         if this.crossed
             GLOBAL_pivotLevelsLogCrossed.put(this.level, price)
 
+// @function Construct JSON alert message
+// @param id Alert ID string
+// @returns JSON formatted string with alert details
 f_getAlertMessage(string id) =>
     string barstate_json = (
         '{"is_new":' + (barstate.isnew ? 'true' : 'false') + 
@@ -1903,15 +2231,15 @@ if not na(GLOBAL_zigzag.ln)
     currentX2 = line.get_x2(GLOBAL_zigzag.ln)
     currentY2 = line.get_y2(GLOBAL_zigzag.ln)
     
-    if na(cachedIMidPivot) or GLOBAL_zigzag.changed
-        cachedIMidPivot := GLOBAL_zigzag.iPrevPivot != 0 ? GLOBAL_zigzag.iPrevPivot : currentX1
-        cachedPMidPivot := GLOBAL_zigzag.pPrevPivot != 0 ? GLOBAL_zigzag.pPrevPivot : currentY1
-        cachedIEndBase := GLOBAL_zigzag.iLastPivot != 0 ? GLOBAL_zigzag.iLastPivot : currentX2
-        cachedPEndBase := GLOBAL_zigzag.pLastPivot != 0 ? GLOBAL_zigzag.pLastPivot : currentY2
-        cachedIMidPivot2 := GLOBAL_zigzag.iPrevPivot != 0 ? GLOBAL_zigzag.iPrevPivot : currentX1
-        cachedPMidPivot2 := GLOBAL_zigzag.pPrevPivot != 0 ? GLOBAL_zigzag.pPrevPivot : currentY1
-        cachedIEndBase2 := GLOBAL_zigzag.iLastPivot != 0 ? GLOBAL_zigzag.iLastPivot : currentX2
-        cachedPEndBase2 := GLOBAL_zigzag.pLastPivot != 0 ? GLOBAL_zigzag.pLastPivot : currentY2
+    if na(GLOBAL_cachedPivots.iMidPivot) or GLOBAL_zigzag.changed
+        GLOBAL_cachedPivots.iMidPivot := GLOBAL_zigzag.iPrevPivot != 0 ? GLOBAL_zigzag.iPrevPivot : currentX1
+        GLOBAL_cachedPivots.pMidPivot := GLOBAL_zigzag.pPrevPivot != 0 ? GLOBAL_zigzag.pPrevPivot : currentY1
+        GLOBAL_cachedPivots.iEndBase := GLOBAL_zigzag.iLastPivot != 0 ? GLOBAL_zigzag.iLastPivot : currentX2
+        GLOBAL_cachedPivots.pEndBase := GLOBAL_zigzag.pLastPivot != 0 ? GLOBAL_zigzag.pLastPivot : currentY2
+        GLOBAL_cachedPivots.iMidPivot2 := GLOBAL_zigzag.iPrevPivot != 0 ? GLOBAL_zigzag.iPrevPivot : currentX1
+        GLOBAL_cachedPivots.pMidPivot2 := GLOBAL_zigzag.pPrevPivot != 0 ? GLOBAL_zigzag.pPrevPivot : currentY1
+        GLOBAL_cachedPivots.iEndBase2 := GLOBAL_zigzag.iLastPivot != 0 ? GLOBAL_zigzag.iLastPivot : currentX2
+        GLOBAL_cachedPivots.pEndBase2 := GLOBAL_zigzag.pLastPivot != 0 ? GLOBAL_zigzag.pLastPivot : currentY2
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // PRE-COMPUTED RSI DIVERGENCE VALUES (Pine v6 - must be called on every bar)
@@ -1928,21 +2256,21 @@ float GLOBAL_priceAtPivot = ta.valuewhen(GLOBAL_zigzag.changed, close, 0)
 // f_crossingLevel uses history reference, so we compute it unconditionally for ALL levels
 for lvl in fibLevels
     // Always compute the price for this level (even if not shown)
-    float pPivotDiff = math.abs(nz(cachedPMidPivot) - nz(cachedPEndBase))
-    float lvl_price = nz(cachedPEndBase) < nz(cachedPMidPivot) ? 
-         (INPUT_REVERSE ? nz(cachedPEndBase) : nz(cachedPMidPivot)) - (INPUT_REVERSE ? -1 : 1) * pPivotDiff * lvl.level : 
-         (INPUT_REVERSE ? nz(cachedPEndBase) : nz(cachedPMidPivot)) + (INPUT_REVERSE ? -1 : 1) * pPivotDiff * lvl.level
+    float pPivotDiff = math.abs(nz(GLOBAL_cachedPivots.pMidPivot) - nz(GLOBAL_cachedPivots.pEndBase))
+    float lvl_price = nz(GLOBAL_cachedPivots.pEndBase) < nz(GLOBAL_cachedPivots.pMidPivot) ? 
+         (INPUT_REVERSE ? nz(GLOBAL_cachedPivots.pEndBase) : nz(GLOBAL_cachedPivots.pMidPivot)) - (INPUT_REVERSE ? -1 : 1) * pPivotDiff * lvl.level : 
+         (INPUT_REVERSE ? nz(GLOBAL_cachedPivots.pEndBase) : nz(GLOBAL_cachedPivots.pMidPivot)) + (INPUT_REVERSE ? -1 : 1) * pPivotDiff * lvl.level
     lvl_price := math.round_to_mintick(lvl_price)
     // Always call f_crossingLevel (uses history reference - must be called on every bar)
     lvl.crossed := f_crossingLevel(close, lvl_price)
 
 // Determine redraw need unconditionally
 bool needsFullRedraw = GLOBAL_zigzag.changed or (fibLevels.size() > 0 ? na(array.get(fibLevels, 0).ln) : false)
-bool canDrawFibs = not na(cachedIMidPivot) and not na(cachedPEndBase)
+bool canDrawFibs = not na(GLOBAL_cachedPivots.iMidPivot) and not na(GLOBAL_cachedPivots.pEndBase)
 
 // Always call draw method on every bar (Pine v6 - methods must be called consistently)
 for lvl in fibLevels
-    lvl.draw(cachedIMidPivot, cachedPMidPivot, bar_index, cachedPEndBase, needsFullRedraw and canDrawFibs)
+    lvl.draw(GLOBAL_cachedPivots.iMidPivot, GLOBAL_cachedPivots.pMidPivot, bar_index, GLOBAL_cachedPivots.pEndBase, needsFullRedraw and canDrawFibs)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // BACKTESTING ENGINE - Historical Trade Simulation Loop
@@ -1951,7 +2279,7 @@ for lvl in fibLevels
 // 1. Manage the current simulation (GLOBAL_backtest.current) through its lifecycle
 // 2. Spawn new trades when ZigZag pivots are confirmed
 // 3. Build GLOBAL_backtest.history with completed trades for learning analysis
-// Uses RAW Fib levels (cachedPMidPivot, cachedPEndBase) - no learned adjustments
+// Uses RAW Fib levels (GLOBAL_cachedPivots.pMidPivot, GLOBAL_cachedPivots.pEndBase) - no learned adjustments
 
 // Calculate RAW Golden Pocket levels using confirmed pivots only
 float raw_price_618 = GLOBAL_confirmedPivot.getLevel(FIB_GOLDEN_RATIO)
@@ -1962,15 +2290,15 @@ float raw_entry_mid = (raw_zone_top + raw_zone_btm) / 2
 
 // Determine direction from RAW confirmed pivots (not projections)
 // EndBase < MidPivot = downswing completed = LONG expected
-bool raw_is_long = cachedPEndBase < cachedPMidPivot
+bool raw_is_long = GLOBAL_cachedPivots.pEndBase < GLOBAL_cachedPivots.pMidPivot
 int raw_direction = raw_is_long ? 1 : -1
 
 // Calculate RAW SL/TP using default multipliers (pure data, no learning)
 float raw_atr = nz(ta.atr(INPUT_ATR_LENGTH), 1.0)
 float raw_sl_buffer = raw_atr * INPUT_POS_SL_MULT
-float raw_tp_target = cachedPMidPivot  // Conservative TP = back to MidPivot (swing start)
+float raw_tp_target = GLOBAL_cachedPivots.pMidPivot  // Conservative TP = back to MidPivot (swing start)
 
-float raw_sl_price = raw_is_long ? cachedPEndBase - raw_sl_buffer : cachedPEndBase + raw_sl_buffer
+float raw_sl_price = raw_is_long ? GLOBAL_cachedPivots.pEndBase - raw_sl_buffer : GLOBAL_cachedPivots.pEndBase + raw_sl_buffer
 float raw_tp_price = raw_tp_target
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1981,13 +2309,13 @@ float raw_tp_price = raw_tp_target
 // 1. GLOBAL_zigzag.changed is true (ZigZag confirmed)
 // 2. GLOBAL_backtest.current is na (not already in a simulation)
 // 3. We have valid cached pivot data
-if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(cachedIMidPivot) and not na(cachedPEndBase)
+if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cachedPivots.iMidPivot) and not na(GLOBAL_cachedPivots.pEndBase)
     // Build initial state_mask: PENDING + direction flag (using arithmetic for raw int)
     int init_state = FLAG_PENDING + (raw_is_long ? FLAG_IS_LONG : 0)
     
     // Create a new BacktestTrade with RAW levels
     GLOBAL_backtest.current := BacktestTrade.new(
-        cachedIMidPivot,       // id: Pivot bar index
+        GLOBAL_cachedPivots.iMidPivot,       // id: Pivot bar index
         init_state,            // state_mask: FLAG_PENDING + FLAG_IS_LONG if long
         raw_entry_mid,         // entry_price: mid of Golden Pocket (updated on activation)
         raw_zone_top,          // entry_top: zone upper boundary
@@ -2002,7 +2330,7 @@ if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(cachedIMidPi
     
     // DEBUG: Log trade spawn
     log.info("BACKTEST SPAWN: {0} trade #{1}, Zone=[{2}, {3}], SL={4}, TP={5}", 
-             raw_is_long ? "LONG" : "SHORT", cachedIMidPivot, 
+             raw_is_long ? "LONG" : "SHORT", GLOBAL_cachedPivots.iMidPivot, 
              raw_zone_btm, raw_zone_top, raw_sl_price, raw_tp_price)
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -2126,10 +2454,8 @@ if not na(GLOBAL_backtest.current) and not skip_this_bar
             GLOBAL_backtest.current := na
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// OPTIMIZATION ENGINE - Calculate Stats from Backtest History (runs on barstate.islast)
+// OPTIMIZATION ENGINE - Calculate Stats from Backtest History
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// By this point, GLOBAL_backtest.history contains all completed trades from chart history
-// Now we analyze them to optimize the current real-time position
 
 if barstate.islast and array.size(GLOBAL_backtest.history) > 0 and not GLOBAL_backtest.stats.statsReady
     int total = array.size(GLOBAL_backtest.history)
@@ -2178,7 +2504,7 @@ var PositionVisual GLOBAL_posVisual = PositionVisual.new()
 // Use effective pivots (projection if active, otherwise confirmed)
 if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Determine if this is a projection update (for visual feedback)
-    bool isProjection = projectionActive
+    bool isProjection = GLOBAL_projection.isActive()
     
     // When EndBase > MidPivot, the last swing was UP (upswing completed), so we expect a retracement DOWN into the pocket → SHORT
     // When EndBase < MidPivot, the last swing was DOWN (downswing completed), so we expect a retracement UP into the pocket → LONG
@@ -3107,11 +3433,11 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Initialize CONFIRMED trade tracking - ONLY reset on GLOBAL_zigzag.changed (never for projections)
     // This ensures Learning Engine data is ONLY from confirmed ZigZag pivots
     if GLOBAL_zigzag.changed
-        // Use CONFIRMED pivot (cachedIMidPivot), NOT effective pivot (which includes projections)
-        GLOBAL_activeTrade.setup_bar := cachedIMidPivot
+        // Use CONFIRMED pivot (GLOBAL_cachedPivots.iMidPivot), NOT effective pivot (which includes projections)
+        GLOBAL_activeTrade.setup_bar := GLOBAL_cachedPivots.iMidPivot
         // TASK 3 FIX: Store creation_bar = current bar_index for proper time decay
         // Confirmed pivots are detected pivotLength bars AFTER they occur
-        // So cachedIMidPivot is typically bar_index - pivotLength
+        // So GLOBAL_cachedPivots.iMidPivot is typically bar_index - pivotLength
         // creation_bar tracks when WE created the setup, not when the pivot occurred
         GLOBAL_activeTrade.creation_bar := bar_index
         // Build initial state_mask: direction + TP mode (using arithmetic for raw int)
@@ -3177,57 +3503,23 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool projectionStateChanged = isProjection != wasProjection
     wasProjection := isProjection
     
+    // Determine line style: solid for confirmed, dotted for projection
+    string lineStyleStr = showingProjection ? "dotted" : "solid"
+    
+    // Calculate Smart SL for method calls
+    float smartSlForMethod = show_smart_sl ? smart_sl_price : na
+    
     // On pivot change OR projection state change, delete old objects and create fresh ones
     bool needsRecreate = GLOBAL_zigzag.changed or projectionStateChanged or (isProjection and (proj_tentative_high or proj_tentative_low))
     if needsRecreate
         GLOBAL_posVisual.deleteAll()
-        GLOBAL_posVisual.boxEntry := box.new(bar_index, display_zone_top, bar_index + 5, display_zone_bottom, bgcolor=bg_col, border_color=border_col, border_style=box_style)
-        GLOBAL_posVisual.lineSl := line.new(bar_index, display_sl, bar_index + 5, display_sl, color=sl_line_col, style=box_style, width=2)
-        // Smart SL line (only if backtest data available)
-        if show_smart_sl
-            GLOBAL_posVisual.lineSmartSl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=3)
-        GLOBAL_posVisual.lineTp := line.new(bar_index, display_tp, bar_index + 5, display_tp, color=tp_line_col, style=box_style, width=3)
-        GLOBAL_posVisual.lblRisk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small, text.align_left)
+        GLOBAL_posVisual.create(display_zone_top, display_zone_bottom, display_sl, display_tp, mid_entry, pos_text, bg_col, border_col, sl_line_col, tp_line_col, lineStyleStr, smartSlForMethod, smart_sl_col, COLOR_FG_MAIN)
     else if not GLOBAL_posVisual.exists()
-        // First time creation (no pivot change yet)
-        GLOBAL_posVisual.boxEntry := box.new(bar_index, display_zone_top, bar_index + 5, display_zone_bottom, bgcolor=bg_col, border_color=border_col, border_style=line.style_dotted)
-        GLOBAL_posVisual.lineSl := line.new(bar_index, display_sl, bar_index + 5, display_sl, color=sl_line_col, style=line.style_dotted, width=3)
-        if show_smart_sl
-            GLOBAL_posVisual.lineSmartSl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=3)
-        GLOBAL_posVisual.lineTp := line.new(bar_index, display_tp, bar_index + 5, display_tp, color=tp_line_col, style=line.style_dotted, width=3)
-        GLOBAL_posVisual.lblRisk := label.new(bar_index + 5, mid_entry, pos_text, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), label.style_label_left, color.new(COLOR_FG_MAIN, 0), size.small, text.align_left)
+        // First time creation (no pivot change yet) - always dotted
+        GLOBAL_posVisual.create(display_zone_top, display_zone_bottom, display_sl, display_tp, mid_entry, pos_text, bg_col, border_col, sl_line_col, tp_line_col, "dotted", smartSlForMethod, smart_sl_col, COLOR_FG_MAIN)
     else
         // Update existing objects with current values (dynamic learning adjustments)
-        box.set_top(GLOBAL_posVisual.boxEntry, display_zone_top)
-        box.set_bottom(GLOBAL_posVisual.boxEntry, display_zone_bottom)
-        box.set_right(GLOBAL_posVisual.boxEntry, bar_index + 5)
-        box.set_bgcolor(GLOBAL_posVisual.boxEntry, bg_col)
-        box.set_border_color(GLOBAL_posVisual.boxEntry, border_col)
-        
-        // Update SL line - price and color (dynamic learning adjustments)
-        line.set_x2(GLOBAL_posVisual.lineSl, bar_index + 5)
-        line.set_y1(GLOBAL_posVisual.lineSl, display_sl)
-        line.set_y2(GLOBAL_posVisual.lineSl, display_sl)
-        line.set_color(GLOBAL_posVisual.lineSl, sl_line_col)
-        
-        // Update Smart SL line (if available)
-        if show_smart_sl and not na(GLOBAL_posVisual.lineSmartSl)
-            line.set_x2(GLOBAL_posVisual.lineSmartSl, bar_index + 5)
-            line.set_y1(GLOBAL_posVisual.lineSmartSl, smart_sl_price)
-            line.set_y2(GLOBAL_posVisual.lineSmartSl, smart_sl_price)
-        else if show_smart_sl and na(GLOBAL_posVisual.lineSmartSl)
-            GLOBAL_posVisual.lineSmartSl := line.new(bar_index, smart_sl_price, bar_index + 5, smart_sl_price, color=smart_sl_col, style=line.style_dotted, width=2)
-        
-        // Update TP line - price and color (dynamic learning adjustments)
-        line.set_x2(GLOBAL_posVisual.lineTp, bar_index + 5)
-        line.set_y1(GLOBAL_posVisual.lineTp, display_tp)
-        line.set_y2(GLOBAL_posVisual.lineTp, display_tp)
-        line.set_color(GLOBAL_posVisual.lineTp, tp_line_col)
-        
-        // Update label
-        label.set_x(GLOBAL_posVisual.lblRisk, bar_index + 5)
-        label.set_y(GLOBAL_posVisual.lblRisk, mid_entry)
-        label.set_text(GLOBAL_posVisual.lblRisk, pos_text)
+        GLOBAL_posVisual.update(display_zone_top, display_zone_bottom, display_sl, display_tp, mid_entry, pos_text, bg_col, border_col, sl_line_col, tp_line_col, smartSlForMethod, smart_sl_col)
     
     // Alert on zone entry
     if zone_entry and INPUT_ALERT_ENABLED
@@ -3241,8 +3533,8 @@ plotchar(INPUT_SHOW_HIGH_ATR ? highVolatility : false, 'High Volatile Bar', '⚡
 // STATUS LINE VALUES
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-v_start = cachedPMidPivot
-v_end   = cachedPEndBase
+v_start = GLOBAL_cachedPivots.pMidPivot
+v_end   = GLOBAL_cachedPivots.pEndBase
 v_50    = GLOBAL_confirmedPivot.getLevel(0.5)
 v_618   = GLOBAL_confirmedPivot.getLevel(FIB_GOLDEN_RATIO)
 
