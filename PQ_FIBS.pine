@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.4.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.5.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -74,6 +74,16 @@ int   LOG_VOL_WINDOW            = 20    // Rolling volatility window
 int   ENTROPY_WINDOW_DEFAULT    = 20    // Rolling window for log returns
 int   ENTROPY_BINS_DEFAULT      = 5     // Number of bins for discretization
 float ENTROPY_THRESH_DEFAULT    = 0.7   // Normalized entropy threshold (0-1)
+
+// Entropy mode constants (FUNC-1)
+string ENTROPY_MODE_LEGACY      = "LEGACY_BINS"       // Original binned log-return entropy
+string ENTROPY_MODE_BINARY      = "BINARY_UPDOWN"     // Binary up/down symbolic entropy
+string ENTROPY_MODE_KGRAM       = "BINARY_KGRAM"      // K-gram pattern symbolic entropy
+
+// Symbolic entropy defaults (FUNC-1)
+int   ENTROPY_K_DEFAULT         = 3     // Default k-gram length (2^3 = 8 states)
+int   ENTROPY_K_MIN             = 1     // Minimum k (2 states)
+int   ENTROPY_K_MAX             = 8     // Maximum k (256 states) - runtime safe
 
 // Regime classification
 int   ENTROPY_REGIME_ORDERED    = 0     // Low entropy: structured/trending
@@ -478,6 +488,236 @@ f_rollingEntropy(float log_return, int window, int num_bins, float threshold, bo
     
     prev_entropy_norm := entropy_norm
     [entropy, entropy_norm, regime]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// SYMBOLIC ENTROPY ENGINE - O(1) Incremental Entropy (FUNC-2 through FUNC-8)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// PERFORMANCE OPTIMIZATION: Replaces O(window) per-bar loop with O(1) incremental updates.
+// Uses binary symbolization and k-gram patterns with precomputed lookup tables.
+// Doc-backed: Pine v6 arrays, var persistence, negative indexing (TradingView docs/arrays)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @type SymbolicEntropyState - Encapsulates all state for incremental symbolic entropy
+// @field initialized True after first-bar initialization
+// @field mode Current entropy mode string
+// @field k Current k-gram length
+// @field window Current window size
+// @field states Number of possible states (2 for binary, 2^k for k-gram)
+// @field mask Bitmask for pattern generation ((1 << k) - 1)
+// @field pattern Current k-gram pattern (rolling bitwise value)
+// @field patternBuf Rolling buffer of pattern IDs
+// @field counts Frequency counts for each state
+// @field cLog2c Precomputed lookup table: c * log2(c) for c in 0..window
+// @field sumCLogC Incrementally maintained sum of c*log2(c) for non-zero counts
+// @field log2N Precomputed log2(window) for entropy formula
+// @field log2States Precomputed log2(states) for normalization
+// @field prevEntropyNorm Previous normalized entropy for transition detection
+// @field entropy Current raw entropy value
+// @field entropyNorm Current normalized entropy (0-1)
+// @field regime Current regime classification
+type SymbolicEntropyState
+    bool  initialized = false
+    string mode = ""
+    int   k = 3
+    int   window = 20
+    int   states = 8
+    int   mask = 7
+    int   pattern = 0
+    array<int> patternBuf = na
+    array<int> counts = na
+    array<float> cLog2c = na
+    float sumCLogC = 0.0
+    float log2N = 0.0
+    float log2States = 0.0
+    float prevEntropyNorm = na
+    float entropy = 0.0
+    float entropyNorm = 0.0
+    int   regime = 2
+
+// @function Initialize or reinitialize symbolic entropy engine (FUNC-5, FUNC-7)
+// @param this SymbolicEntropyState instance
+// @param mode Entropy mode string
+// @param k K-gram length (1-8)
+// @param window Rolling window size
+// @returns SymbolicEntropyState for chaining
+method init(SymbolicEntropyState this, string mode, int k, int window) =>
+    // Compute derived values
+    int effectiveK = mode == ENTROPY_MODE_BINARY ? 1 : math.max(1, math.min(k, ENTROPY_K_MAX))
+    int numStates = int(math.pow(2, effectiveK))
+    int bitMask = numStates - 1
+    
+    // Store configuration
+    this.mode := mode
+    this.k := effectiveK
+    this.window := window
+    this.states := numStates
+    this.mask := bitMask
+    this.pattern := 0
+    this.sumCLogC := 0.0
+    this.prevEntropyNorm := na
+    this.entropy := 0.0
+    this.entropyNorm := 0.0
+    this.regime := ENTROPY_REGIME_DISORDERED
+    
+    // Precompute log2(N) and log2(states) - only computed once per init
+    // Doc-backed: math.log() is safe in init blocks (not per-bar)
+    this.log2N := window > 0 ? math.log(float(window)) / math.log(2.0) : 0.0
+    this.log2States := numStates > 1 ? math.log(float(numStates)) / math.log(2.0) : 1.0
+    
+    // Initialize pattern buffer (bounded)
+    if na(this.patternBuf)
+        this.patternBuf := array.new<int>(0)
+    else
+        this.patternBuf.clear()
+    
+    // Initialize frequency counts (one per state)
+    if na(this.counts)
+        this.counts := array.new<int>(numStates, 0)
+    else
+        this.counts.clear()
+        for _i = 0 to numStates - 1
+            this.counts.push(0)
+    
+    // Precompute c * log2(c) lookup table (FUNC-5)
+    // This avoids math.log() calls during per-bar updates
+    if na(this.cLog2c)
+        this.cLog2c := array.new<float>(window + 1, 0.0)
+    else
+        this.cLog2c.clear()
+        for c = 0 to window
+            this.cLog2c.push(0.0)
+    
+    // Populate lookup: cLog2c[0] = 0, cLog2c[c] = c * log2(c) for c > 0
+    float log2Base = math.log(2.0)
+    this.cLog2c.set(0, 0.0)
+    for c = 1 to window
+        float clog2c = float(c) * math.log(float(c)) / log2Base
+        this.cLog2c.set(c, clog2c)
+    
+    this.initialized := true
+    this
+
+// @function Check if configuration has changed, requiring reinit (FUNC-7)
+// @param this SymbolicEntropyState instance
+// @param mode Current mode input
+// @param k Current k input
+// @param window Current window input
+// @returns True if reinit needed
+method needsReinit(SymbolicEntropyState this, string mode, int k, int window) =>
+    not this.initialized or this.mode != mode or this.k != k or this.window != window
+
+// @function Generate binary state from price action (FUNC-2)
+// @param price_now Current close price
+// @param price_prev Previous close price
+// @returns 1 if up, 0 if down/flat
+f_binaryState(float price_now, float price_prev) =>
+    // Edge case: first bar or na prices → default to 0
+    if na(price_now) or na(price_prev)
+        0
+    else
+        price_now > price_prev ? 1 : 0
+
+// @function Update symbolic entropy state with new bar (FUNC-3, FUNC-4, FUNC-6)
+// @description O(1) incremental update - no loops over window data
+// @param this SymbolicEntropyState instance
+// @param state Binary state (0 or 1) for current bar
+// @param threshold Entropy threshold for regime classification
+// @param allowTransition Allow transition regime detection
+// @returns SymbolicEntropyState for chaining
+method update(SymbolicEntropyState this, int state, float threshold, bool allowTransition) =>
+    if not this.initialized
+        this
+    else
+        // FUNC-3: Update k-gram pattern (bitwise shift + mask)
+        // Pattern slides left, new state enters from right
+        this.pattern := ((this.pattern * 2) + state) % (this.mask + 1)
+        
+        int patternId = this.pattern
+        int bufSize = this.patternBuf.size()
+        
+        // FUNC-4: Incremental frequency update
+        // Step 1: Get old count for new pattern, update sumCLogC
+        int oldCountNew = this.counts.get(patternId)
+        float oldCLogCNew = this.cLog2c.get(oldCountNew)
+        int newCountNew = oldCountNew + 1
+        float newCLogCNew = newCountNew <= this.window ? this.cLog2c.get(newCountNew) : float(newCountNew) * math.log(float(newCountNew)) / math.log(2.0)
+        
+        // FUNC-6: Update sumCLogC incrementally for new pattern
+        this.sumCLogC := this.sumCLogC - oldCLogCNew + newCLogCNew
+        this.counts.set(patternId, newCountNew)
+        
+        // Push new pattern to buffer
+        this.patternBuf.push(patternId)
+        
+        // Step 2: If buffer exceeds window, remove oldest
+        if this.patternBuf.size() > this.window
+            int oldPatternId = this.patternBuf.shift()
+            
+            // Update counts and sumCLogC for removed pattern
+            int oldCountOld = this.counts.get(oldPatternId)
+            float oldCLogCOld = this.cLog2c.get(oldCountOld)
+            int newCountOld = math.max(0, oldCountOld - 1)
+            float newCLogCOld = this.cLog2c.get(newCountOld)
+            
+            this.sumCLogC := this.sumCLogC - oldCLogCOld + newCLogCOld
+            this.counts.set(oldPatternId, newCountOld)
+        
+        // Compute entropy only when buffer is full (warm-up complete)
+        int currentBufSize = this.patternBuf.size()
+        if currentBufSize >= this.window
+            // FUNC-6: Entropy formula: H = log2(N) - sumCLogC / N
+            // Doc-backed: This avoids per-bar math.log() calls
+            float N = float(this.window)
+            this.entropy := this.log2N - (this.sumCLogC / N)
+            
+            // Clamp to valid range [0, log2(states)]
+            this.entropy := math.max(0.0, math.min(this.entropy, this.log2States))
+            
+            // Normalize to [0, 1]
+            this.entropyNorm := this.log2States > 0 ? this.entropy / this.log2States : 0.0
+            
+            // FUNC-8: Regime classification
+            if this.entropyNorm < threshold
+                this.regime := ENTROPY_REGIME_ORDERED
+            else if allowTransition and not na(this.prevEntropyNorm) and this.prevEntropyNorm >= threshold and this.entropyNorm < threshold
+                this.regime := ENTROPY_REGIME_TRANSITION
+            else
+                this.regime := ENTROPY_REGIME_DISORDERED
+            
+            this.prevEntropyNorm := this.entropyNorm
+        else
+            // Buffer not full - return na/default
+            this.entropy := na
+            this.entropyNorm := na
+            this.regime := ENTROPY_REGIME_DISORDERED
+        
+        this
+
+// @function Get entropy results tuple
+// @param this SymbolicEntropyState instance
+// @returns Tuple [raw_entropy, normalized_entropy, regime]
+method getResults(SymbolicEntropyState this) =>
+    [this.entropy, this.entropyNorm, this.regime]
+
+// @function Get debug info string (FUNC-9)
+// @param this SymbolicEntropyState instance
+// @returns Debug string for display
+method getDebugInfo(SymbolicEntropyState this) =>
+    string info = "ENTROPY DEBUG\n"
+    info += "Mode: " + this.mode + "\n"
+    info += "K: " + str.tostring(this.k) + "\n"
+    info += "States: " + str.tostring(this.states) + "\n"
+    info += "Window: " + str.tostring(this.window) + "\n"
+    info += "Buffer: " + str.tostring(this.patternBuf.size()) + "\n"
+    info += "H_raw: " + str.tostring(this.entropy, "#.####") + "\n"
+    info += "H_norm: " + str.tostring(this.entropyNorm, "#.####") + "\n"
+    info += "Regime: " + (this.regime == ENTROPY_REGIME_ORDERED ? "ORDERED" : this.regime == ENTROPY_REGIME_TRANSITION ? "TRANSITION" : "DISORDERED") + "\n"
+    // Counts sum check (for validation)
+    int countsSum = 0
+    for i = 0 to this.counts.size() - 1
+        countsSum += this.counts.get(i)
+    info += "Counts Sum: " + str.tostring(countsSum) + " (expected: " + str.tostring(this.patternBuf.size()) + ")"
+    info
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // HURST EXPONENT - Regime Filter for Market Persistence
@@ -1145,10 +1385,13 @@ INPUT_INTRABAR_TF       = input.string('5', '   ↳ LTF Resolution', options=['1
 INPUT_INTRABAR_TIEBREAK = input.string('Conservative', '   ↳ Tie-Break Policy', options=['Conservative', 'Optimistic'], group=GROUP_STAT_POS, tooltip="When TP and SL are hit in the same LTF bar:\nConservative: Assume SL hit first (capital preservation)\nOptimistic: Assume TP hit first (best case)")
 // --- SHANNON ENTROPY FILTER ---
 INPUT_ENTROPY_ENABLED   = input.bool(true, '🎲 Entropy Regime Filter', group=GROUP_STAT_POS, tooltip="Filters trades based on Shannon Entropy of recent price action.\nBlocks signals during high-entropy (choppy/random) regimes.\nAllows signals during low-entropy (structured/trending) regimes.")
+INPUT_ENTROPY_MODE      = input.string(ENTROPY_MODE_LEGACY, '   ↳ Entropy Mode', options=[ENTROPY_MODE_LEGACY, ENTROPY_MODE_BINARY, ENTROPY_MODE_KGRAM], group=GROUP_STAT_POS, tooltip="LEGACY_BINS: Original binned log-return entropy (default).\nBINARY_UPDOWN: Optimized binary up/down symbolic entropy (O(1)).\nBINARY_KGRAM: K-gram pattern entropy for multi-bar patterns (O(1)).")
 INPUT_ENTROPY_WINDOW    = input.int(20, '   ↳ Window Length', minval=5, maxval=100, group=GROUP_STAT_POS, tooltip="Number of bars for entropy calculation.\nLarger = more stable but slower to adapt.\n20 is recommended for most timeframes.")
-INPUT_ENTROPY_BINS      = input.int(5, '   ↳ Bin Count', minval=3, maxval=10, group=GROUP_STAT_POS, tooltip="Number of bins for discretizing returns.\n5 bins = [Large Down, Small Down, Neutral, Small Up, Large Up]\nMore bins = finer resolution but needs more data.")
+INPUT_ENTROPY_BINS      = input.int(5, '   ↳ Bin Count', minval=3, maxval=10, group=GROUP_STAT_POS, tooltip="Number of bins for discretizing returns.\n5 bins = [Large Down, Small Down, Neutral, Small Up, Large Up]\nMore bins = finer resolution but needs more data.\n(Only used in LEGACY_BINS mode)")
+INPUT_ENTROPY_K         = input.int(3, '   ↳ K-Gram Length', minval=1, maxval=8, group=GROUP_STAT_POS, tooltip="Pattern length for BINARY_KGRAM mode.\nk=1: 2 states (up/down)\nk=3: 8 states (default)\nk=8: 256 states (max)")
 INPUT_ENTROPY_THRESH    = input.float(0.7, '   ↳ Threshold', minval=0.1, maxval=1.0, step=0.05, group=GROUP_STAT_POS, tooltip="Normalized entropy threshold (0-1).\nBelow = ORDERED (allow trades)\nAbove = DISORDERED (block trades)\n0.7 is a balanced default.")
 INPUT_ENTROPY_TRANSITION = input.bool(false, '   ↳ Allow Transitions', group=GROUP_STAT_POS, tooltip="When enabled, allows trades during high→low entropy transitions.\nDetects breakouts from consolidation (chop→trend).\nExperimental: may increase false positives.")
+INPUT_ENTROPY_DEBUG     = input.bool(false, '   ↳ Debug Overlay', group=GROUP_STAT_POS, tooltip="Shows entropy debug info on last bar:\nMode, states, window, H_norm, regime, buffer size.\nNo per-bar labels (performance safe).")
 // --- HURST EXPONENT FILTER ---
 INPUT_HURST_ENABLED     = input.bool(true, '📈 Hurst Regime Filter', group=GROUP_STAT_POS, tooltip="Filters trades based on Hurst Exponent (market persistence).\nH > 0.5 = trending (persistent), H < 0.5 = mean-reverting.\nOptionally blocks trades near H ≈ 0.5 (random walk).")
 INPUT_HURST_WINDOW      = input.int(100, '   ↳ Window Length', minval=20, maxval=500, group=GROUP_STAT_POS, tooltip="Number of bars for Hurst calculation.\nLarger = more stable but slower to adapt.\n100 is recommended for most timeframes.")
@@ -2688,14 +2931,46 @@ float i_vSMA = ta.sma(nz(volume), INPUT_VOL_SMA_LEN)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 RegimeState GLOBAL_regime = RegimeState.new()
 
+// Symbolic Entropy Engine - Global Instance (FUNC-8)
+var SymbolicEntropyState GLOBAL_symbolicEntropy = SymbolicEntropyState.new()
+
 // Populate log-return volatility state
 GLOBAL_regime.logReturn := f_logReturn(close, close[1])
 GLOBAL_regime.logReturnStdev := ta.stdev(GLOBAL_regime.logReturn, LOG_VOL_WINDOW)
 GLOBAL_regime.periodsPerYear := f_getPeriodsPerYear()
 GLOBAL_regime.annualizedVol := f_annualizedVol(GLOBAL_regime.logReturnStdev, GLOBAL_regime.periodsPerYear)
 
-// Populate entropy state (always runs - internal ta.* functions need full history)
-[_ent, _entNorm, _entReg] = f_rollingEntropy(GLOBAL_regime.logReturn, INPUT_ENTROPY_WINDOW, INPUT_ENTROPY_BINS, INPUT_ENTROPY_THRESH, INPUT_ENTROPY_TRANSITION)
+// Populate entropy state (FUNC-8: Route based on mode)
+// Legacy mode uses original binned log-return entropy
+// Symbolic modes use O(1) incremental binary/k-gram entropy
+float _ent = na
+float _entNorm = na
+int _entReg = ENTROPY_REGIME_DISORDERED
+
+if INPUT_ENTROPY_MODE == ENTROPY_MODE_LEGACY
+    // Legacy path: O(window) binned entropy (default for backward compatibility)
+    [__ent, __entNorm, __entReg] = f_rollingEntropy(GLOBAL_regime.logReturn, INPUT_ENTROPY_WINDOW, INPUT_ENTROPY_BINS, INPUT_ENTROPY_THRESH, INPUT_ENTROPY_TRANSITION)
+    _ent := __ent
+    _entNorm := __entNorm
+    _entReg := __entReg
+else
+    // Symbolic path: O(1) incremental entropy (FUNC-2 through FUNC-6)
+    // FUNC-7: Reinitialize if config changed
+    if GLOBAL_symbolicEntropy.needsReinit(INPUT_ENTROPY_MODE, INPUT_ENTROPY_K, INPUT_ENTROPY_WINDOW)
+        GLOBAL_symbolicEntropy.init(INPUT_ENTROPY_MODE, INPUT_ENTROPY_K, INPUT_ENTROPY_WINDOW)
+    
+    // FUNC-2: Generate binary state (up=1, down/flat=0)
+    int binaryState = f_binaryState(close, close[1])
+    
+    // FUNC-3/4/6: Update engine with new state (O(1) operation)
+    GLOBAL_symbolicEntropy.update(binaryState, INPUT_ENTROPY_THRESH, INPUT_ENTROPY_TRANSITION)
+    
+    // Get results
+    [__ent, __entNorm, __entReg] = GLOBAL_symbolicEntropy.getResults()
+    _ent := __ent
+    _entNorm := __entNorm
+    _entReg := __entReg
+
 GLOBAL_regime.entropy := _ent
 GLOBAL_regime.entropyNorm := _entNorm
 GLOBAL_regime.entropyRegime := _entReg
@@ -5104,6 +5379,61 @@ if INPUT_ALERT_ENABLED
     if barstate.ishistory
         GLOBAL_pivotLevelsLogRetracements.clear()
         GLOBAL_pivotLevelsLogCrossed.clear()
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ENTROPY DEBUG OVERLAY - Last Bar Only (FUNC-9)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: Displays entropy engine diagnostics for performance validation.
+//       Only renders on barstate.islast to avoid per-bar label spam.
+if INPUT_ENTROPY_DEBUG and barstate.islast
+    var table entropyDebugTable = table.new(position.bottom_right, 2, 11, bgcolor = color.new(color.black, 80), border_width = 1)
+    
+    table.cell(entropyDebugTable, 0, 0, "Entropy Debug", text_color = color.white, text_size = size.small)
+    table.cell(entropyDebugTable, 1, 0, "", text_color = color.white, text_size = size.small)
+    
+    table.cell(entropyDebugTable, 0, 1, "Mode", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 1, INPUT_ENTROPY_MODE, text_color = color.yellow, text_size = size.tiny)
+    
+    string _modeDetail = INPUT_ENTROPY_MODE == ENTROPY_MODE_LEGACY ? "O(N) bins" : "O(1) symbolic"
+    table.cell(entropyDebugTable, 0, 2, "Complexity", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 2, _modeDetail, text_color = INPUT_ENTROPY_MODE == ENTROPY_MODE_LEGACY ? color.orange : color.green, text_size = size.tiny)
+    
+    int _states = INPUT_ENTROPY_MODE == ENTROPY_MODE_LEGACY ? INPUT_ENTROPY_BINS : INPUT_ENTROPY_MODE == ENTROPY_MODE_BINARY ? 2 : int(math.pow(2, INPUT_ENTROPY_K))
+    table.cell(entropyDebugTable, 0, 3, "States", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 3, str.tostring(_states), text_color = color.white, text_size = size.tiny)
+    
+    table.cell(entropyDebugTable, 0, 4, "K (k-gram)", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 4, INPUT_ENTROPY_MODE == ENTROPY_MODE_KGRAM ? str.tostring(INPUT_ENTROPY_K) : "—", text_color = color.white, text_size = size.tiny)
+    
+    table.cell(entropyDebugTable, 0, 5, "Window", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 5, str.tostring(INPUT_ENTROPY_WINDOW), text_color = color.white, text_size = size.tiny)
+    
+    table.cell(entropyDebugTable, 0, 6, "H_raw", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 6, str.tostring(GLOBAL_regime.entropy, "#.####"), text_color = color.white, text_size = size.tiny)
+    
+    table.cell(entropyDebugTable, 0, 7, "H_norm", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 7, str.tostring(GLOBAL_regime.entropyNorm, "#.####"), text_color = color.yellow, text_size = size.tiny)
+    
+    string _regimeStr = GLOBAL_regime.entropyRegime == ENTROPY_REGIME_ORDERED ? "ORDERED" : GLOBAL_regime.entropyRegime == ENTROPY_REGIME_TRANSITION ? "TRANSITION" : "DISORDERED"
+    color _regimeColor = GLOBAL_regime.entropyRegime == ENTROPY_REGIME_ORDERED ? color.green : GLOBAL_regime.entropyRegime == ENTROPY_REGIME_TRANSITION ? color.yellow : color.red
+    table.cell(entropyDebugTable, 0, 8, "Regime", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 8, _regimeStr, text_color = _regimeColor, text_size = size.tiny)
+    
+    table.cell(entropyDebugTable, 0, 9, "entropyOk", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 9, GLOBAL_regime.entropyOk ? "✓" : "✗", text_color = GLOBAL_regime.entropyOk ? color.green : color.red, text_size = size.tiny)
+    
+    // Show buffer validation for symbolic modes
+    if INPUT_ENTROPY_MODE != ENTROPY_MODE_LEGACY and GLOBAL_symbolicEntropy.initialized
+        int _bufSize = GLOBAL_symbolicEntropy.patternBuf.size()
+        int _countsSum = 0
+        for i = 0 to GLOBAL_symbolicEntropy.counts.size() - 1
+            _countsSum += GLOBAL_symbolicEntropy.counts.get(i)
+        bool _valid = _bufSize == _countsSum
+        table.cell(entropyDebugTable, 0, 10, "Buffer ✓", text_color = color.gray, text_size = size.tiny)
+        table.cell(entropyDebugTable, 1, 10, str.tostring(_bufSize) + "=" + str.tostring(_countsSum) + " " + (_valid ? "✓" : "⚠"), text_color = _valid ? color.green : color.red, text_size = size.tiny)
+    else
+        table.cell(entropyDebugTable, 0, 10, "Buffer", text_color = color.gray, text_size = size.tiny)
+        table.cell(entropyDebugTable, 1, 10, "—", text_color = color.gray, text_size = size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // EXTERNAL CONTEXT DEBUG OVERLAY - Last Bar Only
