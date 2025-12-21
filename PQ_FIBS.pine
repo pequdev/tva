@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.2.5', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.3.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -77,6 +77,9 @@ FLAG_CLOSED         = 1024    // Trade completed (SL or TP hit)
 // Outcome (Bit 11)
 FLAG_WON            = 2048    // Trade was a winner (TP hit before SL)
 
+// Intrabar Resolution (Bit 12) - diagnostic flag
+FLAG_LTF_RESOLVED   = 4096    // Outcome was resolved using LTF intrabar data (vs HTF heuristic)
+
 // Composite Masks for Fast Queries
 // NOTE: MASK_OUTCOME should be used with f_hasAny() to check if ANY outcome is set
 //       (SL_HIT and TP_HIT are mutually exclusive, so f_hasAll would never match)
@@ -85,9 +88,9 @@ MASK_CLOSED         = 1024    // FLAG_CLOSED - trade lifecycle completed
 MASK_LIFECYCLE      = 1792    // FLAG_PENDING + FLAG_ACTIVE + FLAG_CLOSED (256 + 512 + 1024)
 MASK_TP_TRACKING    = 192     // FLAG_CONS_TP_HIT + FLAG_AGGR_TP_HIT (64 + 128)
 
-// Max bit index for loop bounds (FLAG_WON = 2048 = 2^11, so max bit is 11)
-// Pine Script for loop is INCLUSIVE: `for i = 0 to 11` runs 12 times (i = 0,1,2,...,11)
-STATE_MAX_BIT       = 11      // Highest bit index used (update if adding more flags)
+// Max bit index for loop bounds (FLAG_LTF_RESOLVED = 4096 = 2^12, so max bit is 12)
+// Pine Script for loop is INCLUSIVE: `for i = 0 to 12` runs 13 times (i = 0,1,2,...,12)
+STATE_MAX_BIT       = 12      // Highest bit index used (update if adding more flags)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS API - Arithmetic-Based Bit Operations for State Management
@@ -170,6 +173,61 @@ f_setOutcome(int state, int outcome) =>
     cleared := f_clearFlag(cleared, FLAG_TP_HIT)
     // Set the new outcome
     f_setFlag(cleared, outcome)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// INTRABAR RESOLUTION - Chronological TP/SL Resolution Using LTF Data
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Resolves which outcome (TP or SL) occurred first when both are hit in the same HTF bar
+// by iterating through LTF bars chronologically. Returns: 1 = TP first, -1 = SL first, 0 = neither/undetermined
+
+// @function Resolve TP/SL outcome chronologically using LTF intrabar data
+// @param ltf_highs Array of LTF high values within current HTF bar
+// @param ltf_lows Array of LTF low values within current HTF bar
+// @param is_long True if this is a long trade (affects TP/SL direction checks)
+// @param sl_price Stop loss price level
+// @param tp_price Take profit price level
+// @param conservative_tiebreak True = assume SL first on same-bar conflict, False = assume TP first
+// @returns Tuple: [outcome, ltf_resolved, hit_index]
+//          outcome: 1 = TP hit first, -1 = SL hit first, 0 = neither hit
+//          ltf_resolved: true if resolved via LTF data, false if fallback used
+//          hit_index: LTF bar index where outcome was determined (-1 if none)
+f_resolveIntrabar(array<float> ltf_highs, array<float> ltf_lows, bool is_long, float sl_price, float tp_price, bool conservative_tiebreak) =>
+    int outcome = 0          // 0 = undetermined, 1 = TP first, -1 = SL first
+    bool ltf_resolved = false
+    int hit_index = -1
+    
+    // Check if LTF data is available
+    int ltf_count = array.size(ltf_highs)
+    
+    if ltf_count > 0
+        // Iterate LTF bars chronologically (index 0 = earliest in HTF bar)
+        for i = 0 to ltf_count - 1
+            float ltf_high = array.get(ltf_highs, i)
+            float ltf_low = array.get(ltf_lows, i)
+            
+            // Check TP/SL hits for this LTF bar
+            bool sl_hit = is_long ? (ltf_low <= sl_price) : (ltf_high >= sl_price)
+            bool tp_hit = is_long ? (ltf_high >= tp_price) : (ltf_low <= tp_price)
+            
+            // Resolve outcome for this intrabar
+            if sl_hit and tp_hit
+                // Both hit in same LTF bar - apply tie-break policy
+                outcome := conservative_tiebreak ? -1 : 1  // -1 = SL, 1 = TP
+                ltf_resolved := true
+                hit_index := i
+                break
+            else if sl_hit
+                outcome := -1  // SL hit first
+                ltf_resolved := true
+                hit_index := i
+                break
+            else if tp_hit
+                outcome := 1   // TP hit first
+                ltf_resolved := true
+                hit_index := i
+                break
+    
+    [outcome, ltf_resolved, hit_index]
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // LEARNING ENGINE CONSTANTS
@@ -431,6 +489,10 @@ INPUT_LEARN_MIN_SAMPLES = input.int(30, 'Min Samples for Learning', minval=10, m
 // --- PROJECTION MODE ---
 INPUT_PROJECTION_MODE   = input.bool(true, '⚡ Projection Mode (Early Pivot)', group=GROUP_STAT_POS, tooltip="Shows tentative Golden Pocket in real-time when price retraces by deviation threshold from local high/low.\nDoes not wait for full depth confirmation.\nAllows earlier entry signals but may repaint.")
 INPUT_PROJ_SENSITIVITY  = input.float(0.5, '   ↳ Sensitivity', minval=0.1, maxval=1.0, step=0.1, group=GROUP_STAT_POS, tooltip="Scalar for deviation threshold. < 1.0 reduces lag for tentative setups but increases false positive rate.\n0.5 = 50% of normal threshold (faster signals).\n1.0 = same as confirmed ZigZag (no early warning).")
+// --- INTRABAR PRECISION (Backtest Engine) ---
+INPUT_INTRABAR_ENABLED  = input.bool(true, '🔬 Intrabar Precision', group=GROUP_STAT_POS, tooltip="Uses lower timeframe data to resolve TP/SL order when both are hit in the same HTF bar.\nEliminates look-ahead bias and improves backtest accuracy.\nRequires dynamic_requests=true in indicator declaration.")
+INPUT_INTRABAR_TF       = input.string('5', '   ↳ LTF Resolution', options=['1', '5', '15'], group=GROUP_STAT_POS, tooltip="Lower timeframe for intrabar inspection.\n1 = 1 minute (most precise, higher overhead)\n5 = 5 minutes (balanced, recommended)\n15 = 15 minutes (fastest, less precise)")
+INPUT_INTRABAR_TIEBREAK = input.string('Conservative', '   ↳ Tie-Break Policy', options=['Conservative', 'Optimistic'], group=GROUP_STAT_POS, tooltip="When TP and SL are hit in the same LTF bar:\nConservative: Assume SL hit first (capital preservation)\nOptimistic: Assume TP hit first (best case)")
 // ------------------------------------------
 
 // Fibonacci Levels
@@ -558,6 +620,18 @@ if barstate.isfirst
     fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_65, INPUT_COL_NEG_0_65, INPUT_SHOW_NEG_0_65))
 
 int decimalsCount = math.round(math.abs(math.log(1 / syminfo.mintick) / math.log(10)))
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// INTRABAR DATA REQUEST - Lower Timeframe Arrays for Chronological TP/SL Resolution
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: request.security_lower_tf MUST be called at global scope (not inside conditionals)
+// Returns arrays of LTF values contained within each HTF bar
+// These arrays are iterated chronologically when resolving TP/SL outcomes
+
+// Fetch LTF high/low arrays for intrabar resolution (uses configured timeframe)
+// The arrays contain all LTF bars that fall within the current HTF bar
+array<float> g_ltf_highs = request.security_lower_tf(syminfo.tickerid, INPUT_INTRABAR_TF, high)
+array<float> g_ltf_lows  = request.security_lower_tf(syminfo.tickerid, INPUT_INTRABAR_TF, low)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // LEARNING ENGINE DATA STRUCTURES
@@ -1543,7 +1617,7 @@ if not na(current_sim) and not skip_this_bar
             float favorable = current_sim.entry_price - low
             current_sim.mfe := math.max(current_sim.mfe, favorable)
         
-        // Check for exit conditions
+        // Check for exit conditions (HTF level - used for initial screening)
         bool sl_hit = sim_is_long ? (low <= current_sim.sl_price) : (high >= current_sim.sl_price)
         bool tp_hit = sim_is_long ? (high >= current_sim.tp_price) : (low <= current_sim.tp_price)
         
@@ -1552,13 +1626,37 @@ if not na(current_sim) and not skip_this_bar
             current_sim.state_mask := f_setLifecycle(current_sim.state_mask, FLAG_CLOSED)
             current_sim.exit_bar := bar_index
             
-            // Conflict resolution: both hit in same bar (per FR-4 transition rules)
+            // ═══════════════════════════════════════════════════════════════════════════
+            // INTRABAR PRECISION: Resolve TP/SL order chronologically using LTF data
+            // ═══════════════════════════════════════════════════════════════════════════
             bool trade_won = false
+            bool used_ltf_resolution = false
+            int ltf_hit_idx = -1
+            
             if sl_hit and tp_hit
-                float dist_to_sl = math.abs(open - current_sim.sl_price)
-                float dist_to_tp = math.abs(open - current_sim.tp_price)
-                trade_won := dist_to_tp < dist_to_sl * 0.5
+                // Both TP and SL hit in same HTF bar - need to determine which came first
+                if INPUT_INTRABAR_ENABLED and array.size(g_ltf_highs) > 0
+                    // Use intrabar resolution for chronological determination
+                    bool conservative = INPUT_INTRABAR_TIEBREAK == "Conservative"
+                    [ltf_outcome, ltf_resolved, hit_idx] = f_resolveIntrabar(g_ltf_highs, g_ltf_lows, sim_is_long, current_sim.sl_price, current_sim.tp_price, conservative)
+                    
+                    if ltf_resolved
+                        trade_won := ltf_outcome == 1  // 1 = TP first, -1 = SL first
+                        used_ltf_resolution := true
+                        ltf_hit_idx := hit_idx
+                        current_sim.state_mask := f_setFlag(current_sim.state_mask, FLAG_LTF_RESOLVED)
+                    else
+                        // LTF data available but no decisive outcome - use HTF fallback
+                        float dist_to_sl = math.abs(open - current_sim.sl_price)
+                        float dist_to_tp = math.abs(open - current_sim.tp_price)
+                        trade_won := dist_to_tp < dist_to_sl * 0.5
+                else
+                    // Intrabar disabled or no LTF data - use HTF heuristic (fallback per FR-7)
+                    float dist_to_sl = math.abs(open - current_sim.sl_price)
+                    float dist_to_tp = math.abs(open - current_sim.tp_price)
+                    trade_won := dist_to_tp < dist_to_sl * 0.5
             else
+                // Only one level hit - straightforward resolution
                 trade_won := tp_hit
             
             // Set outcome flags using f_setOutcome for mutual exclusion (SL_HIT xor TP_HIT)
@@ -1571,11 +1669,16 @@ if not na(current_sim) and not skip_this_bar
             // Push completed trade to history_log
             array.push(history_log, current_sim)
             
-            // DEBUG: Log trade completion
-            log.info("BACKTEST CLOSED: {0} trade #{1}, Entry={2}, Won={3}, MAE={4}, MFE={5}", 
-                     sim_is_long ? "LONG" : "SHORT", 
-                     current_sim.id, current_sim.entry_price, trade_won, 
-                     current_sim.mae, current_sim.mfe)
+            // DEBUG: Log trade completion with intrabar resolution info
+            if used_ltf_resolution
+                log.info("BACKTEST CLOSED (LTF): {0} #{1}, Won={2}, LTF_idx={3}/{4}, MAE={5}, MFE={6}", 
+                         sim_is_long ? "LONG" : "SHORT", current_sim.id, trade_won,
+                         ltf_hit_idx, array.size(g_ltf_highs), current_sim.mae, current_sim.mfe)
+            else
+                log.info("BACKTEST CLOSED (HTF): {0} #{1}, Entry={2}, Won={3}, MAE={4}, MFE={5}", 
+                         sim_is_long ? "LONG" : "SHORT", 
+                         current_sim.id, current_sim.entry_price, trade_won, 
+                         current_sim.mae, current_sim.mfe)
             
             // Clear current simulation
             current_sim := na
