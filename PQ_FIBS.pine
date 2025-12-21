@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.3.10', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.4.1', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -42,6 +42,22 @@ float FIB_GOLDEN_RATIO    = 0.618
 float FIB_GOLDEN_POCKET_H = 0.65
 float FIB_EXTENSION_1272  = 1.272
 float FIB_EXTENSION_1618  = 1.618
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// LOGARITHMIC RETURNS CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Annualization factors (periods per year)
+int   LOG_PERIODS_DAILY         = 252   // Trading days per year (equities)
+int   LOG_PERIODS_CRYPTO        = 365   // Calendar days (24/7 markets)
+float LOG_PERIODS_1M            = 252.0 * 6.5 * 60  // 1-min bars per trading year
+float LOG_PERIODS_5M            = 252.0 * 6.5 * 12  // 5-min bars per trading year
+float LOG_PERIODS_15M           = 252.0 * 6.5 * 4   // 15-min bars per trading year
+float LOG_PERIODS_1H            = 252.0 * 6.5       // 1-hour bars per trading year
+float LOG_PERIODS_4H            = 252.0 * 1.625     // 4-hour bars per trading year
+
+// Volatility window defaults
+int   LOG_VOL_WINDOW            = 20    // Rolling volatility window
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS - Bitwise Trade/Setup State Representation
@@ -147,6 +163,58 @@ f_resolveIntrabar(array<float> ltf_highs, array<float> ltf_lows, bool is_long, f
                 break
     
     [outcome, ltf_resolved, hit_index]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// LOGARITHMIC RETURNS - Canonical Return Computation
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Compute logarithmic (continuously compounded) return
+// @param price_now Current price
+// @param price_prev Previous price
+// @returns Log return: ln(price_now / price_prev), or 0.0 if invalid
+f_logReturn(float price_now, float price_prev) =>
+    float result = 0.0
+    if not na(price_now) and not na(price_prev) and price_prev > 0 and price_now > 0
+        result := math.log(price_now / price_prev)
+    result
+
+// @function Convert summed log returns to simple (arithmetic) total return
+// @param sum_log_returns Sum of log returns over period
+// @returns Simple total return: exp(sum) - 1
+f_logToSimpleReturn(float sum_log_returns) =>
+    math.exp(sum_log_returns) - 1
+
+// @function Get annualization factor based on timeframe
+// @returns Periods per year for current chart timeframe
+f_getPeriodsPerYear() =>
+    float result = float(LOG_PERIODS_DAILY)
+    if timeframe.isseconds
+        result := LOG_PERIODS_1M * 60 / timeframe.multiplier
+    else if timeframe.isminutes
+        if timeframe.multiplier <= 1
+            result := LOG_PERIODS_1M
+        else if timeframe.multiplier <= 5
+            result := LOG_PERIODS_5M
+        else if timeframe.multiplier <= 15
+            result := LOG_PERIODS_15M
+        else if timeframe.multiplier <= 60
+            result := LOG_PERIODS_1H
+        else
+            result := LOG_PERIODS_4H
+    else if timeframe.isdaily
+        result := float(LOG_PERIODS_DAILY)
+    else if timeframe.isweekly
+        result := 52.0
+    else if timeframe.ismonthly
+        result := 12.0
+    result
+
+// @function Compute annualized volatility from rolling log-return stdev
+// @param log_return_stdev Standard deviation of log returns
+// @param periods_per_year Annualization factor
+// @returns Annualized volatility
+f_annualizedVol(float log_return_stdev, float periods_per_year) =>
+    log_return_stdev * math.sqrt(periods_per_year)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // LEARNING ENGINE CONSTANTS
@@ -704,6 +772,10 @@ method initFirst(ZigZagEngine this, int index, float price, bool isHigh) =>
 // @field lossStreak Current losing streak
 // @field wrHighVol Win rate in high volatility
 // @field wrLowVol Win rate in low volatility
+// @field cumLogReturn Cumulative log return of all trades
+// @field avgLogReturn Average log return per trade
+// @field logReturnStdev Standard deviation of trade log returns
+// @field sharpeRatio Risk-adjusted return (avgLogReturn / logReturnStdev)
 // @field lastOutcomeBar Bar index of last outcome
 // @field isHealthy Learning system health status
 type LearningMetrics
@@ -742,6 +814,11 @@ type LearningMetrics
     // Volatility regime
     float wrHighVol = 0.55
     float wrLowVol = 0.55
+    // Log-return performance metrics
+    float cumLogReturn = 0.0
+    float avgLogReturn = 0.0
+    float logReturnStdev = 0.0
+    float sharpeRatio = 0.0
     // Health tracking
     int   lastOutcomeBar = 0
     bool  isHealthy = true
@@ -1646,8 +1723,18 @@ float i_weightedATR = ta.atr(INPUT_ATR_LENGTH) * INPUT_ATR_MULT
 float i_vSMA = ta.sma(nz(volume), INPUT_VOL_SMA_LEN)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// PRE-COMPUTED TA VALUES - Called on every bar for consistency (Pine v6 best practice)
-// These values are used in conditional blocks but must be computed globally for proper internal state
+// LOGARITHMIC RETURNS - Global State
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+float GLOBAL_logReturn = f_logReturn(close, close[1])
+float GLOBAL_logReturnStdev = ta.stdev(GLOBAL_logReturn, LOG_VOL_WINDOW)
+float GLOBAL_periodsPerYear = f_getPeriodsPerYear()
+float GLOBAL_annualizedVol = f_annualizedVol(GLOBAL_logReturnStdev, GLOBAL_periodsPerYear)
+var float GLOBAL_cumLogReturn = 0.0
+if barstate.isconfirmed
+    GLOBAL_cumLogReturn := GLOBAL_cumLogReturn + GLOBAL_logReturn
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// PRE-COMPUTED TA VALUES
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 float GLOBAL_rawAtr = i_weightedATR / INPUT_ATR_MULT                    // Raw ATR without multiplier
 float GLOBAL_atrPercentile = ta.percentrank(GLOBAL_rawAtr, 100)             // ATR percentile for volatility regime
@@ -3133,11 +3220,30 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // 4.4 Streak Recording (consecutive from most recent + max historical)
         max_win_streak := math.max(max_win_streak, consecutive_wins)
         max_loss_streak := math.max(max_loss_streak, consecutive_losses)
-        GLOBAL_learning.winStreak := consecutive_wins    // Current streak from most recent
-        GLOBAL_learning.lossStreak := consecutive_losses // Current streak from most recent
+        GLOBAL_learning.winStreak := consecutive_wins
+        GLOBAL_learning.lossStreak := consecutive_losses
         
-        // 4.5 Learning Health Check: Is system still performing?
-        // Staleness: Flag if no outcomes for HEALTH_STALE_BARS+ bars
+        // 4.5 Log-Return Performance Metrics
+        if total_outcomes >= LEARN_MIN_SAMPLES_WR
+            float avg_win_r = wins > 0 ? total_r_won / float(wins) : 0
+            float avg_loss_r = losses > 0 ? total_r_lost / float(losses) : 0
+            float sum_log_returns = 0.0
+            float sum_log_sq = 0.0
+            for i = 0 to samples_to_check - 1
+                SetupRecord rec = GLOBAL_setupHistory.get(i)
+                if not na(rec) and rec.hasFlag(MASK_CLOSED)
+                    float trade_r = rec.hasFlag(FLAG_WON) ? avg_win_r : -avg_loss_r
+                    float log_r = f_logReturn(1.0 + trade_r, 1.0)
+                    sum_log_returns += log_r
+                    sum_log_sq += log_r * log_r
+            GLOBAL_learning.cumLogReturn := sum_log_returns
+            GLOBAL_learning.avgLogReturn := sum_log_returns / float(total_outcomes)
+            float variance = (sum_log_sq / float(total_outcomes)) - (GLOBAL_learning.avgLogReturn * GLOBAL_learning.avgLogReturn)
+            GLOBAL_learning.logReturnStdev := math.sqrt(math.max(0, variance))
+            if GLOBAL_learning.logReturnStdev > 0
+                GLOBAL_learning.sharpeRatio := GLOBAL_learning.avgLogReturn / GLOBAL_learning.logReturnStdev
+        
+        // 4.6 Learning Health Check
         int bars_since_outcome = bar_index - GLOBAL_learning.lastOutcomeBar
         bool is_stale = bars_since_outcome > HEALTH_STALE_BARS and GLOBAL_learning.lastOutcomeBar > 0
         // Sanity check: WR should be HEALTH_WR_MIN-HEALTH_WR_MAX, profit factor > HEALTH_PF_MIN
@@ -3337,6 +3443,10 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     else if current_regime_percentile <= VOL_REGIME_LOW_THRESH and GLOBAL_learning.wrLowVol != DEFAULT_WIN_RATE
                         string vol_edge = GLOBAL_learning.wrLowVol > GLOBAL_learning.winRate ? "▲" : GLOBAL_learning.wrLowVol < GLOBAL_learning.winRate ? "▼" : "="
                         p4_text += "\n   🌊 LowVol" + vol_edge + " " + str.tostring(GLOBAL_learning.wrLowVol * 100, "#") + "%"
+                    // Sharpe Ratio (risk-adjusted return)
+                    if GLOBAL_learning.sharpeRatio != 0
+                        string sr_rating = GLOBAL_learning.sharpeRatio < 0 ? "−" : GLOBAL_learning.sharpeRatio < 1 ? "○" : GLOBAL_learning.sharpeRatio < 2 ? "+" : "++"
+                        p4_text += "\n   SR:" + str.tostring(GLOBAL_learning.sharpeRatio, "#.##") + sr_rating
                     // Streak warning (show win streak as positive indicator too)
                     if GLOBAL_learning.lossStreak >= STREAK_LOSS_PENALTY_THRESH
                         p4_text += "\n   ⚠ " + str.tostring(GLOBAL_learning.lossStreak) + "L streak"
