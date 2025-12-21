@@ -153,9 +153,6 @@ color = color_level > 0
 
 barcolor(enable_heatmap ? color : na)
 
-// plot(logTSI, color=color.rgb(255, 255, 0, 25), title="Indicator", style = plot.style_circles)
-// plot(logSig, color=color.rgb(0, 255, 251, 25), title="Signal", style =plot.style_circles)
-// plot(scaled_osc, color=color.new(chart.fg_color, 65), style=plot.style_histogram, title="Oscillator")
 
 // Plot of Regression_Line
 plot(show_line ? Regression_Line : na, color = #ffffff66, linewidth = 1, style = plot.style_stepline_diamond, force_overlay = true)
