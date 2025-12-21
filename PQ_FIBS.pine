@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.10.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.11.5', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -34,6 +34,13 @@ string ALERT_ID_UPDATE     = 'FBU'
 string ALERT_ID_EXHAUSTION = 'EXH'
 string ALERT_ID_VOLATILITY = 'HVO'
 string ALERT_ID_CROSSING   = 'RCL'
+string ALERT_ID_SETUP      = 'SCT'
+string ALERT_ID_ENTRY      = 'SEN'
+string ALERT_ID_OUTCOME    = 'SOT'
+string ALERT_ID_LEARNING   = 'LRN'
+
+// Alert Schema Version
+string ALERT_SCHEMA_VERSION = '1.0.0'
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // FIBONACCI CONSTANTS
@@ -880,58 +887,61 @@ INPUT_EXTEND_PVT        = input.bool(false, 'Extend Pivot Point Lines', inline='
 // @param dev_treshold Deviation multiplier
 // @returns Deviation threshold as percentage
 dev_treshold(float dev_treshold) => ta.atr(2) / close * 100 * dev_treshold
-INPUT_DEV_THRESH_DEFAULT = dev_treshold(input.float(2.0, 'Deviation (default)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC, tooltip=TOOLTIP_THRESHOLD))
-INPUT_DEV_THRESH_1S     = dev_treshold(input.float(2.0, 'Deviation (1S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
-INPUT_DEV_THRESH_5S     = dev_treshold(input.float(2.0, 'Deviation (5S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
-INPUT_DEV_THRESH_10S    = dev_treshold(input.float(2.0, 'Deviation (10S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
-INPUT_DEV_THRESH_15S    = dev_treshold(input.float(2.0, 'Deviation (15S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
-INPUT_DEV_THRESH_30S    = dev_treshold(input.float(2.0, 'Deviation (30S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
-INPUT_DEV_THRESH_45S    = dev_treshold(input.float(2.0, 'Deviation (45S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC))
-INPUT_DEV_THRESH_1M     = dev_treshold(input.float(2.0, 'Deviation (1M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
-INPUT_DEV_THRESH_2M     = dev_treshold(input.float(2.0, 'Deviation (2M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
-INPUT_DEV_THRESH_3M     = dev_treshold(input.float(2.0, 'Deviation (3M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
-INPUT_DEV_THRESH_5M     = dev_treshold(input.float(2.0, 'Deviation (5M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
-INPUT_DEV_THRESH_10M    = dev_treshold(input.float(2.0, 'Deviation (10M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
-INPUT_DEV_THRESH_15M    = dev_treshold(input.float(2.0, 'Deviation (15M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
-INPUT_DEV_THRESH_30M    = dev_treshold(input.float(2.0, 'Deviation (30M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
-INPUT_DEV_THRESH_45M    = dev_treshold(input.float(2.0, 'Deviation (45M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN))
-INPUT_DEV_THRESH_1H     = dev_treshold(input.float(2.0, 'Deviation (1H)', minval=0, inline='Pivots', group=GROUP_THRESH_H))
-INPUT_DEV_THRESH_2H     = dev_treshold(input.float(2.0, 'Deviation (2H)', minval=0, inline='Pivots', group=GROUP_THRESH_H))
-INPUT_DEV_THRESH_3H     = dev_treshold(input.float(2.0, 'Deviation (3H)', minval=0, inline='Pivots', group=GROUP_THRESH_H))
-INPUT_DEV_THRESH_4H     = dev_treshold(input.float(2.0, 'Deviation (4H)', minval=0, inline='Pivots', group=GROUP_THRESH_H))
-INPUT_DEV_THRESH_1D     = dev_treshold(input.float(2.0, 'Deviation (1D)', minval=0, inline='Pivots', group=GROUP_THRESH_D))
-INPUT_DEV_THRESH_7D     = dev_treshold(input.float(2.0, 'Deviation (7D)', minval=0, inline='Pivots', group=GROUP_THRESH_D))
-INPUT_DEV_THRESH_4W     = dev_treshold(input.float(2.0, 'Deviation (4W)', minval=0, inline='Pivots', group=GROUP_THRESH_W))
-INPUT_DEV_THRESH_3MO    = dev_treshold(input.float(2.0, 'Deviation (3M)', minval=0, inline='Pivots', group=GROUP_THRESH_M))
-INPUT_DEV_THRESH_6MO    = dev_treshold(input.float(2.0, 'Deviation (6M)', minval=0, inline='Pivots', group=GROUP_THRESH_M))
-INPUT_DEV_THRESH_12MO   = dev_treshold(input.float(2.0, 'Deviation (12M)', minval=0, inline='Pivots', group=GROUP_THRESH_M))
+// Deviation Thresholds (map-based for O(1) lookup)
+var map<string, float> TF_DEV_THRESHOLDS = map.new<string, float>()
+TF_DEV_THRESHOLDS.put("DEFAULT", dev_treshold(input.float(2.0, 'Deviation (default)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC, tooltip=TOOLTIP_THRESHOLD)))
+TF_DEV_THRESHOLDS.put("1S", dev_treshold(input.float(2.0, 'Deviation (1S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC)))
+TF_DEV_THRESHOLDS.put("5S", dev_treshold(input.float(2.0, 'Deviation (5S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC)))
+TF_DEV_THRESHOLDS.put("10S", dev_treshold(input.float(2.0, 'Deviation (10S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC)))
+TF_DEV_THRESHOLDS.put("15S", dev_treshold(input.float(2.0, 'Deviation (15S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC)))
+TF_DEV_THRESHOLDS.put("30S", dev_treshold(input.float(2.0, 'Deviation (30S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC)))
+TF_DEV_THRESHOLDS.put("45S", dev_treshold(input.float(2.0, 'Deviation (45S)', minval=0, inline='Pivots', group=GROUP_THRESH_SEC)))
+TF_DEV_THRESHOLDS.put("1", dev_treshold(input.float(2.0, 'Deviation (1M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN)))
+TF_DEV_THRESHOLDS.put("2", dev_treshold(input.float(2.0, 'Deviation (2M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN)))
+TF_DEV_THRESHOLDS.put("3", dev_treshold(input.float(2.0, 'Deviation (3M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN)))
+TF_DEV_THRESHOLDS.put("5", dev_treshold(input.float(2.0, 'Deviation (5M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN)))
+TF_DEV_THRESHOLDS.put("10", dev_treshold(input.float(2.0, 'Deviation (10M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN)))
+TF_DEV_THRESHOLDS.put("15", dev_treshold(input.float(2.0, 'Deviation (15M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN)))
+TF_DEV_THRESHOLDS.put("30", dev_treshold(input.float(2.0, 'Deviation (30M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN)))
+TF_DEV_THRESHOLDS.put("45", dev_treshold(input.float(2.0, 'Deviation (45M)', minval=0, inline='Pivots', group=GROUP_THRESH_MIN)))
+TF_DEV_THRESHOLDS.put("60", dev_treshold(input.float(2.0, 'Deviation (1H)', minval=0, inline='Pivots', group=GROUP_THRESH_H)))
+TF_DEV_THRESHOLDS.put("120", dev_treshold(input.float(2.0, 'Deviation (2H)', minval=0, inline='Pivots', group=GROUP_THRESH_H)))
+TF_DEV_THRESHOLDS.put("180", dev_treshold(input.float(2.0, 'Deviation (3H)', minval=0, inline='Pivots', group=GROUP_THRESH_H)))
+TF_DEV_THRESHOLDS.put("240", dev_treshold(input.float(2.0, 'Deviation (4H)', minval=0, inline='Pivots', group=GROUP_THRESH_H)))
+TF_DEV_THRESHOLDS.put("1D", dev_treshold(input.float(2.0, 'Deviation (1D)', minval=0, inline='Pivots', group=GROUP_THRESH_D)))
+TF_DEV_THRESHOLDS.put("7D", dev_treshold(input.float(2.0, 'Deviation (7D)', minval=0, inline='Pivots', group=GROUP_THRESH_D)))
+TF_DEV_THRESHOLDS.put("4W", dev_treshold(input.float(2.0, 'Deviation (4W)', minval=0, inline='Pivots', group=GROUP_THRESH_W)))
+TF_DEV_THRESHOLDS.put("3M", dev_treshold(input.float(2.0, 'Deviation (3Mo)', minval=0, inline='Pivots', group=GROUP_THRESH_M)))
+TF_DEV_THRESHOLDS.put("6M", dev_treshold(input.float(2.0, 'Deviation (6Mo)', minval=0, inline='Pivots', group=GROUP_THRESH_M)))
+TF_DEV_THRESHOLDS.put("12M", dev_treshold(input.float(2.0, 'Deviation (12Mo)', minval=0, inline='Pivots', group=GROUP_THRESH_M)))
 
-// Depths
-INPUT_DEPTH_DEFAULT     = input.int(10, 'Depth (default)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
-INPUT_DEPTH_1S          = input.int(10, 'Depth (1S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
-INPUT_DEPTH_5S          = input.int(10, 'Depth (5S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
-INPUT_DEPTH_10S         = input.int(10, 'Depth (10S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
-INPUT_DEPTH_15S         = input.int(10, 'Depth (15S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
-INPUT_DEPTH_30S         = input.int(10, 'Depth (30S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
-INPUT_DEPTH_45S         = input.int(10, 'Depth (45S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC)
-INPUT_DEPTH_1M          = input.int(10, 'Depth (1M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
-INPUT_DEPTH_2M          = input.int(10, 'Depth (2M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
-INPUT_DEPTH_3M          = input.int(10, 'Depth (3M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
-INPUT_DEPTH_5M          = input.int(10, 'Depth (5M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
-INPUT_DEPTH_10M         = input.int(10, 'Depth (10M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
-INPUT_DEPTH_15M         = input.int(10, 'Depth (15M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
-INPUT_DEPTH_30M         = input.int(10, 'Depth (30M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
-INPUT_DEPTH_45M         = input.int(10, 'Depth (45M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN)
-INPUT_DEPTH_1H          = input.int(10, 'Depth (1H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H)
-INPUT_DEPTH_2H          = input.int(10, 'Depth (2H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H)
-INPUT_DEPTH_3H          = input.int(10, 'Depth (3H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H)
-INPUT_DEPTH_4H          = input.int(10, 'Depth (4H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H)
-INPUT_DEPTH_1D          = input.int(10, 'Depth (1D)', minval=1, inline='Pivots', group=GROUP_DEPTH_D)
-INPUT_DEPTH_7D          = input.int(10, 'Depth (7D)', minval=1, inline='Pivots', group=GROUP_DEPTH_D)
-INPUT_DEPTH_4W          = input.int(10, 'Depth (4W)', minval=1, inline='Pivots', group=GROUP_DEPTH_W)
-INPUT_DEPTH_3MO         = input.int(10, 'Depth (3M)', minval=1, inline='Pivots', group=GROUP_DEPTH_M)
-INPUT_DEPTH_6MO         = input.int(10, 'Depth (6M)', minval=1, inline='Pivots', group=GROUP_DEPTH_M)
-INPUT_DEPTH_12MO        = input.int(10, 'Depth (12M)', minval=1, inline='Pivots', group=GROUP_DEPTH_M)
+// Depths (map-based for O(1) lookup)
+var map<string, int> TF_DEPTHS = map.new<string, int>()
+TF_DEPTHS.put("DEFAULT", input.int(10, 'Depth (default)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC))
+TF_DEPTHS.put("1S", input.int(10, 'Depth (1S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC))
+TF_DEPTHS.put("5S", input.int(10, 'Depth (5S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC))
+TF_DEPTHS.put("10S", input.int(10, 'Depth (10S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC))
+TF_DEPTHS.put("15S", input.int(10, 'Depth (15S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC))
+TF_DEPTHS.put("30S", input.int(10, 'Depth (30S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC))
+TF_DEPTHS.put("45S", input.int(10, 'Depth (45S)', minval=1, inline='Pivots', group=GROUP_DEPTH_SEC))
+TF_DEPTHS.put("1", input.int(10, 'Depth (1M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN))
+TF_DEPTHS.put("2", input.int(10, 'Depth (2M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN))
+TF_DEPTHS.put("3", input.int(10, 'Depth (3M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN))
+TF_DEPTHS.put("5", input.int(10, 'Depth (5M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN))
+TF_DEPTHS.put("10", input.int(10, 'Depth (10M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN))
+TF_DEPTHS.put("15", input.int(10, 'Depth (15M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN))
+TF_DEPTHS.put("30", input.int(10, 'Depth (30M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN))
+TF_DEPTHS.put("45", input.int(10, 'Depth (45M)', minval=1, inline='Pivots', group=GROUP_DEPTH_MIN))
+TF_DEPTHS.put("60", input.int(10, 'Depth (1H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H))
+TF_DEPTHS.put("120", input.int(10, 'Depth (2H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H))
+TF_DEPTHS.put("180", input.int(10, 'Depth (3H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H))
+TF_DEPTHS.put("240", input.int(10, 'Depth (4H)', minval=1, inline='Pivots', group=GROUP_DEPTH_H))
+TF_DEPTHS.put("1D", input.int(10, 'Depth (1D)', minval=1, inline='Pivots', group=GROUP_DEPTH_D))
+TF_DEPTHS.put("7D", input.int(10, 'Depth (7D)', minval=1, inline='Pivots', group=GROUP_DEPTH_D))
+TF_DEPTHS.put("4W", input.int(10, 'Depth (4W)', minval=1, inline='Pivots', group=GROUP_DEPTH_W))
+TF_DEPTHS.put("3M", input.int(10, 'Depth (3Mo)', minval=1, inline='Pivots', group=GROUP_DEPTH_M))
+TF_DEPTHS.put("6M", input.int(10, 'Depth (6Mo)', minval=1, inline='Pivots', group=GROUP_DEPTH_M))
+TF_DEPTHS.put("12M", input.int(10, 'Depth (12Mo)', minval=1, inline='Pivots', group=GROUP_DEPTH_M))
 
 // Fibonacci Tools
 INPUT_LEVELS_LABEL      = input.string('Prices', 'Level Labels', options=['Levels', 'Prices', 'Levels + Prices', 'None'], inline='fLines', group=GROUP_FIB_TOOL)
@@ -1261,9 +1271,53 @@ method initFirst(ZigZagEngine this, int index, float price, bool isHigh) =>
     this.isHighLast := isHigh
     this
 
+// @type RegimeState - Consolidates all regime detection state
+// @description Computed-per-bar market regime indicators including entropy, Hurst, momentum, and volatility.
+// @field logReturn Single-bar logarithmic return
+// @field logReturnStdev Rolling stdev of log returns
+// @field periodsPerYear Annualization factor for current timeframe
+// @field annualizedVol Annualized volatility from log returns
+// @field entropy Raw Shannon entropy value
+// @field entropyNorm Normalized entropy (0-1)
+// @field entropyRegime Regime classification (0=ordered, 1=transition, 2=disordered)
+// @field entropyOk True if entropy regime allows trading
+// @field hurst Hurst exponent value
+// @field hurstRegime Regime classification (0=trend, 1=random, 2=meanrev)
+// @field hurstOk True if Hurst regime allows trading
+// @field zscoreAtr ATR used for slope normalization
+// @field linregSlope Linear regression slope
+// @field normSlope ATR-normalized slope
+// @field zscore Z-score of normalized slope
+// @field strongMomentum True if momentum exceeds threshold
+// @field momentumOk True if momentum filter allows trading
+// @field rawAtr Raw ATR without multiplier
+// @field atrPercentile ATR percentile rank (0-100)
+// @field rsi RSI value for divergence detection
+type RegimeState
+    float logReturn = na
+    float logReturnStdev = na
+    float periodsPerYear = na
+    float annualizedVol = na
+    float entropy = na
+    float entropyNorm = na
+    int   entropyRegime = 2
+    bool  entropyOk = true
+    float hurst = na
+    int   hurstRegime = 1
+    bool  hurstOk = true
+    float zscoreAtr = na
+    float linregSlope = na
+    float normSlope = na
+    float zscore = na
+    bool  strongMomentum = false
+    bool  momentumOk = true
+    float rawAtr = na
+    float atrPercentile = na
+    float rsi = na
+
 // @type LearningMetrics - Encapsulates all machine learning computed values
-// @description Consolidates 28 GLOBAL_learned* variables into a single UDT.
-//              Updated only when new trade is recorded (GLOBAL_learningNeedsRecalc flag).
+// @description Consolidates learning state and metrics into a single UDT.
+//              Updated only when new trade is recorded (needsRecalc flag).
 //              Provides accessor methods for key metrics and health status.
 // @field zoneBuffer Adaptive zone buffer from near-miss analysis
 // @field winRate Overall empirical win rate
@@ -1310,6 +1364,9 @@ method initFirst(ZigZagEngine this, int index, float price, bool isHigh) =>
 // @field mcSignificant True if timing edge is statistically significant
 // @field lastOutcomeBar Bar index of last outcome
 // @field isHealthy Learning system health status
+// @field nearMissCount Count of near-miss setups (approached but didn't touch zone)
+// @field totalSetups Total valid setups analyzed
+// @field needsRecalc Flag to trigger learning recalculation
 type LearningMetrics
     // Core metrics
     float zoneBuffer = 0.0
@@ -1382,6 +1439,10 @@ type LearningMetrics
     // Health tracking
     int   lastOutcomeBar = 0
     bool  isHealthy = true
+    // State tracking (consolidated from orphan var primitives)
+    int   nearMissCount = 0
+    int   totalSetups = 0
+    bool  needsRecalc = false
 
 // @function Get win rate for specific direction
 // @param this LearningMetrics instance
@@ -2274,6 +2335,103 @@ f_new_setup_state() =>
     )
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ALERT STATE UDT
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// @type AlertState - Captures all state needed for JSON alert generation
+// @description Populated at end of Statistical Position Engine block, consumed in ALERTS section
+type AlertState
+    // Setup flags
+    bool isProjection = false
+    bool isLong = false
+    bool zoneTouched = false
+    bool slHit = false
+    bool tpHit = false
+    bool inZone = false
+    bool zoneEntry = false
+    bool useAggressiveTp = false
+    bool expired = false
+    // Zone/position values
+    float rawZoneTop = na
+    float rawZoneBottom = na
+    float adjustedZoneTop = na
+    float adjustedZoneBottom = na
+    float bufferPct = na
+    float minDistance = na
+    float slPrice = na
+    float tpPrice = na
+    float tpCons = na
+    float tpAggr = na
+    float slMult = na
+    float atr = na
+    float smartSl = na
+    // Time decay
+    int creationBar = na
+    int barsSinceCreation = 0
+    int timePhase = 0
+    float decayRate = 0.85
+
+// @function Populate all alert state fields from Statistical Position Engine context
+// @param this AlertState instance
+// @param _isProj Projection mode active
+// @param _isLong Long direction
+// @param _zoneTouched Zone was touched
+// @param _slHit SL hit
+// @param _tpHit TP hit
+// @param _inZone Currently in zone
+// @param _zoneEntry Just entered zone
+// @param _useAggr Using aggressive TP
+// @param _expired Time expired
+// @param _rawTop Raw zone top
+// @param _rawBottom Raw zone bottom
+// @param _adjTop Adjusted zone top
+// @param _adjBottom Adjusted zone bottom
+// @param _bufferPct Buffer percentage
+// @param _minDist Minimum distance
+// @param _sl SL price
+// @param _tp TP price
+// @param _tpCons Conservative TP
+// @param _tpAggr Aggressive TP
+// @param _slMult SL multiplier
+// @param _atr ATR value
+// @param _smartSl Smart SL price
+// @param _creationBar Creation bar
+// @param _barsSince Bars since creation
+// @param _phase Time phase
+// @param _decay Decay rate
+// @returns AlertState instance for chaining
+method populate(AlertState this, bool _isProj, bool _isLong, bool _zoneTouched, bool _slHit, bool _tpHit, bool _inZone, bool _zoneEntry, bool _useAggr, bool _expired, float _rawTop, float _rawBottom, float _adjTop, float _adjBottom, float _bufferPct, float _minDist, float _sl, float _tp, float _tpCons, float _tpAggr, float _slMult, float _atr, float _smartSl, int _creationBar, int _barsSince, int _phase, float _decay) =>
+    this.isProjection := _isProj
+    this.isLong := _isLong
+    this.zoneTouched := _zoneTouched
+    this.slHit := _slHit
+    this.tpHit := _tpHit
+    this.inZone := _inZone
+    this.zoneEntry := _zoneEntry
+    this.useAggressiveTp := _useAggr
+    this.expired := _expired
+    this.rawZoneTop := _rawTop
+    this.rawZoneBottom := _rawBottom
+    this.adjustedZoneTop := _adjTop
+    this.adjustedZoneBottom := _adjBottom
+    this.bufferPct := _bufferPct
+    this.minDistance := _minDist
+    this.slPrice := _sl
+    this.tpPrice := _tp
+    this.tpCons := _tpCons
+    this.tpAggr := _tpAggr
+    this.slMult := _slMult
+    this.atr := _atr
+    this.smartSl := _smartSl
+    this.creationBar := _creationBar
+    this.barsSinceCreation := _barsSince
+    this.timePhase := _phase
+    this.decayRate := _decay
+    this
+
+// Global alert state - populated in Statistical Position Engine, consumed in ALERTS
+var AlertState GLOBAL_alertState = AlertState.new()
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE SEPARATION: Active Trade vs Projection Preview
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // GLOBAL_activeTrade: Updated on confirmed ZigZag pivots (GLOBAL_zigzag.changed)
@@ -2288,52 +2446,48 @@ SetupState GLOBAL_projectionPreview = f_new_setup_state()
 
 // Learning engine state
 var LearningMetrics GLOBAL_learning = LearningMetrics.new()
-var int    GLOBAL_nearMissCount = 0
-var int    GLOBAL_totalSetups = 0
-var bool   GLOBAL_learningNeedsRecalc = false
 
 // AddOn Logic: Volatility & Volume
 float i_weightedATR = ta.atr(INPUT_ATR_LENGTH) * INPUT_ATR_MULT
 float i_vSMA = ta.sma(nz(volume), INPUT_VOL_SMA_LEN)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// LOGARITHMIC RETURNS - Global State
+// REGIME STATE - Global Instance
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-float GLOBAL_logReturn = f_logReturn(close, close[1])
-float GLOBAL_logReturnStdev = ta.stdev(GLOBAL_logReturn, LOG_VOL_WINDOW)
-float GLOBAL_periodsPerYear = f_getPeriodsPerYear()
-float GLOBAL_annualizedVol = f_annualizedVol(GLOBAL_logReturnStdev, GLOBAL_periodsPerYear)
-var float GLOBAL_cumLogReturn = 0.0
-if barstate.isconfirmed
-    GLOBAL_cumLogReturn := GLOBAL_cumLogReturn + GLOBAL_logReturn
+RegimeState GLOBAL_regime = RegimeState.new()
 
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// SHANNON ENTROPY - Global State
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-[GLOBAL_entropy, GLOBAL_entropyNorm, GLOBAL_entropyRegime] = f_rollingEntropy(GLOBAL_logReturn, INPUT_ENTROPY_WINDOW, INPUT_ENTROPY_BINS, INPUT_ENTROPY_THRESH, INPUT_ENTROPY_TRANSITION)
-bool GLOBAL_entropyOk = not INPUT_ENTROPY_ENABLED or GLOBAL_entropyRegime != ENTROPY_REGIME_DISORDERED
+// Populate log-return volatility state
+GLOBAL_regime.logReturn := f_logReturn(close, close[1])
+GLOBAL_regime.logReturnStdev := ta.stdev(GLOBAL_regime.logReturn, LOG_VOL_WINDOW)
+GLOBAL_regime.periodsPerYear := f_getPeriodsPerYear()
+GLOBAL_regime.annualizedVol := f_annualizedVol(GLOBAL_regime.logReturnStdev, GLOBAL_regime.periodsPerYear)
 
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// HURST EXPONENT - Global State
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-[GLOBAL_hurst, GLOBAL_hurstRegime] = f_rollingHurst(GLOBAL_logReturn, INPUT_HURST_WINDOW, HURST_MIN_WINDOW, INPUT_HURST_TREND, INPUT_HURST_MEANREV)
-bool GLOBAL_hurstOk = not INPUT_HURST_ENABLED or not INPUT_HURST_BLOCK_RANDOM or GLOBAL_hurstRegime != HURST_REGIME_RANDOM
+// Populate entropy state
+[_ent, _entNorm, _entReg] = f_rollingEntropy(GLOBAL_regime.logReturn, INPUT_ENTROPY_WINDOW, INPUT_ENTROPY_BINS, INPUT_ENTROPY_THRESH, INPUT_ENTROPY_TRANSITION)
+GLOBAL_regime.entropy := _ent
+GLOBAL_regime.entropyNorm := _entNorm
+GLOBAL_regime.entropyRegime := _entReg
+GLOBAL_regime.entropyOk := not INPUT_ENTROPY_ENABLED or _entReg != ENTROPY_REGIME_DISORDERED
 
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// Z-SCORE MOMENTUM - Global State
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-float GLOBAL_zscoreAtr = ta.atr(INPUT_ZSCORE_ATR_LEN)
-float GLOBAL_linregSlope = f_linregSlope(close, INPUT_ZSCORE_LR_LEN)
-float GLOBAL_normSlope = GLOBAL_zscoreAtr > 0 ? GLOBAL_linregSlope / GLOBAL_zscoreAtr : 0.0
-[GLOBAL_zscore, GLOBAL_strongMomentum] = f_rollingZScore(GLOBAL_normSlope, INPUT_ZSCORE_Z_LEN, ZSCORE_MIN_SAMPLES, INPUT_ZSCORE_THRESH)
-bool GLOBAL_momentumOk = not INPUT_ZSCORE_ENABLED or GLOBAL_strongMomentum
+// Populate Hurst state
+[_hurst, _hurstReg] = f_rollingHurst(GLOBAL_regime.logReturn, INPUT_HURST_WINDOW, HURST_MIN_WINDOW, INPUT_HURST_TREND, INPUT_HURST_MEANREV)
+GLOBAL_regime.hurst := _hurst
+GLOBAL_regime.hurstRegime := _hurstReg
+GLOBAL_regime.hurstOk := not INPUT_HURST_ENABLED or not INPUT_HURST_BLOCK_RANDOM or _hurstReg != HURST_REGIME_RANDOM
 
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// PRE-COMPUTED TA VALUES
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-float GLOBAL_rawAtr = i_weightedATR / INPUT_ATR_MULT                    // Raw ATR without multiplier
-float GLOBAL_atrPercentile = ta.percentrank(GLOBAL_rawAtr, 100)             // ATR percentile for volatility regime
-float GLOBAL_rsi = ta.rsi(close, INPUT_POS_RSI_LEN)                      // RSI for divergence detection
+// Populate Z-score momentum state
+GLOBAL_regime.zscoreAtr := ta.atr(INPUT_ZSCORE_ATR_LEN)
+GLOBAL_regime.linregSlope := f_linregSlope(close, INPUT_ZSCORE_LR_LEN)
+GLOBAL_regime.normSlope := GLOBAL_regime.zscoreAtr > 0 ? GLOBAL_regime.linregSlope / GLOBAL_regime.zscoreAtr : 0.0
+[_zscore, _strongMom] = f_rollingZScore(GLOBAL_regime.normSlope, INPUT_ZSCORE_Z_LEN, ZSCORE_MIN_SAMPLES, INPUT_ZSCORE_THRESH)
+GLOBAL_regime.zscore := _zscore
+GLOBAL_regime.strongMomentum := _strongMom
+GLOBAL_regime.momentumOk := not INPUT_ZSCORE_ENABLED or _strongMom
+
+// Populate volatility state
+GLOBAL_regime.rawAtr := i_weightedATR / INPUT_ATR_MULT
+GLOBAL_regime.atrPercentile := ta.percentrank(GLOBAL_regime.rawAtr, 100)
+GLOBAL_regime.rsi := ta.rsi(close, INPUT_POS_RSI_LEN)
 
 float nzVolume = nz(volume)
 bool bullCandle = close > open
@@ -2415,61 +2569,13 @@ method updateSecondary(CachedPivots this, int iMid, float pMid, int iEnd, float 
 // Global cached pivots instance
 var CachedPivots GLOBAL_cachedPivots = CachedPivots.new()
 
-// Determine Global Deviation Threshold based on Timeframe
-float GLOBAL_DEV_THRESHOLD = switch
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "1S" => INPUT_DEV_THRESH_1S
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "5S" => INPUT_DEV_THRESH_5S
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "10S" => INPUT_DEV_THRESH_10S
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "15S" => INPUT_DEV_THRESH_15S
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "30S" => INPUT_DEV_THRESH_30S
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "45S" => INPUT_DEV_THRESH_45S
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "1" => INPUT_DEV_THRESH_1M
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "2" => INPUT_DEV_THRESH_2M
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "3" => INPUT_DEV_THRESH_3M
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "5" => INPUT_DEV_THRESH_5M
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "10" => INPUT_DEV_THRESH_10M
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "15" => INPUT_DEV_THRESH_15M
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "30" => INPUT_DEV_THRESH_30M
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "45" => INPUT_DEV_THRESH_45M
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "60" => INPUT_DEV_THRESH_1H
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "120" => INPUT_DEV_THRESH_2H
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "180" => INPUT_DEV_THRESH_3H
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "240" => INPUT_DEV_THRESH_4H
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "1D" => INPUT_DEV_THRESH_1D
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "7D" => INPUT_DEV_THRESH_7D
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "4W" => INPUT_DEV_THRESH_4W
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "3M" => INPUT_DEV_THRESH_3MO
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "6M" => INPUT_DEV_THRESH_6MO
-    INPUT_CUSTOM_THRESHOLD and timeframe.period == "12M" => INPUT_DEV_THRESH_12MO
-    => INPUT_DEV_THRESH_DEFAULT
+// Timeframe-based deviation threshold (O(1) map lookup)
+float GLOBAL_DEV_THRESHOLD = INPUT_CUSTOM_THRESHOLD and TF_DEV_THRESHOLDS.contains(timeframe.period) ? 
+    TF_DEV_THRESHOLDS.get(timeframe.period) : TF_DEV_THRESHOLDS.get("DEFAULT")
 
-// Determine Depth based on Timeframe
-int i_depth = switch
-    INPUT_CUSTOM_DEPTH and timeframe.period == "1S" => INPUT_DEPTH_1S
-    INPUT_CUSTOM_DEPTH and timeframe.period == "5S" => INPUT_DEPTH_5S
-    INPUT_CUSTOM_DEPTH and timeframe.period == "10S" => INPUT_DEPTH_10S
-    INPUT_CUSTOM_DEPTH and timeframe.period == "15S" => INPUT_DEPTH_15S
-    INPUT_CUSTOM_DEPTH and timeframe.period == "30S" => INPUT_DEPTH_30S
-    INPUT_CUSTOM_DEPTH and timeframe.period == "45S" => INPUT_DEPTH_45S
-    INPUT_CUSTOM_DEPTH and timeframe.period == "1" => INPUT_DEPTH_1M
-    INPUT_CUSTOM_DEPTH and timeframe.period == "2" => INPUT_DEPTH_2M
-    INPUT_CUSTOM_DEPTH and timeframe.period == "3" => INPUT_DEPTH_3M
-    INPUT_CUSTOM_DEPTH and timeframe.period == "5" => INPUT_DEPTH_5M
-    INPUT_CUSTOM_DEPTH and timeframe.period == "10" => INPUT_DEPTH_10M
-    INPUT_CUSTOM_DEPTH and timeframe.period == "15" => INPUT_DEPTH_15M
-    INPUT_CUSTOM_DEPTH and timeframe.period == "30" => INPUT_DEPTH_30M
-    INPUT_CUSTOM_DEPTH and timeframe.period == "45" => INPUT_DEPTH_45M
-    INPUT_CUSTOM_DEPTH and timeframe.period == "60" => INPUT_DEPTH_1H
-    INPUT_CUSTOM_DEPTH and timeframe.period == "120" => INPUT_DEPTH_2H
-    INPUT_CUSTOM_DEPTH and timeframe.period == "180" => INPUT_DEPTH_3H
-    INPUT_CUSTOM_DEPTH and timeframe.period == "240" => INPUT_DEPTH_4H
-    INPUT_CUSTOM_DEPTH and timeframe.period == "1D" => INPUT_DEPTH_1D
-    INPUT_CUSTOM_DEPTH and timeframe.period == "7D" => INPUT_DEPTH_7D
-    INPUT_CUSTOM_DEPTH and timeframe.period == "4W" => INPUT_DEPTH_4W
-    INPUT_CUSTOM_DEPTH and timeframe.period == "3M" => INPUT_DEPTH_3MO
-    INPUT_CUSTOM_DEPTH and timeframe.period == "6M" => INPUT_DEPTH_6MO
-    INPUT_CUSTOM_DEPTH and timeframe.period == "12M" => INPUT_DEPTH_12MO
-    => INPUT_DEPTH_DEFAULT
+// Timeframe-based depth (O(1) map lookup)
+int i_depth = INPUT_CUSTOM_DEPTH and TF_DEPTHS.contains(timeframe.period) ? 
+    TF_DEPTHS.get(timeframe.period) : TF_DEPTHS.get("DEFAULT")
 
 // Determine HTF
 htf_auto = timeframe.period == '1'   ? '240' : 
@@ -2814,53 +2920,220 @@ method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRed
         if this.crossed
             GLOBAL_pivotLevelsLogCrossed.put(this.level, price)
 
-// @function Construct JSON alert message
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// JSON SERIALIZATION HELPERS - Alert Event Payload Construction
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Serialize float to JSON (handles na as null)
+// @param v Float value
+// @returns JSON string representation
+f_jsonFloat(float v) =>
+    na(v) ? 'null' : str.tostring(v)
+
+// @function Serialize int to JSON (handles na as null)
+// @param v Int value
+// @returns JSON string representation
+f_jsonInt(int v) =>
+    na(v) ? 'null' : str.tostring(v)
+
+// @function Serialize bool to JSON
+// @param v Bool value
+// @returns JSON string representation
+f_jsonBool(bool v) =>
+    v ? 'true' : 'false'
+
+// @function Serialize string to JSON with quotes
+// @param v String value
+// @returns JSON string representation
+f_jsonStr(string v) =>
+    na(v) ? 'null' : '"' + v + '"'
+
+// @function Build common envelope JSON for all events
+// @param id Event ID
+// @param eventType Event type string
+// @returns JSON string with common fields
+f_jsonEnvelope(string id, string eventType) =>
+    string barstate_json = '{"is_new":' + f_jsonBool(barstate.isnew) + ',"is_first":' + f_jsonBool(barstate.isfirst) + ',"is_last":' + f_jsonBool(barstate.islast) + ',"is_confirmed":' + f_jsonBool(barstate.isconfirmed) + ',"is_history":' + f_jsonBool(barstate.ishistory) + '}'
+    string ohlcv_json = '{"open":' + f_jsonFloat(open) + ',"high":' + f_jsonFloat(high) + ',"low":' + f_jsonFloat(low) + ',"close":' + f_jsonFloat(close) + ',"volume":' + f_jsonFloat(volume) + '}'
+    string result = '"schema_version":"' + ALERT_SCHEMA_VERSION + '","event_id":"' + id + '","event_type":"' + eventType + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","bar_index":' + str.tostring(bar_index) + ',"last_bar_index":' + str.tostring(last_bar_index) + ',"time":' + str.tostring(time) + ',"time_close":' + str.tostring(time_close) + ',"time_tradingday":' + str.tostring(time_tradingday) + ',"barstate":' + barstate_json + ',"ohlcv":' + ohlcv_json
+    result
+
+// @function Serialize pivots context to JSON
+// @param confirmedMidBar Confirmed mid pivot bar
+// @param confirmedMidPrice Confirmed mid pivot price
+// @param confirmedEndBar Confirmed end pivot bar
+// @param confirmedEndPrice Confirmed end pivot price
+// @param effMidBar Effective mid pivot bar
+// @param effMidPrice Effective mid pivot price
+// @param effEndBar Effective end pivot bar (na for projection)
+// @param effEndPrice Effective end pivot price
+// @param projActive Projection active flag
+// @returns JSON string for pivots object
+f_jsonPivots(int confirmedMidBar, float confirmedMidPrice, int confirmedEndBar, float confirmedEndPrice, int effMidBar, float effMidPrice, int effEndBar, float effEndPrice, bool projActive) =>
+    string result = '{"confirmed":{"mid_bar":' + f_jsonInt(confirmedMidBar) + ',"mid_price":' + f_jsonFloat(confirmedMidPrice) + ',"end_bar":' + f_jsonInt(confirmedEndBar) + ',"end_price":' + f_jsonFloat(confirmedEndPrice) + '},"effective":{"mid_bar":' + f_jsonInt(effMidBar) + ',"mid_price":' + f_jsonFloat(effMidPrice) + ',"end_bar":' + f_jsonInt(effEndBar) + ',"end_price":' + f_jsonFloat(effEndPrice) + ',"projection_active":' + f_jsonBool(projActive) + '}}'
+    result
+
+// @function Serialize setup state to JSON
+// @param isProjection Whether in projection mode
+// @param isLong Long direction
+// @param zoneTouched Zone was touched
+// @param slHit SL hit flag
+// @param tpHit TP hit flag
+// @returns JSON string for setup object
+f_jsonSetup(bool isProjection, bool isLong, bool zoneTouched, bool slHit, bool tpHit) =>
+    string state = isProjection ? 'projection' : 'confirmed'
+    string labelPrefix = isProjection ? '⚡PROJ' : '✓ACTIVE'
+    bool isRecordable = not isProjection and zoneTouched
+    string result = '{"state":"' + state + '","is_long":' + f_jsonBool(isLong) + ',"label_prefix":"' + labelPrefix + '","is_recordable":' + f_jsonBool(isRecordable) + ',"zone_touched":' + f_jsonBool(zoneTouched) + ',"sl_hit":' + f_jsonBool(slHit) + ',"tp_hit":' + f_jsonBool(tpHit) + '}'
+    result
+
+// @function Serialize zone data to JSON
+// @param rawTop Raw zone top
+// @param rawBottom Raw zone bottom
+// @param adjTop Adjusted zone top
+// @param adjBottom Adjusted zone bottom
+// @param bufferPct Buffer percentage
+// @param inZone Currently in zone
+// @param zoneEntry Zone entry event
+// @param minDistPct Minimum distance percentage
+// @returns JSON string for zone object
+f_jsonZone(float rawTop, float rawBottom, float adjTop, float adjBottom, float bufferPct, bool inZone, bool zoneEntry, float minDistPct) =>
+    float rawMid = (rawTop + rawBottom) / 2
+    float adjMid = (adjTop + adjBottom) / 2
+    string result = '{"raw":{"top":' + f_jsonFloat(rawTop) + ',"bottom":' + f_jsonFloat(rawBottom) + ',"mid":' + f_jsonFloat(rawMid) + '},"adjusted":{"top":' + f_jsonFloat(adjTop) + ',"bottom":' + f_jsonFloat(adjBottom) + ',"mid":' + f_jsonFloat(adjMid) + ',"buffer_pct":' + f_jsonFloat(bufferPct) + '},"status":{"in_zone":' + f_jsonBool(inZone) + ',"zone_entry":' + f_jsonBool(zoneEntry) + ',"min_distance_pct":' + f_jsonFloat(minDistPct) + '}}'
+    result
+
+// @function Serialize position data to JSON
+// @param entryMid Entry mid price
+// @param slPrice Stop loss price
+// @param tpPrice Take profit price
+// @param tpCons Conservative TP
+// @param tpAggr Aggressive TP
+// @param useAggr Using aggressive TP
+// @param slMult SL multiplier
+// @param atr ATR value
+// @param smartSlPrice Smart SL price (na if not available)
+// @returns JSON string for position object
+f_jsonPosition(float entryMid, float slPrice, float tpPrice, float tpCons, float tpAggr, bool useAggr, float slMult, float atr, float smartSlPrice) =>
+    string tpMode = useAggr ? 'aggressive' : 'conservative'
+    float risk = math.abs(entryMid - slPrice)
+    float reward = math.abs(tpPrice - entryMid)
+    float rr = risk > 0 ? reward / risk : 0.0
+    string result = '{"entry_mid":' + f_jsonFloat(entryMid) + ',"sl_price":' + f_jsonFloat(slPrice) + ',"tp_price":' + f_jsonFloat(tpPrice) + ',"tp_mode":"' + tpMode + '","tp_cons":' + f_jsonFloat(tpCons) + ',"tp_aggr":' + f_jsonFloat(tpAggr) + ',"sl_mult":' + f_jsonFloat(slMult) + ',"atr":' + f_jsonFloat(atr) + ',"risk_abs":' + f_jsonFloat(risk) + ',"reward_abs":' + f_jsonFloat(reward) + ',"rr":' + f_jsonFloat(rr) + ',"smart_sl":' + f_jsonFloat(smartSlPrice) + '}'
+    result
+
+// @function Serialize time decay data to JSON
+// @param enabled Time decay enabled
+// @param creationBar Creation bar index
+// @param barsSince Bars since creation
+// @param phase Current phase (0-6)
+// @param decayRate Decay rate
+// @param expired Whether expired
+// @returns JSON string for time_decay object
+f_jsonTimeDecay(bool enabled, int creationBar, int barsSince, int phase, float decayRate, bool expired) =>
+    string status = phase >= 5 ? 'expired' : (phase >= 3 ? 'stale' : 'fresh')
+    string result = '{"enabled":' + f_jsonBool(enabled) + ',"creation_bar":' + f_jsonInt(creationBar) + ',"bars_since":' + f_jsonInt(barsSince) + ',"phase":' + f_jsonInt(phase) + ',"decay_rate":' + f_jsonFloat(decayRate) + ',"status":"' + status + '","expired":' + f_jsonBool(expired) + '}'
+    result
+
+// @function Serialize regime data to JSON
+// @param rs RegimeState instance
+// @returns JSON string for regime object
+f_jsonRegime(RegimeState rs) =>
+    string entropyStr = rs.entropyRegime == 0 ? 'ordered' : (rs.entropyRegime == 1 ? 'transition' : 'disordered')
+    string hurstStr = rs.hurstRegime == 0 ? 'trend' : (rs.hurstRegime == 1 ? 'random' : 'mean_revert')
+    string result = '{"entropy":{"value":' + f_jsonFloat(rs.entropyNorm) + ',"regime":"' + entropyStr + '"},"hurst":{"value":' + f_jsonFloat(rs.hurst) + ',"regime":"' + hurstStr + '"},"momentum":{"zscore":' + f_jsonFloat(rs.zscore) + ',"strong":' + f_jsonBool(rs.strongMomentum) + '}}'
+    result
+
+// @function Serialize learning metrics to JSON
+// @param lm LearningMetrics instance
+// @param samples Sample count
+// @returns JSON string for learning object
+f_jsonLearning(LearningMetrics lm, int samples) =>
+    string result = '{"enabled":true,"samples":' + f_jsonInt(samples) + ',"needs_recalc":' + f_jsonBool(lm.needsRecalc) + ',"near_miss_count":' + f_jsonInt(lm.nearMissCount) + ',"total_setups":' + f_jsonInt(lm.totalSetups) + ',"win_rate":' + f_jsonFloat(lm.winRate) + ',"zone_buffer_pct":' + f_jsonFloat(lm.zoneBuffer) + ',"avg_mae":' + f_jsonFloat(lm.avgMae) + ',"avg_mfe":' + f_jsonFloat(lm.avgMfe) + ',"avg_bars":' + f_jsonInt(lm.avgBars) + ',"sl_mult":' + f_jsonFloat(lm.slMult) + ',"confidence":' + f_jsonFloat(lm.confidence) + ',"profit_factor":' + f_jsonFloat(lm.profitFactor) + ',"expectancy":' + f_jsonFloat(lm.expectancy) + ',"wr_long":' + f_jsonFloat(lm.wrLong) + ',"wr_short":' + f_jsonFloat(lm.wrShort) + ',"wr_high_vol":' + f_jsonFloat(lm.wrHighVol) + ',"wr_low_vol":' + f_jsonFloat(lm.wrLowVol) + ',"div_edge":' + f_jsonFloat(lm.divEdge) + ',"rsi_weight":' + f_jsonFloat(lm.rsiWeight) + ',"decay_rate":' + f_jsonFloat(lm.decayRate) + ',"bayes_mean":' + f_jsonFloat(lm.bayesMean) + ',"bayes_lower":' + f_jsonFloat(lm.bayesLowerBound) + ',"sortino":' + f_jsonFloat(lm.sortinoRatio) + ',"is_healthy":' + f_jsonBool(lm.isHealthy) + ',"win_streak":' + f_jsonInt(lm.winStreak) + ',"loss_streak":' + f_jsonInt(lm.lossStreak) + '}'
+    result
+
+// @function Serialize backtest stats to JSON
+// @param bs BacktestStats instance
+// @returns JSON string for backtest object
+f_jsonBacktest(BacktestStats bs) =>
+    string result = '{"ready":' + f_jsonBool(bs.statsReady) + ',"total_trades":' + f_jsonInt(bs.totalTrades) + ',"win_rate":' + f_jsonFloat(bs.winRate) + ',"winning_trades":' + f_jsonInt(bs.winningTrades) + ',"avg_winning_mae":' + f_jsonFloat(bs.avgWinningMae) + ',"avg_losing_mae":' + f_jsonFloat(bs.avgLosingMae) + ',"smart_sl_offset":' + f_jsonFloat(bs.smartSlOffset) + ',"low_confidence":' + f_jsonBool(bs.lowConfidence) + '}'
+    result
+
+// @function Serialize Monte Carlo results to JSON
+// @param lm LearningMetrics with MC fields
+// @returns JSON string for monte_carlo object
+f_jsonMonteCarlo(LearningMetrics lm) =>
+    string result = '{"original_dd":' + f_jsonFloat(lm.mcOriginalDD) + ',"mean_shuffled_dd":' + f_jsonFloat(lm.mcMeanShuffledDD) + ',"p_value":' + f_jsonFloat(lm.mcPValue) + ',"sims_run":' + f_jsonInt(lm.mcSimsRun) + ',"significant":' + f_jsonBool(lm.mcSignificant) + '}'
+    result
+
+// @function Construct JSON alert message with full state snapshot
+// @param id Alert ID string
+// @param eventType Event type string for categorization
+// @param isProj Projection mode active
+// @param isLong Long direction
+// @param zoneTouched Zone touched flag
+// @param slHit SL hit flag
+// @param tpHit TP hit flag
+// @param zoneTop Adjusted zone top
+// @param zoneBottom Adjusted zone bottom
+// @param slPrice Stop loss price
+// @param tpPrice Take profit price
+// @param tpCons Conservative TP
+// @param tpAggr Aggressive TP
+// @param useAggr Using aggressive TP mode
+// @param slMult SL multiplier
+// @param atr ATR value
+// @param smartSl Smart SL price
+// @param creationBar Creation bar for time decay
+// @param barsSince Bars since creation
+// @param timePhase Time decay phase
+// @param decayRate Decay rate
+// @param expired Expired flag
+// @returns JSON formatted string with complete state snapshot
+f_getAlertMessageFull(string id, string eventType, bool isProj, bool isLong, bool zoneTouched, bool slHit, bool tpHit, float rawZoneTop, float rawZoneBottom, float zoneTop, float zoneBottom, float bufferPct, bool inZone, bool zoneEntry, float minDist, float slPrice, float tpPrice, float tpCons, float tpAggr, bool useAggr, float slMult, float atr, float smartSl, int creationBar, int barsSince, int timePhase, float decayRate, bool expired) =>
+    float entryMid = (zoneTop + zoneBottom) / 2
+    
+    // Build envelope
+    string envelope = f_jsonEnvelope(id, eventType)
+    
+    // Build component JSONs
+    string pivots_json = f_jsonPivots(
+        GLOBAL_cachedPivots.iMidPivot, GLOBAL_cachedPivots.pMidPivot,
+        GLOBAL_cachedPivots.iEndBase, GLOBAL_cachedPivots.pEndBase,
+        GLOBAL_projection.isActive() ? GLOBAL_projection.iMidPivot : GLOBAL_cachedPivots.iMidPivot,
+        GLOBAL_projection.isActive() ? GLOBAL_projection.pMidPivot : GLOBAL_cachedPivots.pMidPivot,
+        GLOBAL_projection.isActive() ? bar_index : GLOBAL_cachedPivots.iEndBase,
+        GLOBAL_projection.isActive() ? GLOBAL_projection.pEndBase : GLOBAL_cachedPivots.pEndBase,
+        GLOBAL_projection.isActive())
+    string setup_json = f_jsonSetup(isProj, isLong, zoneTouched, slHit, tpHit)
+    string zone_json = f_jsonZone(rawZoneTop, rawZoneBottom, zoneTop, zoneBottom, bufferPct, inZone, zoneEntry, minDist)
+    string position_json = f_jsonPosition(entryMid, slPrice, tpPrice, tpCons, tpAggr, useAggr, slMult, atr, smartSl)
+    string time_decay_json = f_jsonTimeDecay(INPUT_POS_TIME_DECAY, creationBar, barsSince, timePhase, decayRate, expired)
+    string regime_json = f_jsonRegime(GLOBAL_regime)
+    string learning_json = f_jsonLearning(GLOBAL_learning, GLOBAL_setupHistory.size())
+    string backtest_json = f_jsonBacktest(GLOBAL_backtest.stats)
+    string mc_json = f_jsonMonteCarlo(GLOBAL_learning)
+    
+    // Assemble full JSON
+    string result = '{' + envelope + ',"pivots":' + pivots_json + ',"setup":' + setup_json + ',"zone":' + zone_json + ',"position":' + position_json + ',"time_decay":' + time_decay_json + ',"regime":' + regime_json + ',"learning":' + learning_json + ',"backtest":' + backtest_json + ',"monte_carlo":' + mc_json + ',"retracements":' + GLOBAL_pivotLevelsLogRetracements.toJson() + ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() + ',"confluence":{"exhaust_vol":' + f_jsonBool(exhaustVol) + ',"high_volatility":' + f_jsonBool(highVolatility) + '}}'
+    result
+
+// @function Construct legacy JSON alert message (backward compatible)
 // @param id Alert ID string
 // @returns JSON formatted string with alert details
 f_getAlertMessage(string id) =>
-    string barstate_json = (
-        '{"is_new":' + (barstate.isnew ? 'true' : 'false') + 
-        ',"is_first":' + (barstate.isfirst ? 'true' : 'false') + 
-        ',"is_last":' + (barstate.islast ? 'true' : 'false') + 
-        ',"is_confirmed":' + (barstate.isconfirmed ? 'true' : 'false') + 
-        ',"is_history":' + (barstate.ishistory ? 'true' : 'false') + 
-        '}')
-    string ohlcv_json = (
-        '{"open":' + str.tostring(open) + 
-        ',"high":' + str.tostring(high) + 
-        ',"low":' + str.tostring(low) + 
-        ',"close":' + str.tostring(close) + 
-        ',"hl2":' + str.tostring(hl2) + 
-        ',"hlc3":' + str.tostring(hlc3) + 
-        ',"hlcc4":' + str.tostring(hlcc4) + 
-        ',"ohlc4":' + str.tostring(ohlc4) + 
-        ',"volume":' + str.tostring(volume) + '}')
-    string base_json = ('"event_id":"' + id + '"' +
-                        ',"bar_index":' + str.tostring(bar_index) + 
-                        ',"last_bar_index":' + str.tostring(last_bar_index) + 
-                        ',"time_tradingday":' + str.tostring(time_tradingday) + 
-                        ',"time_close":' + str.tostring(time_close) + 
-                        ',"session_is_first_bar":' + (session.isfirstbar ? 'true' : 'false') + 
-                        ',"barstate":' + barstate_json + 
-                        ',"ohlcv":' + ohlcv_json)
+    string barstate_json = '{"is_new":' + (barstate.isnew ? 'true' : 'false') + ',"is_first":' + (barstate.isfirst ? 'true' : 'false') + ',"is_last":' + (barstate.islast ? 'true' : 'false') + ',"is_confirmed":' + (barstate.isconfirmed ? 'true' : 'false') + ',"is_history":' + (barstate.ishistory ? 'true' : 'false') + '}'
+    string ohlcv_json = '{"open":' + str.tostring(open) + ',"high":' + str.tostring(high) + ',"low":' + str.tostring(low) + ',"close":' + str.tostring(close) + ',"hl2":' + str.tostring(hl2) + ',"hlc3":' + str.tostring(hlc3) + ',"hlcc4":' + str.tostring(hlcc4) + ',"ohlc4":' + str.tostring(ohlc4) + ',"volume":' + str.tostring(volume) + '}'
+    string base_json = '"schema_version":"' + ALERT_SCHEMA_VERSION + '","event_id":"' + id + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","bar_index":' + str.tostring(bar_index) + ',"last_bar_index":' + str.tostring(last_bar_index) + ',"time_tradingday":' + str.tostring(time_tradingday) + ',"time_close":' + str.tostring(time_close) + ',"session_is_first_bar":' + (session.isfirstbar ? 'true' : 'false') + ',"barstate":' + barstate_json + ',"ohlcv":' + ohlcv_json
     string log = ''
     if id == ALERT_ID_UPDATE
-        log := ('{' + base_json + 
-                ',"retracements":' + GLOBAL_pivotLevelsLogRetracements.toJson() + 
-                ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() + '}')
+        log := '{' + base_json + ',"retracements":' + GLOBAL_pivotLevelsLogRetracements.toJson() + ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() + '}'
     if id == ALERT_ID_EXHAUSTION
-        log := ('{' + base_json + 
-                ',"bull_candle":' + (bullCandle ? 'true' : 'false') + 
-                ',"bear_candle":' + (bearCandle ? 'true' : 'false') + 
-                ',"exhaust_vol":' + (exhaustVol ? 'true' : 'false') + '}')
+        log := '{' + base_json + ',"bull_candle":' + (bullCandle ? 'true' : 'false') + ',"bear_candle":' + (bearCandle ? 'true' : 'false') + ',"exhaust_vol":' + (exhaustVol ? 'true' : 'false') + '}'
     if id == ALERT_ID_VOLATILITY
-        log := ('{' + base_json + 
-                ',"bull_candle":' + (bullCandle ? 'true' : 'false') + 
-                ',"bear_candle":' + (bearCandle ? 'true' : 'false') + 
-                ',"high_volatility":' + (highVolatility ? 'true' : 'false') + '}')
+        log := '{' + base_json + ',"bull_candle":' + (bullCandle ? 'true' : 'false') + ',"bear_candle":' + (bearCandle ? 'true' : 'false') + ',"high_volatility":' + (highVolatility ? 'true' : 'false') + '}'
     if id == ALERT_ID_CROSSING
-        log := ('{' + base_json + 
-                ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() + '}')
+        log := '{' + base_json + ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() + '}'
     log
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -2927,7 +3200,7 @@ if not na(GLOBAL_zigzag.ln)
 // PRE-COMPUTED RSI DIVERGENCE VALUES (Pine v6 - must be called on every bar)
 // These ta.valuewhen calls capture RSI and price at pivot changes for divergence detection
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-float GLOBAL_rsi_at_pivot = ta.valuewhen(GLOBAL_zigzag.changed, GLOBAL_rsi, 0)
+float GLOBAL_rsi_at_pivot = ta.valuewhen(GLOBAL_zigzag.changed, GLOBAL_regime.rsi, 0)
 float GLOBAL_priceAtPivot = ta.valuewhen(GLOBAL_zigzag.changed, close, 0)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -2994,7 +3267,7 @@ float raw_tp_price = raw_tp_target
 // 4. Entropy regime allows trading (ORDERED or TRANSITION)
 // 5. Hurst regime allows trading (if blocking random is enabled)
 // 6. Momentum is statistically significant (if Z-score filter enabled)
-if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cachedPivots.iMidPivot) and not na(GLOBAL_cachedPivots.pEndBase) and GLOBAL_entropyOk and GLOBAL_hurstOk and GLOBAL_momentumOk
+if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cachedPivots.iMidPivot) and not na(GLOBAL_cachedPivots.pEndBase) and GLOBAL_regime.entropyOk and GLOBAL_regime.hurstOk and GLOBAL_regime.momentumOk
     // Build initial state_mask: PENDING + direction flag (using arithmetic for raw int)
     int init_state = FLAG_PENDING + (raw_is_long ? FLAG_IS_LONG : 0)
     
@@ -3199,11 +3472,11 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float price_65  = GLOBAL_effectivePivot.getLevel(FIB_GOLDEN_POCKET_H)
     
     // Reuse global ATR calculation (i_weightedATR = ta.atr(INPUT_ATR_LENGTH) * INPUT_ATR_MULT)
-    float current_atr = GLOBAL_rawAtr
+    float current_atr = GLOBAL_regime.rawAtr
     
     // Dynamic SL: Use ATR percentile to scale SL buffer based on volatility regime
     // Use global pre-computed atr_percentile (C-optimized, called on every bar)
-    float atr_percentile = GLOBAL_atrPercentile  // 0 = lowest vol, 100 = highest vol
+    float atr_percentile = GLOBAL_regime.atrPercentile  // 0 = lowest vol, 100 = highest vol
     // Scale multiplier: at 50th percentile = base mult, at 0 = -50%, at 100 = +50%
     float dynamic_scale = INPUT_POS_SL_DYNAMIC ? (1 + (atr_percentile - 50) / 100) : 1.0
     
@@ -3301,8 +3574,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     learned_buffer += (NEAR_MISS_CLOSE_THRESH - avg_approach) * 10  // Up to +3% extra
         adaptive_buffer := math.max(INPUT_ZONE_BUFFER_BASE, learned_buffer)
         GLOBAL_learning.zoneBuffer := adaptive_buffer
-        GLOBAL_nearMissCount := near_misses
-        GLOBAL_totalSetups := total_valid
+        GLOBAL_learning.nearMissCount := near_misses
+        GLOBAL_learning.totalSetups := total_valid
     
     // Apply adaptive buffer to zone boundaries
     float buffer_amount = zone_width * (adaptive_buffer / 100)
@@ -3425,10 +3698,10 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // ═══════════════════════════════════════════════════════════════════════════════
     // Track entry when zone is first touched (CONFIRMED trades only, not projections)
     if confirmed_zone_entry and not na(GLOBAL_activeTrade.setup_bar) and not isProjection
-        if na(GLOBAL_activeTrade.entry_bar)  // Only capture first touch
+        if na(GLOBAL_activeTrade.entry_bar)
             GLOBAL_activeTrade.entry_bar := bar_index
             GLOBAL_activeTrade.entry_price := close
-            GLOBAL_activeTrade.rsi_at_entry := GLOBAL_rsi  // Use global pre-computed RSI
+            GLOBAL_activeTrade.rsi_at_entry := GLOBAL_regime.rsi
     
     // Track MAE/MFE from entry (only after zone touched, CONFIRMED trades only)
     if not na(GLOBAL_activeTrade.entry_bar) and not na(GLOBAL_activeTrade.entry_price) and not na(GLOBAL_activeTrade.atr_at_setup) and not isProjection
@@ -3522,7 +3795,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool vol_confirm = exhaustVol or crossover_exhaustion
     
     // RSI Divergence Confluence - Use global pre-computed values (Pine v6 best practice)
-    float rsi = GLOBAL_rsi
+    float rsi = GLOBAL_regime.rsi
     float rsi_at_pivot = GLOBAL_rsi_at_pivot
     float price_at_pivot = GLOBAL_priceAtPivot
     
@@ -3566,9 +3839,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Calculate empirical win rate from learning history
     // OPTIMIZATION: Only recalculate when new trade was recorded (flag set in should_record block)
     float p_empirical = p_base
-    if INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= LEARN_MIN_SAMPLES_SL and GLOBAL_learningNeedsRecalc
+    if INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= LEARN_MIN_SAMPLES_SL and GLOBAL_learning.needsRecalc
         // Reset flag - we're about to recalculate
-        GLOBAL_learningNeedsRecalc := false
+        GLOBAL_learning.needsRecalc := false
         
         // Phase 1 counters
         int wins = 0
@@ -4046,7 +4319,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Phase 4: Apply regime-specific win rate adjustment based on current volatility
     // If we have enough regime-specific data, blend towards the regime WR
     float p_regime_adjusted = p_effective
-    float current_regime_percentile = GLOBAL_atrPercentile  // Use global pre-computed value (Pine v6)
+    float current_regime_percentile = GLOBAL_regime.atrPercentile
     bool is_high_vol_regime = current_regime_percentile >= VOL_REGIME_HIGH_THRESH
     bool is_low_vol_regime = current_regime_percentile <= VOL_REGIME_LOW_THRESH
     bool has_regime_data = INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= INPUT_LEARN_MIN_SAMPLES
@@ -4287,12 +4560,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             GLOBAL_activeTrade.tp_cons,             // tp_conservative
             GLOBAL_activeTrade.tp_aggr,             // tp_aggressive
             GLOBAL_activeTrade.vol_percentile,      // vol_percentile
-            GLOBAL_entropyRegime,                   // entropy_regime
-            GLOBAL_entropyNorm,                     // entropy_norm
-            GLOBAL_hurstRegime,                     // hurst_regime
-            GLOBAL_hurst,                           // hurst_value
-            GLOBAL_zscore,                          // zscore_value
-            GLOBAL_strongMomentum,                  // strong_momentum
+            GLOBAL_regime.entropyRegime,            // entropy_regime
+            GLOBAL_regime.entropyNorm,              // entropy_norm
+            GLOBAL_regime.hurstRegime,              // hurst_regime
+            GLOBAL_regime.hurst,                    // hurst_value
+            GLOBAL_regime.zscore,                   // zscore_value
+            GLOBAL_regime.strongMomentum,           // strong_momentum
             trade_log_ret                           // log_return
         )
         
@@ -4303,7 +4576,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         GLOBAL_setupHistory.push(completed_setup)
         
         // OPTIMIZATION: Set flag to trigger learning recalculation (only on new trade)
-        GLOBAL_learningNeedsRecalc := true
+        GLOBAL_learning.needsRecalc := true
         
         // DEBUG: Log when setup is recorded (using state_mask flags)
         log.info("RECORDED: bar={0}, mask={1}, samples={2}, long={3}, touched={4}, sl={5}, tp={6}, won={7}", 
@@ -4339,7 +4612,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         GLOBAL_activeTrade.entry_price := na
         GLOBAL_activeTrade.max_adverse := 0.0
         GLOBAL_activeTrade.max_favorable := 0.0
-        GLOBAL_activeTrade.atr_at_setup := nz(GLOBAL_rawAtr, 1.0)  // Use global pre-computed ATR (Pine v6)
+        GLOBAL_activeTrade.atr_at_setup := nz(GLOBAL_regime.rawAtr, 1.0)
         GLOBAL_activeTrade.rsi_at_entry := na
         // Phase 4: Regime tracking reset
         GLOBAL_activeTrade.vol_percentile := atr_percentile  // Capture current volatility regime
@@ -4405,9 +4678,32 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // Update existing objects with current values (dynamic learning adjustments)
         GLOBAL_posVisual.update(display_zone_top, display_zone_bottom, display_sl, display_tp, mid_entry, pos_text, bg_col, border_col, sl_line_col, tp_line_col, smartSlForMethod, smart_sl_col)
     
-    // Alert on zone entry
+    // Populate global alert state for use in ALERTS section
+    bool as_zone_touched = not na(GLOBAL_activeTrade.setup_bar) and GLOBAL_activeTrade.hasFlag(FLAG_ZONE_TOUCHED)
+    bool as_sl_hit = not na(GLOBAL_activeTrade.setup_bar) and GLOBAL_activeTrade.hasFlag(FLAG_SL_HIT)
+    bool as_tp_hit = not na(GLOBAL_activeTrade.setup_bar) and GLOBAL_activeTrade.hasFlag(FLAG_TP_HIT)
+    int as_creation_bar = isProjection ? bar_index : nz(GLOBAL_activeTrade.creation_bar, bar_index)
+    GLOBAL_alertState.populate(
+        isProjection, is_long_setup, as_zone_touched, as_sl_hit, as_tp_hit,
+        in_zone, zone_entry, use_aggressive_tp, zone_expired,
+        box_top, box_bottom, adjusted_box_top, adjusted_box_bottom, adaptive_buffer,
+        nz(GLOBAL_activeTrade.min_distance, DEFAULT_MIN_DISTANCE),
+        sl_price, tp_price, tp_conservative, tp_aggressive, effective_sl_mult, current_atr,
+        smart_sl_price, as_creation_bar, bars_since_creation, time_phase, decay_rate)
+    
+    // Alert on zone entry with full JSON context
     if zone_entry and INPUT_ALERT_ENABLED
-        alert("Price entered Golden Pocket - " + (active_is_long ? TEXT_LONG : TEXT_SHORT) + " setup active", alert.freq_once_per_bar)
+        string entry_msg = f_getAlertMessageFull(ALERT_ID_ENTRY, "zone_entry",
+            GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+            GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+            GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+            GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+            GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+            GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+            GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+            GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+            GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+        alert(entry_msg, alert.freq_once_per_bar)
 
 // AddOns
 plotchar(INPUT_SHOW_VOL_SPIKE and nzVolume != 0 ? exhaustVol : false, 'Exhaustion Bar', '🚦', location.abovebar, size=size.tiny, display = display.pane)
@@ -4431,10 +4727,95 @@ plot(v_618,   "Fib 0.618",   color = color.new(color.orange, 0), display = displ
 // ALERTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-if INPUT_ALERT_ENABLED and INPUT_ALERT_MODE == 'calculateAlertUpdates'
-    if barstate.isconfirmed
-        alert(f_getAlertMessage(ALERT_ID_UPDATE), alert.freq_once_per_bar) 
+if INPUT_ALERT_ENABLED
+    // Event-based alert routing
+    if INPUT_ALERT_MODE == 'calculateAlertUpdates'
+        // FBU: Full state snapshot on bar confirmation
+        if barstate.isconfirmed
+            string fbu_msg = f_getAlertMessageFull(ALERT_ID_UPDATE, "fib_update",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(fbu_msg, alert.freq_once_per_bar)
+        
+        // SCT: Setup created on pivot change
+        if GLOBAL_zigzag.changed and barstate.isconfirmed
+            string sct_msg = f_getAlertMessageFull(ALERT_ID_SETUP, "setup_created",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(sct_msg, alert.freq_once_per_bar)
+        
+        // EXH: Volume exhaustion signal
+        if exhaustVol and barstate.isconfirmed
+            string exh_msg = f_getAlertMessageFull(ALERT_ID_EXHAUSTION, "vol_exhaustion",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(exh_msg, alert.freq_once_per_bar)
+        
+        // HVO: High volatility signal
+        if highVolatility and barstate.isconfirmed
+            string hvo_msg = f_getAlertMessageFull(ALERT_ID_VOLATILITY, "high_volatility",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(hvo_msg, alert.freq_once_per_bar)
+        
+        // LRN: Learning recalculated
+        if GLOBAL_learning.needsRecalc and barstate.isconfirmed
+            string lrn_msg = f_getAlertMessageFull(ALERT_ID_LEARNING, "learning_recalc",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(lrn_msg, alert.freq_once_per_bar)
     
+    else if INPUT_ALERT_MODE == 'calculateAlertData'
+        // Full snapshot on every confirmed bar
+        if barstate.isconfirmed
+            string full_msg = f_getAlertMessageFull(ALERT_ID_UPDATE, "fib_update",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(full_msg, alert.freq_once_per_bar)
+    
+    // Clear logs on history for performance
     if barstate.ishistory
         GLOBAL_pivotLevelsLogRetracements.clear()
         GLOBAL_pivotLevelsLogCrossed.clear()
