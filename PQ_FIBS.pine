@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.5.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.6.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -104,6 +104,11 @@ int   HURST_MIN_WINDOW          = 20    // Minimum window for stable estimate
 int   HURST_REGIME_TREND        = 0     // H > upper: persistent/trending
 int   HURST_REGIME_RANDOM       = 1     // H near 0.5: random walk
 int   HURST_REGIME_MEANREV      = 2     // H < lower: anti-persistent/mean-reverting
+
+// Hurst Mode Constants (FUNC-1)
+string HURST_MODE_LEGACY        = "🔸 Legacy (Geometric)"       // Original O(N*scales) implementation
+string HURST_MODE_DYADIC_STABLE = "🟢 Dyadic Stable (Chunk Avg)" // O(log N) dyadic with chunk averaging
+string HURST_MODE_DYADIC_FAST   = "⚡ Dyadic Fast (Single Chunk)" // O(log N) dyadic, most recent chunk only
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Z-SCORE MOMENTUM CONSTANTS
@@ -834,6 +839,209 @@ f_rollingHurst(float log_return, int window, int min_window, float trend_thresh,
     [hurst, regime]
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// DYADIC HURST ENGINE - Optimized O(log N) Implementation (FUNC-2 through FUNC-5)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: Replaces geometric scaling with powers-of-two (dyadic) scales for predictable runtime.
+//       Precomputes regression X constants to eliminate per-bar array allocations.
+//       Provides STABLE (multi-chunk average) and FAST (single recent chunk) modes.
+
+// @type Encapsulates state for dyadic Hurst computation with cached regression constants
+type DyadicHurstState
+    // Configuration (detect changes for reinit)
+    int configWindow        // Current window setting
+    int configMinWindow     // Current min window setting
+    string configMode       // Current mode setting
+    bool initialized        // Whether state is ready
+    
+    // Dyadic Scales (built once, rebuilt on config change)
+    array<int> scales       // Array of power-of-two scales: 4, 8, 16, 32, ...
+    
+    // Precomputed Regression X Constants (FUNC-3)
+    array<float> logScales  // log(n) for each scale
+    float sumX              // Σ log(n)
+    float sumXX             // Σ log(n)²
+    int numScales           // Number of dyadic scales
+    
+    // Return buffer (persistent, bounded)
+    array<float> returnBuf  // Rolling buffer of log returns
+    
+    // Current Hurst result
+    float hurst             // Last computed Hurst exponent
+    int hurstRegime         // Last computed regime
+
+// @function Initialize or reinitialize DyadicHurstState
+// @param this The state object to initialize
+// @param minW Minimum window size
+// @param maxW Maximum window size (full window)
+// @param mode Hurst mode string
+method init(DyadicHurstState this, int minW, int maxW, string mode) =>
+    this.configWindow := maxW
+    this.configMinWindow := minW
+    this.configMode := mode
+    
+    // Build dyadic scales: powers of 2 from minW to maxW (FUNC-2)
+    this.scales := array.new<int>(0)
+    this.logScales := array.new<float>(0)
+    
+    // Find smallest power-of-two >= minW
+    int pwr = 1
+    while pwr < minW
+        pwr *= 2
+    
+    // Build scales up to maxW
+    while pwr <= maxW
+        this.scales.push(pwr)
+        this.logScales.push(math.log(float(pwr)))
+        pwr *= 2
+    
+    this.numScales := this.scales.size()
+    
+    // Precompute X regression constants (FUNC-3) - only computed once!
+    this.sumX := 0.0
+    this.sumXX := 0.0
+    for i = 0 to this.numScales - 1
+        float x = this.logScales.get(i)
+        this.sumX += x
+        this.sumXX += x * x
+    
+    // Initialize return buffer if needed
+    if na(this.returnBuf)
+        this.returnBuf := array.new<float>(0)
+    
+    this.hurst := 0.5
+    this.hurstRegime := HURST_REGIME_RANDOM
+    this.initialized := true
+
+// @function Check if state needs reinitialization due to config change
+// @param this The state object
+// @param minW Current min window setting
+// @param maxW Current window setting
+// @param mode Current mode setting
+// @returns true if reinit needed
+method needsReinit(DyadicHurstState this, int minW, int maxW, string mode) =>
+    not this.initialized or this.configWindow != maxW or this.configMinWindow != minW or this.configMode != mode
+
+// @function Compute average R/S for a given scale (FUNC-4)
+// @param this The state object
+// @param n Scale (window size for R/S)
+// @param fast If true, only compute most recent chunk; else average all chunks
+// @returns Average R/S value or na if insufficient data
+method computeAvgRS(DyadicHurstState this, int n, bool fast) =>
+    float result = na
+    int bufSize = this.returnBuf.size()
+    
+    if bufSize >= n
+        if fast
+            // FAST mode: Only compute R/S on most recent chunk (O(n) per scale)
+            int start = bufSize - n
+            result := f_computeRS(this.returnBuf, start, n)
+        else
+            // STABLE mode: Average R/S across all non-overlapping chunks
+            int numChunks = bufSize / n
+            if numChunks > 0
+                float rsSum = 0.0
+                int validChunks = 0
+                for chunk = 0 to numChunks - 1
+                    int start = chunk * n
+                    float rs = f_computeRS(this.returnBuf, start, n)
+                    if not na(rs) and rs > 0
+                        rsSum += rs
+                        validChunks += 1
+                if validChunks > 0
+                    result := rsSum / float(validChunks)
+    result
+
+// @function Update Hurst state with new log return and compute Hurst (FUNC-4, FUNC-5)
+// @param this The state object
+// @param logReturn Current bar's log return
+// @param fast If true, use FAST mode (single chunk)
+// @param trendThresh Threshold for TREND regime
+// @param meanrevThresh Threshold for MEANREV regime
+method update(DyadicHurstState this, float logReturn, bool fast, float trendThresh, float meanrevThresh) =>
+    // Push log return to bounded buffer
+    this.returnBuf.pushBounded(logReturn, this.configWindow)
+    
+    int bufSize = this.returnBuf.size()
+    
+    // Only compute if we have enough data for at least one scale
+    if bufSize >= this.configMinWindow and this.numScales >= 2
+        // Compute regression WITHOUT per-bar array allocations (FUNC-5)
+        // We accumulate Σy and Σxy directly using precomputed logScales
+        float sumY = 0.0
+        float sumXY = 0.0
+        int validPts = 0
+        
+        for i = 0 to this.numScales - 1
+            int n = this.scales.get(i)
+            if bufSize >= n
+                float avgRS = this.computeAvgRS(n, fast)
+                if not na(avgRS) and avgRS > 0
+                    float logRS = math.log(avgRS)
+                    float logN = this.logScales.get(i)
+                    sumY += logRS
+                    sumXY += logN * logRS
+                    validPts += 1
+        
+        // Compute Hurst via linear regression slope
+        if validPts >= 2
+            // Use precomputed X constants but only for valid points
+            // Recalculate sumX and sumXX for only the valid scales
+            float validSumX = 0.0
+            float validSumXX = 0.0
+            int validIdx = 0
+            for i = 0 to this.numScales - 1
+                int n = this.scales.get(i)
+                if bufSize >= n
+                    float avgRS = this.computeAvgRS(n, fast)
+                    if not na(avgRS) and avgRS > 0
+                        float logN = this.logScales.get(i)
+                        validSumX += logN
+                        validSumXX += logN * logN
+                        validIdx += 1
+                        if validIdx >= validPts
+                            break
+            
+            float nPts = float(validPts)
+            float denom = nPts * validSumXX - validSumX * validSumX
+            if math.abs(denom) > 1e-10
+                this.hurst := (nPts * sumXY - validSumX * sumY) / denom
+                this.hurst := math.max(0.0, math.min(1.0, this.hurst))
+        
+        // Classify regime
+        if this.hurst > trendThresh
+            this.hurstRegime := HURST_REGIME_TREND
+        else if this.hurst < meanrevThresh
+            this.hurstRegime := HURST_REGIME_MEANREV
+        else
+            this.hurstRegime := HURST_REGIME_RANDOM
+    else
+        this.hurst := 0.5
+        this.hurstRegime := HURST_REGIME_RANDOM
+
+// @function Get Hurst results as tuple
+// @param this The state object
+// @returns [hurst, regime]
+method getResults(DyadicHurstState this) =>
+    [this.hurst, this.hurstRegime]
+
+// @function Get debug information string
+// @param this The state object
+// @returns Debug info for overlay
+method getDebugInfo(DyadicHurstState this) =>
+    string scaleStr = ""
+    if this.numScales > 0
+        scaleStr := str.tostring(this.scales.get(0))
+        if this.numScales > 1
+            scaleStr += "→" + str.tostring(this.scales.get(this.numScales - 1))
+    string info = "Mode: " + this.configMode + 
+                  "\nScales: " + str.tostring(this.numScales) + " (" + scaleStr + ")" +
+                  "\nWindow: " + str.tostring(this.configWindow) + 
+                  "\nBuffer: " + str.tostring(this.returnBuf.size()) +
+                  "\nH: " + str.tostring(this.hurst, "#.####") +
+                  "\nRegime: " + (this.hurstRegime == HURST_REGIME_TREND ? "TREND" : this.hurstRegime == HURST_REGIME_MEANREV ? "MEANREV" : "RANDOM")
+    info
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Z-SCORE MOMENTUM - Regression Slope for Displacement Validation
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -1394,10 +1602,12 @@ INPUT_ENTROPY_TRANSITION = input.bool(false, '   ↳ Allow Transitions', group=G
 INPUT_ENTROPY_DEBUG     = input.bool(false, '   ↳ Debug Overlay', group=GROUP_STAT_POS, tooltip="Shows entropy debug info on last bar:\nMode, states, window, H_norm, regime, buffer size.\nNo per-bar labels (performance safe).")
 // --- HURST EXPONENT FILTER ---
 INPUT_HURST_ENABLED     = input.bool(true, '📈 Hurst Regime Filter', group=GROUP_STAT_POS, tooltip="Filters trades based on Hurst Exponent (market persistence).\nH > 0.5 = trending (persistent), H < 0.5 = mean-reverting.\nOptionally blocks trades near H ≈ 0.5 (random walk).")
+INPUT_HURST_MODE        = input.string(HURST_MODE_LEGACY, '   ↳ Hurst Mode', options=[HURST_MODE_LEGACY, HURST_MODE_DYADIC_STABLE, HURST_MODE_DYADIC_FAST], group=GROUP_STAT_POS, tooltip="Calculation mode:\n• Legacy (Geometric): Original multi-scale R/S\n• Dyadic Stable: O(log N) with chunk averaging\n• Dyadic Fast: O(log N), single recent chunk\nLegacy is default for backward compatibility.")
 INPUT_HURST_WINDOW      = input.int(100, '   ↳ Window Length', minval=20, maxval=500, group=GROUP_STAT_POS, tooltip="Number of bars for Hurst calculation.\nLarger = more stable but slower to adapt.\n100 is recommended for most timeframes.")
 INPUT_HURST_TREND       = input.float(0.55, '   ↳ Trend Threshold', minval=0.50, maxval=0.80, step=0.01, group=GROUP_STAT_POS, tooltip="H above this = TRENDING regime.\nPersistent price movement, favor breakouts.\n0.55 is a conservative default.")
 INPUT_HURST_MEANREV     = input.float(0.45, '   ↳ Mean-Revert Threshold', minval=0.20, maxval=0.50, step=0.01, group=GROUP_STAT_POS, tooltip="H below this = MEAN-REVERTING regime.\nAnti-persistent movement, favor fades.\n0.45 is a conservative default.")
 INPUT_HURST_BLOCK_RANDOM = input.bool(false, '   ↳ Block Random Regime', group=GROUP_STAT_POS, tooltip="When enabled, blocks trades when H is near 0.5 (random walk).\nReduces exposure during unpredictable conditions.\nExperimental: may reduce trade frequency significantly.")
+INPUT_HURST_DEBUG       = input.bool(false, '   ↳ Debug Overlay', group=GROUP_STAT_POS, tooltip="Shows Hurst debug info on last bar:\nMode, scales, window, H value, regime.\nNo per-bar labels (performance safe).")
 // --- Z-SCORE MOMENTUM FILTER ---
 INPUT_ZSCORE_ENABLED    = input.bool(true, '⚡ Momentum Z-Score Filter', group=GROUP_STAT_POS, tooltip="Filters trades based on displacement velocity.\nRequires statistically significant momentum (Z > threshold).\nBlocks slow drift fakeouts.")
 INPUT_ZSCORE_LR_LEN     = input.int(14, '   ↳ Regression Length', minval=5, maxval=50, group=GROUP_STAT_POS, tooltip="Lookback for linear regression slope.\n14 bars is a balanced default.\nShorter = more sensitive, longer = smoother.")
@@ -2977,8 +3187,41 @@ GLOBAL_regime.entropyRegime := _entReg
 GLOBAL_regime.entropyOk := not INPUT_ENTROPY_ENABLED or _entReg != ENTROPY_REGIME_DISORDERED
 COUNTER_entropy_runs += 1
 
-// Populate Hurst state (always runs - internal ta.* functions need full history)
-[_hurst, _hurstReg] = f_rollingHurst(GLOBAL_regime.logReturn, INPUT_HURST_WINDOW, HURST_MIN_WINDOW, INPUT_HURST_TREND, INPUT_HURST_MEANREV)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// HURST EXPONENT - Mode Routing (FUNC-6: Execution Gating + FUNC-8: Regime Integration)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: Routes between Legacy (geometric) and Dyadic (optimized) paths based on INPUT_HURST_MODE.
+//       Legacy mode is default for backward compatibility.
+//       Dyadic modes eliminate per-bar allocations and use O(log N) scales.
+
+var DyadicHurstState GLOBAL_dyadicHurst = DyadicHurstState.new()
+
+float _hurst = 0.5
+int _hurstReg = HURST_REGIME_RANDOM
+
+if INPUT_HURST_MODE == HURST_MODE_LEGACY
+    // Legacy path: Original geometric scaling (O(N * scales) per bar)
+    // Kept for backward compatibility and baseline parity checks
+    [__hurst, __hurstReg] = f_rollingHurst(GLOBAL_regime.logReturn, INPUT_HURST_WINDOW, HURST_MIN_WINDOW, INPUT_HURST_TREND, INPUT_HURST_MEANREV)
+    _hurst := __hurst
+    _hurstReg := __hurstReg
+else
+    // Dyadic path: Optimized O(log N) with precomputed regression constants
+    // Check for config changes requiring reinit
+    if GLOBAL_dyadicHurst.needsReinit(HURST_MIN_WINDOW, INPUT_HURST_WINDOW, INPUT_HURST_MODE)
+        GLOBAL_dyadicHurst.init(HURST_MIN_WINDOW, INPUT_HURST_WINDOW, INPUT_HURST_MODE)
+    
+    // Determine fast mode (single chunk) vs stable (all chunks)
+    bool isFastMode = INPUT_HURST_MODE == HURST_MODE_DYADIC_FAST
+    
+    // Update with current log return
+    GLOBAL_dyadicHurst.update(GLOBAL_regime.logReturn, isFastMode, INPUT_HURST_TREND, INPUT_HURST_MEANREV)
+    
+    // Get results
+    [__hurst, __hurstReg] = GLOBAL_dyadicHurst.getResults()
+    _hurst := __hurst
+    _hurstReg := __hurstReg
+
 GLOBAL_regime.hurst := _hurst
 GLOBAL_regime.hurstRegime := _hurstReg
 GLOBAL_regime.hurstOk := not INPUT_HURST_ENABLED or not INPUT_HURST_BLOCK_RANDOM or _hurstReg != HURST_REGIME_RANDOM
@@ -5434,6 +5677,59 @@ if INPUT_ENTROPY_DEBUG and barstate.islast
     else
         table.cell(entropyDebugTable, 0, 10, "Buffer", text_color = color.gray, text_size = size.tiny)
         table.cell(entropyDebugTable, 1, 10, "—", text_color = color.gray, text_size = size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// HURST DEBUG OVERLAY - Last Bar Only (FUNC-7)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: Displays Hurst engine diagnostics for performance validation.
+//       Only renders on barstate.islast to avoid per-bar label spam.
+if INPUT_HURST_DEBUG and barstate.islast
+    var table hurstDebugTable = table.new(position.middle_right, 2, 10, bgcolor = color.new(color.black, 80), border_width = 1)
+    
+    table.cell(hurstDebugTable, 0, 0, "Hurst Debug", text_color = color.white, text_size = size.small)
+    table.cell(hurstDebugTable, 1, 0, "", text_color = color.white, text_size = size.small)
+    
+    table.cell(hurstDebugTable, 0, 1, "Mode", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 1, 1, INPUT_HURST_MODE, text_color = color.yellow, text_size = size.tiny)
+    
+    string _hurstComplexity = INPUT_HURST_MODE == HURST_MODE_LEGACY ? "O(N×scales)" : "O(log N)"
+    table.cell(hurstDebugTable, 0, 2, "Complexity", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 1, 2, _hurstComplexity, text_color = INPUT_HURST_MODE == HURST_MODE_LEGACY ? color.orange : color.green, text_size = size.tiny)
+    
+    // Show dyadic scales info if in dyadic mode
+    string _scalesStr = "—"
+    int _scaleCount = 0
+    if INPUT_HURST_MODE != HURST_MODE_LEGACY and GLOBAL_dyadicHurst.initialized
+        _scaleCount := GLOBAL_dyadicHurst.numScales
+        if _scaleCount > 0
+            _scalesStr := str.tostring(GLOBAL_dyadicHurst.scales.get(0))
+            if _scaleCount > 1
+                _scalesStr += "→" + str.tostring(GLOBAL_dyadicHurst.scales.get(_scaleCount - 1))
+    table.cell(hurstDebugTable, 0, 3, "Scales", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 1, 3, str.tostring(_scaleCount) + " (" + _scalesStr + ")", text_color = color.white, text_size = size.tiny)
+    
+    table.cell(hurstDebugTable, 0, 4, "Window", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 1, 4, str.tostring(INPUT_HURST_WINDOW), text_color = color.white, text_size = size.tiny)
+    
+    int _hurstBufSize = INPUT_HURST_MODE != HURST_MODE_LEGACY and GLOBAL_dyadicHurst.initialized ? GLOBAL_dyadicHurst.returnBuf.size() : 0
+    table.cell(hurstDebugTable, 0, 5, "Buffer", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 1, 5, INPUT_HURST_MODE == HURST_MODE_LEGACY ? "—" : str.tostring(_hurstBufSize), text_color = color.white, text_size = size.tiny)
+    
+    table.cell(hurstDebugTable, 0, 6, "H Value", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 1, 6, str.tostring(GLOBAL_regime.hurst, "#.####"), text_color = color.yellow, text_size = size.tiny)
+    
+    string _hurstRegimeStr = GLOBAL_regime.hurstRegime == HURST_REGIME_TREND ? "TREND" : GLOBAL_regime.hurstRegime == HURST_REGIME_MEANREV ? "MEANREV" : "RANDOM"
+    color _hurstRegimeColor = GLOBAL_regime.hurstRegime == HURST_REGIME_TREND ? color.green : GLOBAL_regime.hurstRegime == HURST_REGIME_MEANREV ? color.blue : color.gray
+    table.cell(hurstDebugTable, 0, 7, "Regime", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 1, 7, _hurstRegimeStr, text_color = _hurstRegimeColor, text_size = size.tiny)
+    
+    table.cell(hurstDebugTable, 0, 8, "hurstOk", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 1, 8, GLOBAL_regime.hurstOk ? "✓" : "✗", text_color = GLOBAL_regime.hurstOk ? color.green : color.red, text_size = size.tiny)
+    
+    // Show chunk mode for fast vs stable
+    string _chunkMode = INPUT_HURST_MODE == HURST_MODE_DYADIC_FAST ? "Single (recent)" : INPUT_HURST_MODE == HURST_MODE_DYADIC_STABLE ? "All (averaged)" : "N/A"
+    table.cell(hurstDebugTable, 0, 9, "Chunks", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 1, 9, _chunkMode, text_color = color.white, text_size = size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // EXTERNAL CONTEXT DEBUG OVERLAY - Last Bar Only
