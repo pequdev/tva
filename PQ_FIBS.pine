@@ -91,83 +91,9 @@ int STATE_MAX_BIT       = 12
 // STATE FLAGS API - Arithmetic-Based Bit Operations for State Management
 // Pine Script v6 does not have native bitwise operators, so we simulate them using arithmetic.
 // Flags must be powers of 2: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048...
+// NOTE: State flag methods are defined on each UDT (SetupRecord, BacktestTrade, SetupState) after their type definitions.
+//       Methods: hasFlag(), setFlag(), clearFlag(), hasAny(), hasAll(), setLifecycle(), setOutcome()
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-
-// @function Check if a specific flag (single power-of-2) is set in state
-// @param state Current state mask
-// @param flag Flag to check (must be a power of 2)
-// @returns True if flag is set
-f_hasFlag(int state, int flag) =>
-    math.floor(state / flag) % 2 == 1
-
-// @function Set a flag in the state mask (idempotent - safe to call multiple times)
-// @param state Current state mask
-// @param flag Flag to set (power-of-two constant)
-// @returns Updated state mask with flag set
-f_setFlag(int state, int flag) =>
-    f_hasFlag(state, flag) ? state : state + flag
-
-// @function Clear a flag from the state mask (idempotent - safe to call if already clear)
-// @param state Current state mask
-// @param flag Flag to clear (power-of-two constant)
-// @returns Updated state mask with flag cleared
-f_clearFlag(int state, int flag) =>
-    f_hasFlag(state, flag) ? state - flag : state
-
-// @function Check if ANY of the flags in a composite mask are set
-// @param state Current state mask
-// @param mask Composite mask (sum of multiple power-of-2 flags)
-// @returns True if at least one flag in mask is set
-f_hasAny(int state, int mask) =>
-    // Check each possible flag in the mask
-    bool result = false
-    int testBit = 1
-    for i = 0 to STATE_MAX_BIT  // Iterate through bits 0 to STATE_MAX_BIT (inclusive)
-        if math.floor(mask / testBit) % 2 == 1  // This bit is in the mask
-            if f_hasFlag(state, testBit)
-                result := true
-                break
-        testBit := testBit * 2
-    result
-
-// @function Check if ALL flags in a composite mask are set
-// @param state Current state mask
-// @param mask Composite mask (sum of multiple power-of-2 flags)
-// @returns True if all flags in mask are set
-f_hasAll(int state, int mask) =>
-    // Check each possible flag in the mask
-    bool result = true
-    int testBit = 1
-    for i = 0 to STATE_MAX_BIT  // Iterate through bits 0 to STATE_MAX_BIT (inclusive)
-        if math.floor(mask / testBit) % 2 == 1  // This bit is in the mask
-            if not f_hasFlag(state, testBit)
-                result := false
-                break
-        testBit := testBit * 2
-    result
-
-// @function Set lifecycle phase with mutual exclusion (clears other lifecycle flags first)
-// @param state Current state mask
-// @param phase Lifecycle flag (FLAG_PENDING, FLAG_ACTIVE, or FLAG_CLOSED)
-// @returns Updated state mask with only the specified lifecycle phase set
-f_setLifecycle(int state, int phase) =>
-    // Clear all lifecycle flags first
-    int cleared = f_clearFlag(state, FLAG_PENDING)
-    cleared := f_clearFlag(cleared, FLAG_ACTIVE)
-    cleared := f_clearFlag(cleared, FLAG_CLOSED)
-    // Set the new phase
-    f_setFlag(cleared, phase)
-
-// @function Set outcome with mutual exclusion (only one of SL_HIT or TP_HIT can be set)
-// @param state Current state mask
-// @param outcome Outcome flag (FLAG_SL_HIT or FLAG_TP_HIT)
-// @returns Updated state mask with only the specified outcome set (clears the other)
-f_setOutcome(int state, int outcome) =>
-    // Clear both outcome flags first to enforce mutual exclusion
-    int cleared = f_clearFlag(state, FLAG_SL_HIT)
-    cleared := f_clearFlag(cleared, FLAG_TP_HIT)
-    // Set the new outcome
-    f_setFlag(cleared, outcome)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // INTRABAR RESOLUTION - Chronological TP/SL Resolution Using LTF Data
@@ -579,9 +505,59 @@ INPUT_VOL_SPIKE_THRESH  = input.float(2.5, 'Volume Spike Theshold     
 // CALCULATIONS & LOGIC
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-// Data Structures
-var map<float, float> GLOBAL_pivotLevelsLogRetracements = map.new<float, float>()
-var map<float, float> GLOBAL_pivotLevelsLogCrossed = map.new<float, float>()
+// Data Structures - Level Log Maps (wrapped in LevelLog UDT after type definition)
+var map<float, float> GLOBAL_pivotLevelsLogRetracementsMap = map.new<float, float>()
+var map<float, float> GLOBAL_pivotLevelsLogCrossedMap = map.new<float, float>()
+
+// @type LevelLog - Wraps a map for tracking Fibonacci level prices and crossings
+// @field data Map storing level ratio -> price mappings
+type LevelLog
+    map<float, float> data
+
+// @function Clear all entries from this LevelLog
+// @param this LevelLog instance
+// @returns LevelLog instance for chaining
+method clear(LevelLog this) =>
+    this.data.clear()
+    this
+
+// @function Update or add a level-price mapping
+// @param this LevelLog instance
+// @param level Fibonacci ratio (e.g., 0.618)
+// @param value Price at that level
+// @returns LevelLog instance for chaining
+method put(LevelLog this, float level, float value) =>
+    this.data.put(level, value)
+    this
+
+// @function Get price for a specific level
+// @param this LevelLog instance
+// @param level Fibonacci ratio to lookup
+// @returns Price at that level, or na if not found
+method get(LevelLog this, float level) =>
+    this.data.get(level)
+
+// NOTE: toJson method is defined after fibLevels array is available (see below FibLevel type)
+
+// @type PivotContext - Encapsulates pivot coordinates for Fibonacci level calculations
+// @field pMid Price of the mid pivot (swing point)
+// @field pEnd Price of the end base (retracement target)
+// @field reverse Whether to reverse the calculation direction
+type PivotContext
+    float pMid
+    float pEnd
+    bool reverse = false
+
+// @function Calculate price at a given Fibonacci ratio
+// @param this PivotContext instance
+// @param ratio Fibonacci ratio (e.g., 0.618, 0.65, 1.272)
+// @returns Price level at the specified ratio
+method getLevel(PivotContext this, float ratio) =>
+    float diff = math.abs(this.pMid - this.pEnd)
+    float result = this.pEnd < this.pMid ? 
+         (this.reverse ? this.pEnd : this.pMid) - (this.reverse ? -1 : 1) * diff * ratio : 
+         (this.reverse ? this.pEnd : this.pMid) + (this.reverse ? -1 : 1) * diff * ratio
+    result
 
 type FibLevel
     float level
@@ -615,6 +591,28 @@ if barstate.isfirst
     fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_382, INPUT_COL_NEG_0_382, INPUT_SHOW_NEG_0_382))
     fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_618, INPUT_COL_NEG_0_618, INPUT_SHOW_NEG_0_618))
     fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_65, INPUT_COL_NEG_0_65, INPUT_SHOW_NEG_0_65))
+
+// @function Convert LevelLog to JSON string (uses fibLevels for key names)
+// @param this LevelLog instance
+// @returns JSON string representation of the log
+method toJson(LevelLog this) =>
+    string result = '{'
+    int levelCount = array.size(fibLevels)
+    for i = 0 to levelCount - 1
+        FibLevel lvl = array.get(fibLevels, i)
+        float val = this.data.get(lvl.level)
+        string levelKey = str.replace(str.tostring(lvl.level), '.', '_')
+        if na(val)
+            result := result + '"' + levelKey + '":null'
+        else
+            result := result + '"' + levelKey + '":' + str.tostring(val)
+        if i < levelCount - 1
+            result := result + ','
+    result + '}'
+
+// Create LevelLog instances wrapping the raw maps
+var LevelLog GLOBAL_pivotLevelsLogRetracements = LevelLog.new(GLOBAL_pivotLevelsLogRetracementsMap)
+var LevelLog GLOBAL_pivotLevelsLogCrossed = LevelLog.new(GLOBAL_pivotLevelsLogCrossedMap)
 
 int decimalsCount = math.round(math.abs(math.log(1 / syminfo.mintick) / math.log(10)))
 
@@ -669,6 +667,75 @@ type SetupRecord
     float  tp_conservative
     float  tp_aggressive
     float  vol_percentile
+
+// @function Check if a specific flag is set in this SetupRecord's state_mask
+// @param this SetupRecord instance
+// @param flag Flag to check (power-of-2 constant)
+// @returns True if flag is set
+method hasFlag(SetupRecord this, int flag) =>
+    math.floor(this.state_mask / flag) % 2 == 1
+
+// @function Set a flag in this SetupRecord's state_mask (idempotent)
+// @param this SetupRecord instance
+// @param flag Flag to set (power-of-2 constant)
+// @returns SetupRecord instance for chaining
+method setFlag(SetupRecord this, int flag) =>
+    if not this.hasFlag(flag)
+        this.state_mask += flag
+    this
+
+// @function Clear a flag from this SetupRecord's state_mask (idempotent)
+// @param this SetupRecord instance
+// @param flag Flag to clear (power-of-2 constant)
+// @returns SetupRecord instance for chaining
+method clearFlag(SetupRecord this, int flag) =>
+    if this.hasFlag(flag)
+        this.state_mask -= flag
+    this
+
+// @function Check if ANY of the flags in a composite mask are set
+// @param this SetupRecord instance
+// @param mask Composite mask (sum of multiple power-of-2 flags)
+// @returns True if at least one flag in mask is set
+method hasAny(SetupRecord this, int mask) =>
+    bool result = false
+    int testBit = 1
+    for i = 0 to STATE_MAX_BIT
+        if math.floor(mask / testBit) % 2 == 1
+            if this.hasFlag(testBit)
+                result := true
+                break
+        testBit := testBit * 2
+    result
+
+// @function Check if ALL flags in a composite mask are set
+// @param this SetupRecord instance
+// @param mask Composite mask (sum of multiple power-of-2 flags)
+// @returns True if all flags in mask are set
+method hasAll(SetupRecord this, int mask) =>
+    bool result = true
+    int testBit = 1
+    for i = 0 to STATE_MAX_BIT
+        if math.floor(mask / testBit) % 2 == 1
+            if not this.hasFlag(testBit)
+                result := false
+                break
+        testBit := testBit * 2
+    result
+
+// @function Set lifecycle phase with mutual exclusion
+// @param this SetupRecord instance
+// @param phase Lifecycle flag (FLAG_PENDING, FLAG_ACTIVE, or FLAG_CLOSED)
+// @returns SetupRecord instance for chaining
+method setLifecycle(SetupRecord this, int phase) =>
+    this.clearFlag(FLAG_PENDING).clearFlag(FLAG_ACTIVE).clearFlag(FLAG_CLOSED).setFlag(phase)
+
+// @function Set outcome with mutual exclusion (SL_HIT xor TP_HIT)
+// @param this SetupRecord instance
+// @param outcome Outcome flag (FLAG_SL_HIT or FLAG_TP_HIT)
+// @returns SetupRecord instance for chaining
+method setOutcome(SetupRecord this, int outcome) =>
+    this.clearFlag(FLAG_SL_HIT).clearFlag(FLAG_TP_HIT).setFlag(outcome)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CIRCULAR BUFFER - O(1) Fixed-Size Ring Buffer for Historical Data
@@ -772,6 +839,75 @@ type BacktestTrade
     int    entry_bar
     int    exit_bar
 
+// @function Check if a specific flag is set in this BacktestTrade's state_mask
+// @param this BacktestTrade instance
+// @param flag Flag to check (power-of-2 constant)
+// @returns True if flag is set
+method hasFlag(BacktestTrade this, int flag) =>
+    math.floor(this.state_mask / flag) % 2 == 1
+
+// @function Set a flag in this BacktestTrade's state_mask (idempotent)
+// @param this BacktestTrade instance
+// @param flag Flag to set (power-of-2 constant)
+// @returns BacktestTrade instance for chaining
+method setFlag(BacktestTrade this, int flag) =>
+    if not this.hasFlag(flag)
+        this.state_mask += flag
+    this
+
+// @function Clear a flag from this BacktestTrade's state_mask (idempotent)
+// @param this BacktestTrade instance
+// @param flag Flag to clear (power-of-2 constant)
+// @returns BacktestTrade instance for chaining
+method clearFlag(BacktestTrade this, int flag) =>
+    if this.hasFlag(flag)
+        this.state_mask -= flag
+    this
+
+// @function Check if ANY of the flags in a composite mask are set
+// @param this BacktestTrade instance
+// @param mask Composite mask (sum of multiple power-of-2 flags)
+// @returns True if at least one flag in mask is set
+method hasAny(BacktestTrade this, int mask) =>
+    bool result = false
+    int testBit = 1
+    for i = 0 to STATE_MAX_BIT
+        if math.floor(mask / testBit) % 2 == 1
+            if this.hasFlag(testBit)
+                result := true
+                break
+        testBit := testBit * 2
+    result
+
+// @function Check if ALL flags in a composite mask are set
+// @param this BacktestTrade instance
+// @param mask Composite mask (sum of multiple power-of-2 flags)
+// @returns True if all flags in mask are set
+method hasAll(BacktestTrade this, int mask) =>
+    bool result = true
+    int testBit = 1
+    for i = 0 to STATE_MAX_BIT
+        if math.floor(mask / testBit) % 2 == 1
+            if not this.hasFlag(testBit)
+                result := false
+                break
+        testBit := testBit * 2
+    result
+
+// @function Set lifecycle phase with mutual exclusion
+// @param this BacktestTrade instance
+// @param phase Lifecycle flag (FLAG_PENDING, FLAG_ACTIVE, or FLAG_CLOSED)
+// @returns BacktestTrade instance for chaining
+method setLifecycle(BacktestTrade this, int phase) =>
+    this.clearFlag(FLAG_PENDING).clearFlag(FLAG_ACTIVE).clearFlag(FLAG_CLOSED).setFlag(phase)
+
+// @function Set outcome with mutual exclusion (SL_HIT xor TP_HIT)
+// @param this BacktestTrade instance
+// @param outcome Outcome flag (FLAG_SL_HIT or FLAG_TP_HIT)
+// @returns BacktestTrade instance for chaining
+method setOutcome(BacktestTrade this, int outcome) =>
+    this.clearFlag(FLAG_SL_HIT).clearFlag(FLAG_TP_HIT).setFlag(outcome)
+
 // Global Storage for Backtesting Engine
 var array<BacktestTrade> history_log = array.new<BacktestTrade>()  // Completed trade history
 var BacktestTrade current_sim = na  // Single trade currently being simulated in the loop
@@ -826,6 +962,75 @@ type SetupState
     float  atr_at_setup
     float  rsi_at_entry
     float  vol_percentile
+
+// @function Check if a specific flag is set in this SetupState's state_mask
+// @param this SetupState instance
+// @param flag Flag to check (power-of-2 constant)
+// @returns True if flag is set
+method hasFlag(SetupState this, int flag) =>
+    math.floor(this.state_mask / flag) % 2 == 1
+
+// @function Set a flag in this SetupState's state_mask (idempotent)
+// @param this SetupState instance
+// @param flag Flag to set (power-of-2 constant)
+// @returns SetupState instance for chaining
+method setFlag(SetupState this, int flag) =>
+    if not this.hasFlag(flag)
+        this.state_mask += flag
+    this
+
+// @function Clear a flag from this SetupState's state_mask (idempotent)
+// @param this SetupState instance
+// @param flag Flag to clear (power-of-2 constant)
+// @returns SetupState instance for chaining
+method clearFlag(SetupState this, int flag) =>
+    if this.hasFlag(flag)
+        this.state_mask -= flag
+    this
+
+// @function Check if ANY of the flags in a composite mask are set
+// @param this SetupState instance
+// @param mask Composite mask (sum of multiple power-of-2 flags)
+// @returns True if at least one flag in mask is set
+method hasAny(SetupState this, int mask) =>
+    bool result = false
+    int testBit = 1
+    for i = 0 to STATE_MAX_BIT
+        if math.floor(mask / testBit) % 2 == 1
+            if this.hasFlag(testBit)
+                result := true
+                break
+        testBit := testBit * 2
+    result
+
+// @function Check if ALL flags in a composite mask are set
+// @param this SetupState instance
+// @param mask Composite mask (sum of multiple power-of-2 flags)
+// @returns True if all flags in mask are set
+method hasAll(SetupState this, int mask) =>
+    bool result = true
+    int testBit = 1
+    for i = 0 to STATE_MAX_BIT
+        if math.floor(mask / testBit) % 2 == 1
+            if not this.hasFlag(testBit)
+                result := false
+                break
+        testBit := testBit * 2
+    result
+
+// @function Set lifecycle phase with mutual exclusion
+// @param this SetupState instance
+// @param phase Lifecycle flag (FLAG_PENDING, FLAG_ACTIVE, or FLAG_CLOSED)
+// @returns SetupState instance for chaining
+method setLifecycle(SetupState this, int phase) =>
+    this.clearFlag(FLAG_PENDING).clearFlag(FLAG_ACTIVE).clearFlag(FLAG_CLOSED).setFlag(phase)
+
+// @function Set outcome with mutual exclusion (SL_HIT xor TP_HIT)
+// @param this SetupState instance
+// @param outcome Outcome flag (FLAG_SL_HIT or FLAG_TP_HIT)
+// @returns SetupState instance for chaining
+method setOutcome(SetupState this, int outcome) =>
+    this.clearFlag(FLAG_SL_HIT).clearFlag(FLAG_TP_HIT).setFlag(outcome)
 
 // @function Create a fresh SetupState with default values
 // @returns New SetupState with state_mask = 0 (no flags set)
@@ -1271,13 +1476,6 @@ f_htf_ohlc(string _htf) =>
 
 [_, htf_h1, htf_l1, htf_c1, _, _, _, _] = f_htf_ohlc(htf)
 
-f_get_level(float _ratio) =>
-    float _diff = math.abs(cachedPMidPivot - cachedPEndBase)
-    float _result = cachedPEndBase < cachedPMidPivot ? 
-         (INPUT_REVERSE ? cachedPEndBase : cachedPMidPivot) - (INPUT_REVERSE ? -1 : 1) * _diff * _ratio : 
-         (INPUT_REVERSE ? cachedPEndBase : cachedPMidPivot) + (INPUT_REVERSE ? -1 : 1) * _diff * _ratio
-    _result
-
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // PIVOT COORDINATE REFERENCES
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1290,6 +1488,9 @@ iMidPivot2 = cachedIMidPivot2
 pMidPivot2 = cachedPMidPivot2
 iEndBase2  = cachedIEndBase2
 pEndBase2  = cachedPEndBase2
+
+// PivotContext for confirmed pivots (uses cached values)
+PivotContext GLOBAL_confirmedPivot = PivotContext.new(cachedPMidPivot, cachedPEndBase, INPUT_REVERSE)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // PROJECTION PIVOT INTEGRATION (for Statistical Position Engine)
@@ -1320,13 +1521,8 @@ float effPMidPivot = projectionActive ? projPMidPivot : cachedPMidPivot
 int   effIEndBase = projectionActive ? projIEndBase : cachedIEndBase
 float effPEndBase = projectionActive ? projPEndBase : cachedPEndBase
 
-// Function to get level using effective pivots (for projection mode)
-f_get_level_eff(float _ratio) =>
-    float _diff = math.abs(effPMidPivot - effPEndBase)
-    float _result = effPEndBase < effPMidPivot ? 
-         (INPUT_REVERSE ? effPEndBase : effPMidPivot) - (INPUT_REVERSE ? -1 : 1) * _diff * _ratio : 
-         (INPUT_REVERSE ? effPEndBase : effPMidPivot) + (INPUT_REVERSE ? -1 : 1) * _diff * _ratio
-    _result
+// PivotContext for effective pivots (includes projection if active)
+PivotContext GLOBAL_effectivePivot = PivotContext.new(effPMidPivot, effPEndBase, INPUT_REVERSE)
 
 f_crossingLevel(float _curret, float _level) =>
     _level > _curret and _level < _curret[1] or _level < _curret and _level > _curret[1]
@@ -1354,12 +1550,6 @@ f_drawLinePVT(_x1, _y1, _x2, _y2, _xloc, _extend, _c, _s, _w) =>
 f_drawLabelPVT(_x, _y, _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip) =>
     if _y > 0
         array.push(lb, label.new(_x, _y, INPUT_EXTEND_PVT or INPUT_LEVELS_PVT_POS == "Last Bar" ? _text + '\n\n' : _text, _xloc, _yloc, _color, _style, _textcolor, _size, _textalign, _tooltip))
-
-f_setLog(map<float, float> logMap) => 
-    logMap.clear()
-
-f_updateLevelsLog(map<float, float> logMap, float level, float value) =>
-    logMap.put(level, value)
 
 method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRedraw) =>
     if this.show and not na(x1) and not na(pMid) and not na(pEnd)
@@ -1390,24 +1580,10 @@ method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRed
             if INPUT_LEVELS_POS == "Last Bar" and not na(this.lb) and price > 0
                 label.set_x(this.lb, x2)
         
-        f_updateLevelsLog(GLOBAL_pivotLevelsLogRetracements, this.level, price)
+        GLOBAL_pivotLevelsLogRetracements.put(this.level, price)
         // Use pre-computed crossing result (computed globally for Pine v6 consistency)
         if this.crossed
-            f_updateLevelsLog(GLOBAL_pivotLevelsLogCrossed, this.level, price)
-
-f_logToJson(map<float, float> logMap) => 
-    result = '{'
-    for i = 0 to array.size(fibLevels) - 1
-        lvl = array.get(fibLevels, i)
-        val = logMap.get(lvl.level)
-        levelKey = str.replace(str.tostring(lvl.level), '.', '_')
-        if na(val)
-            result := result + '"' + levelKey + '":null'
-        else
-            result := result + '"' + levelKey + '":' + str.tostring(val)
-        if i < array.size(fibLevels) - 1
-            result := result + ','
-    result + '}'
+            GLOBAL_pivotLevelsLogCrossed.put(this.level, price)
 
 f_getAlertMessage(string id) =>
     string barstate_json = (
@@ -1438,8 +1614,8 @@ f_getAlertMessage(string id) =>
     string log = ''
     if id == ALERT_ID_UPDATE
         log := ('{' + base_json + 
-                ',"retracements":' + f_logToJson(GLOBAL_pivotLevelsLogRetracements) + 
-                ',"crossed_retracements":' + f_logToJson(GLOBAL_pivotLevelsLogCrossed) + '}')
+                ',"retracements":' + GLOBAL_pivotLevelsLogRetracements.toJson() + 
+                ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() + '}')
     if id == ALERT_ID_EXHAUSTION
         log := ('{' + base_json + 
                 ',"bull_candle":' + (bullCandle ? 'true' : 'false') + 
@@ -1452,7 +1628,7 @@ f_getAlertMessage(string id) =>
                 ',"high_volatility":' + (highVolatility ? 'true' : 'false') + '}')
     if id == ALERT_ID_CROSSING
         log := ('{' + base_json + 
-                ',"crossed_retracements":' + f_logToJson(GLOBAL_pivotLevelsLogCrossed) + '}')
+                ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() + '}')
     log
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1556,8 +1732,8 @@ for lvl in fibLevels
 // Uses RAW Fib levels (cachedPMidPivot, cachedPEndBase) - no learned adjustments
 
 // Calculate RAW Golden Pocket levels using confirmed pivots only
-float raw_price_618 = f_get_level(FIB_GOLDEN_RATIO)
-float raw_price_65  = f_get_level(FIB_GOLDEN_POCKET_H)
+float raw_price_618 = GLOBAL_confirmedPivot.getLevel(FIB_GOLDEN_RATIO)
+float raw_price_65  = GLOBAL_confirmedPivot.getLevel(FIB_GOLDEN_POCKET_H)
 float raw_zone_top = math.max(raw_price_618, raw_price_65)
 float raw_zone_btm = math.min(raw_price_618, raw_price_65)
 float raw_entry_mid = (raw_zone_top + raw_zone_btm) / 2
@@ -1584,10 +1760,8 @@ float raw_tp_price = raw_tp_target
 // 2. current_sim is na (not already in a simulation)
 // 3. We have valid cached pivot data
 if pivotChanged and na(current_sim) and not na(cachedIMidPivot) and not na(cachedPEndBase)
-    // Build initial state_mask: PENDING + direction flag
-    int init_state = FLAG_PENDING
-    if raw_is_long
-        init_state := f_setFlag(init_state, FLAG_IS_LONG)
+    // Build initial state_mask: PENDING + direction flag (using arithmetic for raw int)
+    int init_state = FLAG_PENDING + (raw_is_long ? FLAG_IS_LONG : 0)
     
     // Create a new BacktestTrade with RAW levels
     current_sim := BacktestTrade.new(
@@ -1617,10 +1791,10 @@ if pivotChanged and na(current_sim) and not na(cachedIMidPivot) and not na(cache
 bool skip_this_bar = pivotChanged  // Don't process newly spawned trades on their creation bar
 
 if not na(current_sim) and not skip_this_bar
-    bool sim_is_long = f_hasFlag(current_sim.state_mask, FLAG_IS_LONG)
+    bool sim_is_long = current_sim.hasFlag(FLAG_IS_LONG)
     
     // PENDING: Waiting for price to touch the Golden Pocket zone
-    if f_hasFlag(current_sim.state_mask, FLAG_PENDING)
+    if current_sim.hasFlag(FLAG_PENDING)
         bool zone_touched = false
         bool sl_breached_before_entry = false
         
@@ -1638,8 +1812,7 @@ if not na(current_sim) and not skip_this_bar
             current_sim := na
         // If zone touched, activate the trade (transition: PENDING -> ACTIVE)
         else if zone_touched
-            current_sim.state_mask := f_setLifecycle(current_sim.state_mask, FLAG_ACTIVE)
-            current_sim.state_mask := f_setFlag(current_sim.state_mask, FLAG_ZONE_TOUCHED)
+            current_sim.setLifecycle(FLAG_ACTIVE).setFlag(FLAG_ZONE_TOUCHED)
             current_sim.entry_bar := bar_index
             current_sim.entry_price := sim_is_long ? current_sim.entry_top : current_sim.entry_btm
             current_sim.mae := 0.0
@@ -1648,7 +1821,7 @@ if not na(current_sim) and not skip_this_bar
                      sim_is_long ? "LONG" : "SHORT", current_sim.id, current_sim.entry_price)
     
     // ACTIVE: In trade, tracking MAE/MFE and checking for exit
-    else if f_hasFlag(current_sim.state_mask, FLAG_ACTIVE)
+    else if current_sim.hasFlag(FLAG_ACTIVE)
         // Update MAE (Max Adverse Excursion) - worst price against us
         if sim_is_long  // LONG: adverse = price going DOWN
             float adverse = current_sim.entry_price - low
@@ -1671,7 +1844,7 @@ if not na(current_sim) and not skip_this_bar
         
         // Handle exits (transition: ACTIVE -> CLOSED)
         if sl_hit or tp_hit
-            current_sim.state_mask := f_setLifecycle(current_sim.state_mask, FLAG_CLOSED)
+            current_sim.setLifecycle(FLAG_CLOSED)
             current_sim.exit_bar := bar_index
             
             // ═══════════════════════════════════════════════════════════════════════════
@@ -1692,7 +1865,7 @@ if not na(current_sim) and not skip_this_bar
                         trade_won := ltf_outcome == 1  // 1 = TP first, -1 = SL first
                         used_ltf_resolution := true
                         ltf_hit_idx := hit_idx
-                        current_sim.state_mask := f_setFlag(current_sim.state_mask, FLAG_LTF_RESOLVED)
+                        current_sim.setFlag(FLAG_LTF_RESOLVED)
                     else
                         // LTF data available but no decisive outcome - use HTF fallback
                         float dist_to_sl = math.abs(open - current_sim.sl_price)
@@ -1707,12 +1880,11 @@ if not na(current_sim) and not skip_this_bar
                 // Only one level hit - straightforward resolution
                 trade_won := tp_hit
             
-            // Set outcome flags using f_setOutcome for mutual exclusion (SL_HIT xor TP_HIT)
+            // Set outcome flags using setOutcome method for mutual exclusion (SL_HIT xor TP_HIT)
             if trade_won
-                current_sim.state_mask := f_setOutcome(current_sim.state_mask, FLAG_TP_HIT)
-                current_sim.state_mask := f_setFlag(current_sim.state_mask, FLAG_WON)
+                current_sim.setOutcome(FLAG_TP_HIT).setFlag(FLAG_WON)
             else
-                current_sim.state_mask := f_setOutcome(current_sim.state_mask, FLAG_SL_HIT)
+                current_sim.setOutcome(FLAG_SL_HIT)
             
             // Push completed trade to history_log
             array.push(history_log, current_sim)
@@ -1747,7 +1919,7 @@ if barstate.islast and array.size(history_log) > 0 and not bt_stats_ready
     // Loop through all completed trades
     for i = 0 to total - 1
         BacktestTrade trade = array.get(history_log, i)
-        if f_hasFlag(trade.state_mask, FLAG_WON)
+        if trade.hasFlag(FLAG_WON)
             wins += 1
             sum_winning_mae += trade.mae
         else
@@ -1791,10 +1963,10 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // When EndBase > MidPivot, the last swing was UP (upswing completed), so we expect a retracement DOWN into the pocket → SHORT
     // When EndBase < MidPivot, the last swing was DOWN (downswing completed), so we expect a retracement UP into the pocket → LONG
-    // f_get_level_eff uses effective pivots (projection or confirmed)
+    // GLOBAL_effectivePivot uses effective pivots (projection or confirmed)
     bool is_long_setup = effPEndBase < effPMidPivot  // EndBase < MidPivot = downswing completed = LONG retracement expected
-    float price_618 = f_get_level_eff(FIB_GOLDEN_RATIO)
-    float price_65  = f_get_level_eff(FIB_GOLDEN_POCKET_H)
+    float price_618 = GLOBAL_effectivePivot.getLevel(FIB_GOLDEN_RATIO)
+    float price_65  = GLOBAL_effectivePivot.getLevel(FIB_GOLDEN_POCKET_H)
     
     // Reuse global ATR calculation (i_weightedATR = ta.atr(INPUT_ATR_LENGTH) * INPUT_ATR_MULT)
     float current_atr = GLOBAL_rawAtr
@@ -1872,7 +2044,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             SetupRecord rec = GLOBAL_setupHistory.get(i)
             if na(rec)
                 continue
-            if rec.closest_approach > 0 and rec.closest_approach < INPUT_NEAR_MISS_THRESH and not f_hasFlag(rec.state_mask, FLAG_ZONE_TOUCHED)
+            if rec.closest_approach > 0 and rec.closest_approach < INPUT_NEAR_MISS_THRESH and not rec.hasFlag(FLAG_ZONE_TOUCHED)
                 near_misses += 1
             total_valid += 1
         
@@ -1889,7 +2061,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             int approach_count = 0
             for j = 0 to max_check
                 SetupRecord rec2 = GLOBAL_setupHistory.get(j)
-                if not na(rec2) and rec2.closest_approach > 0 and rec2.closest_approach < INPUT_NEAR_MISS_THRESH and not f_hasFlag(rec2.state_mask, FLAG_ZONE_TOUCHED)
+                if not na(rec2) and rec2.closest_approach > 0 and rec2.closest_approach < INPUT_NEAR_MISS_THRESH and not rec2.hasFlag(FLAG_ZONE_TOUCHED)
                     avg_approach += rec2.closest_approach
                     approach_count += 1
             if approach_count > 0
@@ -1947,29 +2119,29 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool confirmed_zone_entry = false
     if not na(GLOBAL_activeTrade.setup_bar)
         confirmed_in_zone := low <= GLOBAL_activeTrade.zone_top and high >= GLOBAL_activeTrade.zone_bottom
-        confirmed_zone_entry := confirmed_in_zone and not f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_ZONE_TOUCHED)
+        confirmed_zone_entry := confirmed_in_zone and not GLOBAL_activeTrade.hasFlag(FLAG_ZONE_TOUCHED)
     
     // Check against CURRENT boundaries (for display)
     in_zone := low <= adjusted_box_top and high >= adjusted_box_bottom
-    zone_entry := in_zone and (na(GLOBAL_activeTrade.setup_bar) or not f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_ZONE_TOUCHED))
+    zone_entry := in_zone and (na(GLOBAL_activeTrade.setup_bar) or not GLOBAL_activeTrade.hasFlag(FLAG_ZONE_TOUCHED))
     
     // Track if zone was touched for CONFIRMED setup only (not projections)
     if confirmed_in_zone and not na(GLOBAL_activeTrade.setup_bar) and not isProjection
-        GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_ZONE_TOUCHED)
+        GLOBAL_activeTrade.setFlag(FLAG_ZONE_TOUCHED)
     
     // Track SL/TP hits for CONFIRMED setup only (not projections)
     // CRITICAL: Only track SL/TP AFTER zone is touched (entry occurred)
     // Use STORED sl/tp prices from setup formation for consistent tracking
     // CONSERVATIVE EXECUTION: If bar covers both SL and TP, assume SL hit UNLESS
     //   Open is at least 2x closer to TP than SL (dist_to_tp < dist_to_sl * 0.5)
-    if not na(GLOBAL_activeTrade.setup_bar) and f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_ZONE_TOUCHED) and not isProjection
-        if f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG)
+    if not na(GLOBAL_activeTrade.setup_bar) and GLOBAL_activeTrade.hasFlag(FLAG_ZONE_TOUCHED) and not isProjection
+        if GLOBAL_activeTrade.hasFlag(FLAG_IS_LONG)
             bool sl_touched = low <= GLOBAL_activeTrade.sl_price
             bool tp_touched = high >= GLOBAL_activeTrade.tp_price
             
             // Outcome detection with mutual exclusion (first outcome wins, per FR-4 invariant)
             // Skip if outcome already determined
-            if not f_hasAny(GLOBAL_activeTrade.state_mask, MASK_OUTCOME)
+            if not GLOBAL_activeTrade.hasAny(MASK_OUTCOME)
                 if sl_touched and tp_touched
                     // Conservative execution: when both hit in same bar, prioritize capital preservation
                     // Check if Open was closer to TP - only then assume TP hit first
@@ -1977,50 +2149,46 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     float dist_to_tp = math.abs(open - GLOBAL_activeTrade.tp_price)
                     // TP only wins if Open is significantly closer (50%+ closer) to TP
                     if dist_to_tp < dist_to_sl * 0.5
-                        GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_TP_HIT)
-                        GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_WON)
+                        GLOBAL_activeTrade.setOutcome(FLAG_TP_HIT).setFlag(FLAG_WON)
                     else
-                        GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_SL_HIT)
+                        GLOBAL_activeTrade.setOutcome(FLAG_SL_HIT)
                 else if sl_touched
-                    GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_SL_HIT)
+                    GLOBAL_activeTrade.setOutcome(FLAG_SL_HIT)
                 else if tp_touched
-                    GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_TP_HIT)
-                    GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_WON)
+                    GLOBAL_activeTrade.setOutcome(FLAG_TP_HIT).setFlag(FLAG_WON)
             
             // Phase 3: Track BOTH TP modes independently (for learning comparison)
             // These are analytics flags, not mutually exclusive with SL/TP outcome
             if high >= GLOBAL_activeTrade.tp_cons
-                GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_CONS_TP_HIT)
+                GLOBAL_activeTrade.setFlag(FLAG_CONS_TP_HIT)
             if high >= GLOBAL_activeTrade.tp_aggr
-                GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_AGGR_TP_HIT)
+                GLOBAL_activeTrade.setFlag(FLAG_AGGR_TP_HIT)
         else
             bool sl_touched = high >= GLOBAL_activeTrade.sl_price
             bool tp_touched = low <= GLOBAL_activeTrade.tp_price
             
             // Outcome detection with mutual exclusion (first outcome wins, per FR-4 invariant)
             // Skip if outcome already determined
-            if not f_hasAny(GLOBAL_activeTrade.state_mask, MASK_OUTCOME)
+            if not GLOBAL_activeTrade.hasAny(MASK_OUTCOME)
                 if sl_touched and tp_touched
                     // Conservative execution: when both hit in same bar, prioritize capital preservation
                     float dist_to_sl = math.abs(open - GLOBAL_activeTrade.sl_price)
                     float dist_to_tp = math.abs(open - GLOBAL_activeTrade.tp_price)
                     if dist_to_tp < dist_to_sl * 0.5
-                        GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_TP_HIT)
-                        GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_WON)
+                        GLOBAL_activeTrade.setOutcome(FLAG_TP_HIT).setFlag(FLAG_WON)
                     else
-                        GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_SL_HIT)
+                        GLOBAL_activeTrade.setOutcome(FLAG_SL_HIT)
                 else if sl_touched
-                    GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_SL_HIT)
+                    GLOBAL_activeTrade.setOutcome(FLAG_SL_HIT)
                 else if tp_touched
-                    GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_TP_HIT)
-                    GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_WON)
+                    GLOBAL_activeTrade.setOutcome(FLAG_TP_HIT).setFlag(FLAG_WON)
             
             // Phase 3: Track BOTH TP modes independently (for learning comparison)
             // These are analytics flags, not mutually exclusive with SL/TP outcome
             if low <= GLOBAL_activeTrade.tp_cons
-                GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_CONS_TP_HIT)
+                GLOBAL_activeTrade.setFlag(FLAG_CONS_TP_HIT)
             if low <= GLOBAL_activeTrade.tp_aggr
-                GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_AGGR_TP_HIT)
+                GLOBAL_activeTrade.setFlag(FLAG_AGGR_TP_HIT)
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // EXTENDED LEARNING: MAE/MFE Tracking (Phase 1) - CONFIRMED TRADES ONLY
@@ -2034,8 +2202,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // Track MAE/MFE from entry (only after zone touched, CONFIRMED trades only)
     if not na(GLOBAL_activeTrade.entry_bar) and not na(GLOBAL_activeTrade.entry_price) and not na(GLOBAL_activeTrade.atr_at_setup) and not isProjection
-        if not f_hasAny(GLOBAL_activeTrade.state_mask, MASK_OUTCOME)
-            if f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG)
+        if not GLOBAL_activeTrade.hasAny(MASK_OUTCOME)
+            if GLOBAL_activeTrade.hasFlag(FLAG_IS_LONG)
                 // MAE: How much price moved against us (low - entry, negative is adverse)
                 float adverse = (GLOBAL_activeTrade.entry_price - low) / GLOBAL_activeTrade.atr_at_setup
                 GLOBAL_activeTrade.max_adverse := math.max(GLOBAL_activeTrade.max_adverse, adverse)
@@ -2115,7 +2283,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // SL breach invalidation (also invalidate on zone expiration)
     // Use CONFIRMED trade direction and SL for consistency (not projection)
-    bool sl_check_long = not na(GLOBAL_activeTrade.setup_bar) ? f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG) : is_long_setup
+    bool sl_check_long = not na(GLOBAL_activeTrade.setup_bar) ? GLOBAL_activeTrade.hasFlag(FLAG_IS_LONG) : is_long_setup
     float sl_check_price = not na(GLOBAL_activeTrade.setup_bar) ? GLOBAL_activeTrade.sl_price : sl_price
     bool sl_breached = sl_check_long ? close < sl_check_price : close > sl_check_price
     bool is_invalid = sl_breached or zone_expired
@@ -2129,7 +2297,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float price_at_pivot = GLOBAL_priceAtPivot
     
     // Use CONFIRMED trade direction for divergence check (for learning consistency)
-    bool check_long = not na(GLOBAL_activeTrade.setup_bar) ? f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG) : is_long_setup
+    bool check_long = not na(GLOBAL_activeTrade.setup_bar) ? GLOBAL_activeTrade.hasFlag(FLAG_IS_LONG) : is_long_setup
     // Bullish divergence: price made lower low but RSI made higher low (momentum building)
     bool bullish_div = check_long and close < price_at_pivot and rsi > rsi_at_pivot
     // Bearish divergence: price made higher high but RSI made lower high (momentum fading)
@@ -2139,14 +2307,14 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Capture RSI divergence flag for learning (CONFIRMED trades only, not projections)
     if confirmed_zone_entry and not na(GLOBAL_activeTrade.setup_bar) and not isProjection
         if bullish_div or bearish_div
-            GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_HAD_RSI_DIV)
+            GLOBAL_activeTrade.setFlag(FLAG_HAD_RSI_DIV)
     
     // Combined confluence: volume OR RSI divergence
     bool full_confirm = vol_confirm or rsi_confirm
     
     // Determine box color based on state (apply time decay to transparency)
     // Use current calculation for display (projection or confirmed)
-    bool active_is_long = isProjection ? is_long_setup : (not na(GLOBAL_activeTrade.setup_bar) ? f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG) : is_long_setup)
+    bool active_is_long = isProjection ? is_long_setup : (not na(GLOBAL_activeTrade.setup_bar) ? GLOBAL_activeTrade.hasFlag(FLAG_IS_LONG) : is_long_setup)
     color base_color = active_is_long ? COLOR_BLUE : COLOR_RED
     int decay_trans_add = int((1 - time_decay) * 20)  // Add 0-20 transparency based on decay
     int bg_trans = is_invalid ? 90 : (in_zone ? (full_confirm ? 45 : (vol_confirm or rsi_confirm ? 55 : 65)) : 75) + decay_trans_add
@@ -2224,10 +2392,10 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             if na(rec)
                 continue
             // Setups where zone was never touched are "no trade" - don't affect win rate
-            if not f_hasFlag(rec.state_mask, FLAG_ZONE_TOUCHED)
+            if not rec.hasFlag(FLAG_ZONE_TOUCHED)
                 continue  // Skip - no entry, no trade
             
-            if f_hasFlag(rec.state_mask, FLAG_TP_HIT) and not f_hasFlag(rec.state_mask, FLAG_SL_HIT)
+            if rec.hasFlag(FLAG_TP_HIT) and not rec.hasFlag(FLAG_SL_HIT)
                 wins += 1
                 // Aggregate winning trade metrics for MAE/MFE analysis
                 total_mae += rec.max_adverse
@@ -2235,12 +2403,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                 total_bars += rec.bars_to_outcome
                 outcome_count += 1
                 // Phase 2: RSI divergence stratification
-                if f_hasFlag(rec.state_mask, FLAG_HAD_RSI_DIV)
+                if rec.hasFlag(FLAG_HAD_RSI_DIV)
                     wins_with_div += 1
                 else
                     wins_without_div += 1
                 // Phase 2: Direction stratification
-                if f_hasFlag(rec.state_mask, FLAG_IS_LONG)
+                if rec.hasFlag(FLAG_IS_LONG)
                     wins_long += 1
                 else
                     wins_short += 1
@@ -2266,18 +2434,18 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     else
                         // Was in loss streak, this win breaks it
                         streak_frozen := true
-            else if f_hasFlag(rec.state_mask, FLAG_SL_HIT)
+            else if rec.hasFlag(FLAG_SL_HIT)
                 losses += 1
                 // Phase 2: Track losing trade MAE
                 losing_mae_total += rec.max_adverse
                 losing_count += 1
                 // Phase 2: RSI divergence stratification
-                if f_hasFlag(rec.state_mask, FLAG_HAD_RSI_DIV)
+                if rec.hasFlag(FLAG_HAD_RSI_DIV)
                     losses_with_div += 1
                 else
                     losses_without_div += 1
                 // Phase 2: Direction stratification
-                if f_hasFlag(rec.state_mask, FLAG_IS_LONG)
+                if rec.hasFlag(FLAG_IS_LONG)
                     losses_long += 1
                 else
                     losses_short += 1
@@ -2301,12 +2469,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             
             // Phase 3: TP mode comparison (track both modes regardless of which was used)
             // Only count if SL wasn't hit first
-            if not f_hasFlag(rec.state_mask, FLAG_SL_HIT)
+            if not rec.hasFlag(FLAG_SL_HIT)
                 cons_tp_total += 1
                 aggr_tp_total += 1
-                if f_hasFlag(rec.state_mask, FLAG_CONS_TP_HIT)
+                if rec.hasFlag(FLAG_CONS_TP_HIT)
                     cons_tp_wins += 1
-                if f_hasFlag(rec.state_mask, FLAG_AGGR_TP_HIT)
+                if rec.hasFlag(FLAG_AGGR_TP_HIT)
                     aggr_tp_wins += 1
         
         int total_outcomes = wins + losses
@@ -2642,7 +2810,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float display_tp_text = tp_price  // Always show current calculation with learning
     float display_sl_text = sl_price  // Always show current calculation with learning
     // Use current calculation for display (projection shows current direction)
-    bool display_is_long = isProjection ? is_long_setup : (not na(GLOBAL_activeTrade.setup_bar) ? f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG) : is_long_setup)
+    bool display_is_long = isProjection ? is_long_setup : (not na(GLOBAL_activeTrade.setup_bar) ? GLOBAL_activeTrade.hasFlag(FLAG_IS_LONG) : is_long_setup)
     
     // Status prefix: clearly distinguish between Confirmed Active and Projected trades
     // ⚡PROJ = Projection (tentative, not recorded to learning)
@@ -2675,7 +2843,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool should_record = INPUT_LEARNING_ENABLED and pivotChanged and not na(GLOBAL_activeTrade.setup_bar)
     if should_record
         // Calculate bars to outcome (0 if neither SL nor TP hit)
-        int bars_to_out = f_hasAny(GLOBAL_activeTrade.state_mask, MASK_OUTCOME) and not na(GLOBAL_activeTrade.entry_bar) ? 
+        int bars_to_out = GLOBAL_activeTrade.hasAny(MASK_OUTCOME) and not na(GLOBAL_activeTrade.entry_bar) ? 
                           (bar_index - GLOBAL_activeTrade.entry_bar) : 0
         
         // Record the previous CONFIRMED setup's outcome before it changes
@@ -2711,11 +2879,11 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // DEBUG: Log when setup is recorded (using state_mask flags)
         log.info("RECORDED: bar={0}, mask={1}, samples={2}, long={3}, touched={4}, sl={5}, tp={6}, won={7}", 
                  GLOBAL_activeTrade.setup_bar, GLOBAL_activeTrade.state_mask, GLOBAL_setupHistory.size(),
-                 f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG),
-                 f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_ZONE_TOUCHED),
-                 f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_SL_HIT),
-                 f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_TP_HIT),
-                 f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_WON))
+                 GLOBAL_activeTrade.hasFlag(FLAG_IS_LONG),
+                 GLOBAL_activeTrade.hasFlag(FLAG_ZONE_TOUCHED),
+                 GLOBAL_activeTrade.hasFlag(FLAG_SL_HIT),
+                 GLOBAL_activeTrade.hasFlag(FLAG_TP_HIT),
+                 GLOBAL_activeTrade.hasFlag(FLAG_WON))
     
     // Initialize CONFIRMED trade tracking - ONLY reset on pivotChanged (never for projections)
     // This ensures Learning Engine data is ONLY from confirmed ZigZag pivots
@@ -2727,9 +2895,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // So cachedIMidPivot is typically bar_index - pivotLength
         // creation_bar tracks when WE created the setup, not when the pivot occurred
         GLOBAL_activeTrade.creation_bar := bar_index
-        // Build initial state_mask: direction + TP mode (all event flags start cleared)
-        int new_state = is_long_setup ? FLAG_IS_LONG : 0
-        new_state := use_aggressive_tp ? f_setFlag(new_state, FLAG_TP_AGGRESSIVE) : new_state
+        // Build initial state_mask: direction + TP mode (using arithmetic for raw int)
+        int new_state = (is_long_setup ? FLAG_IS_LONG : 0) + (use_aggressive_tp ? FLAG_TP_AGGRESSIVE : 0)
         GLOBAL_activeTrade.state_mask := new_state
         GLOBAL_activeTrade.zone_top := adjusted_box_top
         GLOBAL_activeTrade.zone_bottom := adjusted_box_bottom
@@ -2866,8 +3033,8 @@ plotchar(INPUT_SHOW_HIGH_ATR ? highVolatility : false, 'High Volatile Bar', '⚡
 
 v_start = cachedPMidPivot
 v_end   = cachedPEndBase
-v_50    = f_get_level(0.5)
-v_618   = f_get_level(FIB_GOLDEN_RATIO)
+v_50    = GLOBAL_confirmedPivot.getLevel(0.5)
+v_618   = GLOBAL_confirmedPivot.getLevel(FIB_GOLDEN_RATIO)
 
 plot(v_start, "Pivot Start", color = color.new(color.gray, 0), display = display.data_window + display.status_line)
 plot(v_end,   "Pivot End",   color = color.new(color.white, 0), display = display.data_window + display.status_line)
@@ -2883,5 +3050,5 @@ if INPUT_ALERT_ENABLED and INPUT_ALERT_MODE == 'calculateAlertUpdates'
         alert(f_getAlertMessage(ALERT_ID_UPDATE), alert.freq_once_per_bar) 
     
     if barstate.ishistory
-        f_setLog(GLOBAL_pivotLevelsLogRetracements)
-        f_setLog(GLOBAL_pivotLevelsLogCrossed)
+        GLOBAL_pivotLevelsLogRetracements.clear()
+        GLOBAL_pivotLevelsLogCrossed.clear()
