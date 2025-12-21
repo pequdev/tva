@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.4.1', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.5.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -72,6 +72,21 @@ float ENTROPY_THRESH_DEFAULT    = 0.7   // Normalized entropy threshold (0-1)
 int   ENTROPY_REGIME_ORDERED    = 0     // Low entropy: structured/trending
 int   ENTROPY_REGIME_TRANSITION = 1     // High→Low entropy: breakout
 int   ENTROPY_REGIME_DISORDERED = 2     // High entropy: choppy/random
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// HURST EXPONENT CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Default parameters
+int   HURST_WINDOW_DEFAULT      = 100   // Rolling window for R/S calculation
+float HURST_TREND_THRESH        = 0.55  // H > this → persistent/trending
+float HURST_MEANREV_THRESH      = 0.45  // H < this → anti-persistent/mean-reverting
+int   HURST_MIN_WINDOW          = 20    // Minimum window for stable estimate
+
+// Regime classification
+int   HURST_REGIME_TREND        = 0     // H > upper: persistent/trending
+int   HURST_REGIME_RANDOM       = 1     // H near 0.5: random walk
+int   HURST_REGIME_MEANREV      = 2     // H < lower: anti-persistent/mean-reverting
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS - Bitwise Trade/Setup State Representation
@@ -299,6 +314,129 @@ f_rollingEntropy(float log_return, int window, int num_bins, float threshold, bo
     
     prev_entropy_norm := entropy_norm
     [entropy, entropy_norm, regime]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// HURST EXPONENT - Regime Filter for Market Persistence
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Compute R/S (Rescaled Range) for a single window
+// @param data Array of values (log returns)
+// @param start_idx Start index in array
+// @param length Window length
+// @returns R/S value (Range / StdDev)
+f_computeRS(array<float> data, int start_idx, int length) =>
+    float result = na
+    if length >= 2 and start_idx >= 0 and start_idx + length <= array.size(data)
+        // Compute mean of window
+        float sum = 0.0
+        for i = 0 to length - 1
+            sum += array.get(data, start_idx + i)
+        float mean_val = sum / float(length)
+        
+        // Compute mean-adjusted cumulative deviations and stdev
+        float cum_dev = 0.0
+        float min_cum = 0.0
+        float max_cum = 0.0
+        float sq_sum = 0.0
+        
+        for i = 0 to length - 1
+            float val = array.get(data, start_idx + i)
+            float dev = val - mean_val
+            cum_dev += dev
+            min_cum := i == 0 ? cum_dev : math.min(min_cum, cum_dev)
+            max_cum := i == 0 ? cum_dev : math.max(max_cum, cum_dev)
+            sq_sum += dev * dev
+        
+        // Range = max(cumulative) - min(cumulative)
+        float range_val = max_cum - min_cum
+        // Standard deviation
+        float stdev = math.sqrt(sq_sum / float(length))
+        
+        // R/S = Range / StdDev (with S=0 handling)
+        result := stdev > 0 ? range_val / stdev : 0.0
+    result
+
+// @function Estimate Hurst exponent using multi-scale R/S regression
+// @param log_return Current bar's log return
+// @param window Maximum window length
+// @param min_window Minimum sub-window size
+// @returns Tuple [hurst_value, regime]
+f_rollingHurst(float log_return, int window, int min_window, float trend_thresh, float meanrev_thresh) =>
+    var array<float> return_buffer = array.new_float(0)
+    
+    // Accumulate log returns
+    if not na(log_return)
+        array.push(return_buffer, log_return)
+        if array.size(return_buffer) > window
+            array.shift(return_buffer)
+    
+    float hurst = 0.5   // Default to random walk
+    int regime = HURST_REGIME_RANDOM
+    
+    int buf_size = array.size(return_buffer)
+    
+    // Need enough data for multi-scale analysis
+    if buf_size >= min_window
+        // Multi-scale R/S regression: use sub-windows of increasing size
+        // Sub-window sizes: min_window, min_window*1.5, min_window*2, ... up to buf_size
+        array<float> log_n = array.new_float(0)
+        array<float> log_rs = array.new_float(0)
+        
+        int n = min_window
+        while n <= buf_size
+            // Compute average R/S for this window size by dividing buffer into chunks
+            int num_chunks = buf_size / n
+            if num_chunks > 0
+                float rs_sum = 0.0
+                int valid_chunks = 0
+                for chunk = 0 to num_chunks - 1
+                    int start = chunk * n
+                    float rs = f_computeRS(return_buffer, start, n)
+                    if not na(rs) and rs > 0
+                        rs_sum += rs
+                        valid_chunks += 1
+                
+                if valid_chunks > 0
+                    float avg_rs = rs_sum / float(valid_chunks)
+                    array.push(log_n, math.log(float(n)))
+                    array.push(log_rs, math.log(avg_rs))
+            
+            // Increase window size (geometric progression for efficiency)
+            n := int(math.ceil(float(n) * 1.5))
+        
+        // Linear regression: log(R/S) = H * log(n) + c
+        // Hurst = slope of the line
+        int num_points = array.size(log_n)
+        if num_points >= 2
+            float sum_x = 0.0
+            float sum_y = 0.0
+            float sum_xy = 0.0
+            float sum_xx = 0.0
+            
+            for i = 0 to num_points - 1
+                float x = array.get(log_n, i)
+                float y = array.get(log_rs, i)
+                sum_x += x
+                sum_y += y
+                sum_xy += x * y
+                sum_xx += x * x
+            
+            float n_pts = float(num_points)
+            float denom = n_pts * sum_xx - sum_x * sum_x
+            if math.abs(denom) > 1e-10
+                hurst := (n_pts * sum_xy - sum_x * sum_y) / denom
+                // Clamp to valid Hurst range [0, 1]
+                hurst := math.max(0.0, math.min(1.0, hurst))
+        
+        // Classify regime based on thresholds
+        if hurst > trend_thresh
+            regime := HURST_REGIME_TREND
+        else if hurst < meanrev_thresh
+            regime := HURST_REGIME_MEANREV
+        else
+            regime := HURST_REGIME_RANDOM
+    
+    [hurst, regime]
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // LEARNING ENGINE CONSTANTS
@@ -573,6 +711,12 @@ INPUT_ENTROPY_WINDOW    = input.int(20, '   ↳ Window Length', minval=5, maxval
 INPUT_ENTROPY_BINS      = input.int(5, '   ↳ Bin Count', minval=3, maxval=10, group=GROUP_STAT_POS, tooltip="Number of bins for discretizing returns.\n5 bins = [Large Down, Small Down, Neutral, Small Up, Large Up]\nMore bins = finer resolution but needs more data.")
 INPUT_ENTROPY_THRESH    = input.float(0.7, '   ↳ Threshold', minval=0.1, maxval=1.0, step=0.05, group=GROUP_STAT_POS, tooltip="Normalized entropy threshold (0-1).\nBelow = ORDERED (allow trades)\nAbove = DISORDERED (block trades)\n0.7 is a balanced default.")
 INPUT_ENTROPY_TRANSITION = input.bool(false, '   ↳ Allow Transitions', group=GROUP_STAT_POS, tooltip="When enabled, allows trades during high→low entropy transitions.\nDetects breakouts from consolidation (chop→trend).\nExperimental: may increase false positives.")
+// --- HURST EXPONENT FILTER ---
+INPUT_HURST_ENABLED     = input.bool(true, '📈 Hurst Regime Filter', group=GROUP_STAT_POS, tooltip="Filters trades based on Hurst Exponent (market persistence).\nH > 0.5 = trending (persistent), H < 0.5 = mean-reverting.\nOptionally blocks trades near H ≈ 0.5 (random walk).")
+INPUT_HURST_WINDOW      = input.int(100, '   ↳ Window Length', minval=20, maxval=500, group=GROUP_STAT_POS, tooltip="Number of bars for Hurst calculation.\nLarger = more stable but slower to adapt.\n100 is recommended for most timeframes.")
+INPUT_HURST_TREND       = input.float(0.55, '   ↳ Trend Threshold', minval=0.50, maxval=0.80, step=0.01, group=GROUP_STAT_POS, tooltip="H above this = TRENDING regime.\nPersistent price movement, favor breakouts.\n0.55 is a conservative default.")
+INPUT_HURST_MEANREV     = input.float(0.45, '   ↳ Mean-Revert Threshold', minval=0.20, maxval=0.50, step=0.01, group=GROUP_STAT_POS, tooltip="H below this = MEAN-REVERTING regime.\nAnti-persistent movement, favor fades.\n0.45 is a conservative default.")
+INPUT_HURST_BLOCK_RANDOM = input.bool(false, '   ↳ Block Random Regime', group=GROUP_STAT_POS, tooltip="When enabled, blocks trades when H is near 0.5 (random walk).\nReduces exposure during unpredictable conditions.\nExperimental: may reduce trade frequency significantly.")
 // ------------------------------------------
 
 // Fibonacci Levels
@@ -908,6 +1052,11 @@ type LearningMetrics
     float wrOrdered = 0.55
     float wrDisordered = 0.55
     float entropyEdge = 0.0
+    // Hurst regime analytics
+    float wrTrend = 0.55
+    float wrMeanRev = 0.55
+    float wrRandom = 0.55
+    float hurstEdge = 0.0
     // Log-return performance metrics
     float cumLogReturn = 0.0
     float avgLogReturn = 0.0
@@ -1287,6 +1436,8 @@ array<float> GLOBAL_ltfLows  = request.security_lower_tf(syminfo.tickerid, INPUT
 // @field vol_percentile Volatility percentile rank (0-100)
 // @field entropy_regime Entropy regime at setup (ORDERED=0, TRANSITION=1, DISORDERED=2)
 // @field entropy_norm Normalized Shannon entropy at setup (0-1)
+// @field hurst_regime Hurst regime at setup (TREND=0, RANDOM=1, MEANREV=2)
+// @field hurst_value Hurst exponent at setup (0-1)
 type SetupRecord
     int    setup_bar
     int    state_mask = 0
@@ -1306,6 +1457,8 @@ type SetupRecord
     float  vol_percentile
     int    entropy_regime = 0
     float  entropy_norm = 0.0
+    int    hurst_regime = 1
+    float  hurst_value = 0.5
 
 // @function Check if a specific flag is set in this SetupRecord's state_mask
 // @param this SetupRecord instance
@@ -1836,6 +1989,12 @@ if barstate.isconfirmed
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 [GLOBAL_entropy, GLOBAL_entropyNorm, GLOBAL_entropyRegime] = f_rollingEntropy(GLOBAL_logReturn, INPUT_ENTROPY_WINDOW, INPUT_ENTROPY_BINS, INPUT_ENTROPY_THRESH, INPUT_ENTROPY_TRANSITION)
 bool GLOBAL_entropyOk = not INPUT_ENTROPY_ENABLED or GLOBAL_entropyRegime != ENTROPY_REGIME_DISORDERED
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// HURST EXPONENT - Global State
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+[GLOBAL_hurst, GLOBAL_hurstRegime] = f_rollingHurst(GLOBAL_logReturn, INPUT_HURST_WINDOW, HURST_MIN_WINDOW, INPUT_HURST_TREND, INPUT_HURST_MEANREV)
+bool GLOBAL_hurstOk = not INPUT_HURST_ENABLED or not INPUT_HURST_BLOCK_RANDOM or GLOBAL_hurstRegime != HURST_REGIME_RANDOM
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // PRE-COMPUTED TA VALUES
@@ -2501,7 +2660,8 @@ float raw_tp_price = raw_tp_target
 // 2. GLOBAL_backtest.current is na (not already in a simulation)
 // 3. We have valid cached pivot data
 // 4. Entropy regime allows trading (ORDERED or TRANSITION)
-if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cachedPivots.iMidPivot) and not na(GLOBAL_cachedPivots.pEndBase) and GLOBAL_entropyOk
+// 5. Hurst regime allows trading (if blocking random is enabled)
+if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cachedPivots.iMidPivot) and not na(GLOBAL_cachedPivots.pEndBase) and GLOBAL_entropyOk and GLOBAL_hurstOk
     // Build initial state_mask: PENDING + direction flag (using arithmetic for raw int)
     int init_state = FLAG_PENDING + (raw_is_long ? FLAG_IS_LONG : 0)
     
@@ -3123,6 +3283,13 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         int losses_ordered = 0     // Losses in ordered regime
         int wins_disordered = 0    // Wins in disordered (high entropy) regime
         int losses_disordered = 0  // Losses in disordered regime
+        // Hurst regime counters
+        int wins_trend = 0         // Wins in trending (persistent) regime
+        int losses_trend = 0       // Losses in trending regime
+        int wins_meanrev = 0       // Wins in mean-reverting regime
+        int losses_meanrev = 0     // Losses in mean-reverting regime
+        int wins_random = 0        // Wins in random walk regime
+        int losses_random = 0      // Losses in random walk regime
         
         // Iterate from NEWEST to OLDEST using CircularBuffer (get(0) = newest)
         int history_size = GLOBAL_setupHistory.size()
@@ -3169,6 +3336,13 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     wins_ordered += 1
                 else if rec.entropy_regime == ENTROPY_REGIME_DISORDERED
                     wins_disordered += 1
+                // Hurst regime stratification
+                if rec.hurst_regime == HURST_REGIME_TREND
+                    wins_trend += 1
+                else if rec.hurst_regime == HURST_REGIME_MEANREV
+                    wins_meanrev += 1
+                else if rec.hurst_regime == HURST_REGIME_RANDOM
+                    wins_random += 1
                 // Phase 4: Profit factor tracking (1R per win since TP was hit)
                 total_r_won += 1.0
                 // Phase 4: Streak tracking (newest to oldest, freeze after break)
@@ -3206,6 +3380,13 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     losses_ordered += 1
                 else if rec.entropy_regime == ENTROPY_REGIME_DISORDERED
                     losses_disordered += 1
+                // Hurst regime stratification
+                if rec.hurst_regime == HURST_REGIME_TREND
+                    losses_trend += 1
+                else if rec.hurst_regime == HURST_REGIME_MEANREV
+                    losses_meanrev += 1
+                else if rec.hurst_regime == HURST_REGIME_RANDOM
+                    losses_random += 1
                 // Phase 4: Profit factor tracking (1R per loss since SL was hit)
                 total_r_lost += 1.0
                 // Phase 4: Streak tracking (newest to oldest, freeze after break)
@@ -3335,6 +3516,20 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // Entropy edge: ordered WR - disordered WR (positive = ordered is better)
         if total_ordered >= LEARN_MIN_SAMPLES_DIR and total_disordered >= LEARN_MIN_SAMPLES_DIR
             GLOBAL_learning.entropyEdge := GLOBAL_learning.wrOrdered - GLOBAL_learning.wrDisordered
+        
+        // 4.1c Hurst Regime Win Rates
+        int total_trend = wins_trend + losses_trend
+        int total_meanrev = wins_meanrev + losses_meanrev
+        int total_random = wins_random + losses_random
+        if total_trend >= LEARN_MIN_SAMPLES_DIR
+            GLOBAL_learning.wrTrend := float(wins_trend) / float(total_trend)
+        if total_meanrev >= LEARN_MIN_SAMPLES_DIR
+            GLOBAL_learning.wrMeanRev := float(wins_meanrev) / float(total_meanrev)
+        if total_random >= LEARN_MIN_SAMPLES_DIR
+            GLOBAL_learning.wrRandom := float(wins_random) / float(total_random)
+        // Hurst edge: trend WR - meanrev WR (positive = trend is better for this strategy)
+        if total_trend >= LEARN_MIN_SAMPLES_DIR and total_meanrev >= LEARN_MIN_SAMPLES_DIR
+            GLOBAL_learning.hurstEdge := GLOBAL_learning.wrTrend - GLOBAL_learning.wrMeanRev
         
         // 4.2 Profit Factor: Total R won / Total R lost (>1 = profitable)
         if total_r_lost > 0
@@ -3652,7 +3847,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             GLOBAL_activeTrade.tp_aggr,             // tp_aggressive
             GLOBAL_activeTrade.vol_percentile,      // vol_percentile
             GLOBAL_entropyRegime,                   // entropy_regime
-            GLOBAL_entropyNorm                      // entropy_norm
+            GLOBAL_entropyNorm,                     // entropy_norm
+            GLOBAL_hurstRegime,                     // hurst_regime
+            GLOBAL_hurst                            // hurst_value
         )
         
         // Phase 4: Record last outcome bar for staleness detection
