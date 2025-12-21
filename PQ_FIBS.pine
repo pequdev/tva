@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.8.1', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.9.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -113,6 +113,16 @@ float BAYES_PERCENTILE          = 0.05  // Lower bound percentile (1 - CL)
 float SORTINO_MAR               = 0.0   // Minimum Acceptable Return (target)
 float SORTINO_RF                = 0.0   // Risk-free rate
 float SORTINO_MAX_CAP           = 10.0  // Cap Sortino when downside deviation is zero
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// MONTE CARLO PERMUTATION CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+int   MC_SIMS_DEFAULT           = 100   // Default number of permutation simulations
+int   MC_SIMS_MAX               = 500   // Maximum simulations (Pine runtime safety)
+int   MC_MIN_TRADES             = 10    // Minimum trades for valid permutation test
+float MC_PVALUE_THRESH          = 0.05  // p-value threshold for significance (5%)
+int   MC_SEED_BASE              = 42    // Base seed for reproducible randomness
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS - Bitwise Trade/Setup State Representation
@@ -616,6 +626,88 @@ f_sortino(array<float> returns, float mar, float rf, float max_cap) =>
             mean_return > rf ? max_cap : 0.0
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// MONTE CARLO PERMUTATION - Fisher-Yates Shuffle & Significance Testing
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Simple linear congruential generator for reproducible pseudo-random numbers
+// @param seed Current seed value
+// @returns New pseudo-random seed (use modulo for range)
+f_lcgNext(int seed) =>
+    int a = 1664525
+    int c = 1013904223
+    int m = 2147483647
+    (a * seed + c) % m
+
+// @function Fisher-Yates shuffle (in-place) with LCG randomness
+// @param arr Array to shuffle (modified in-place)
+// @param seed Random seed for reproducibility
+// @returns Final seed after shuffle
+f_fisherYatesShuffle(array<float> arr, int seed) =>
+    int n = array.size(arr)
+    int current_seed = seed
+    if n > 1
+        for i = n - 1 to 1
+            current_seed := f_lcgNext(current_seed)
+            int j = current_seed % (i + 1)
+            float temp = array.get(arr, i)
+            array.set(arr, i, array.get(arr, j))
+            array.set(arr, j, temp)
+    current_seed
+
+// @function Compute maximum drawdown from a return sequence
+// @param returns Array of trade returns (log or R-multiples)
+// @returns Maximum drawdown as positive fraction (0 = no drawdown, 1 = 100% loss)
+f_maxDrawdown(array<float> returns) =>
+    int n = array.size(returns)
+    if n < 1
+        0.0
+    else
+        float equity = 1.0
+        float peak = 1.0
+        float max_dd = 0.0
+        for i = 0 to n - 1
+            float ret = array.get(returns, i)
+            equity := equity * math.exp(ret)
+            peak := math.max(peak, equity)
+            float dd = (peak - equity) / peak
+            max_dd := math.max(max_dd, dd)
+        max_dd
+
+// @function Run Monte Carlo permutation test on trade returns
+// @param returns Array of trade returns (log returns)
+// @param num_sims Number of permutation simulations
+// @param seed_base Base seed for reproducibility
+// @returns Tuple [original_dd, mean_shuffled_dd, p_value, simulations_run]
+f_monteCarloDD(array<float> returns, int num_sims, int seed_base) =>
+    int n = array.size(returns)
+    float original_dd = 0.0
+    float mean_shuffled_dd = 0.0
+    float p_value = 1.0
+    int sims_run = 0
+    
+    if n >= MC_MIN_TRADES
+        original_dd := f_maxDrawdown(returns)
+        float sum_shuffled_dd = 0.0
+        int better_count = 0
+        
+        array<float> shuffled = array.copy(returns)
+        int current_seed = seed_base
+        
+        for sim = 0 to num_sims - 1
+            array.copy(returns, shuffled)
+            current_seed := f_fisherYatesShuffle(shuffled, current_seed + sim)
+            float shuffled_dd = f_maxDrawdown(shuffled)
+            sum_shuffled_dd += shuffled_dd
+            if shuffled_dd < original_dd
+                better_count += 1
+            sims_run += 1
+        
+        mean_shuffled_dd := sum_shuffled_dd / float(num_sims)
+        p_value := float(better_count) / float(num_sims)
+    
+    [original_dd, mean_shuffled_dd, p_value, sims_run]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // LEARNING ENGINE CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -907,6 +999,10 @@ INPUT_BAYES_BETA_PRIOR  = input.float(1.0, '   ↳ Prior β (Pseudo-Losses)', mi
 INPUT_BAYES_CONFIDENCE  = input.float(0.95, '   ↳ Confidence Level', minval=0.80, maxval=0.99, step=0.01, group=GROUP_STAT_POS, tooltip="Confidence level for credible interval.\n0.95 = 95% confidence (5th percentile lower bound).\nHigher = more conservative estimate.")
 INPUT_SORTINO_ENABLED   = input.bool(true, '📉 Sortino Ratio', group=GROUP_STAT_POS, tooltip="Downside-risk adjusted performance metric.\nPenalizes losses/drawdowns without penalizing upside volatility.\nAligns with asymmetric payoff goals.")
 INPUT_SORTINO_MAR       = input.float(0.0, '   ↳ Min Acceptable Return', minval=-0.10, maxval=0.10, step=0.01, group=GROUP_STAT_POS, tooltip="Minimum Acceptable Return (MAR) threshold.\nReturns below this are considered 'downside'.\n0.0 = break-even target.")
+// --- MONTE CARLO PERMUTATION TEST ---
+INPUT_MC_ENABLED        = input.bool(true, '🎲 Monte Carlo Validation', group=GROUP_STAT_POS, tooltip="Permutation test to validate timing edge.\nShuffles trade sequence to test if drawdown control is real.\nRejects strategies that look good by chance.")
+INPUT_MC_SIMS           = input.int(100, '   ↳ Simulations', minval=20, maxval=500, group=GROUP_STAT_POS, tooltip="Number of permutation simulations.\nMore = more accurate p-value, but slower.\n100 is a good balance.")
+INPUT_MC_PVALUE         = input.float(0.05, '   ↳ p-value Threshold', minval=0.01, maxval=0.20, step=0.01, group=GROUP_STAT_POS, tooltip="Significance threshold.\np < 0.05 = 95% confidence timing edge is real.\nLower = stricter filter.")
 // ------------------------------------------
 
 // Fibonacci Levels
@@ -1207,6 +1303,11 @@ method initFirst(ZigZagEngine this, int index, float price, bool isHigh) =>
 // @field sortinoRatio Downside-risk adjusted return (Rp - Rf) / σ_down
 // @field downsideDev Downside deviation (volatility of losses only)
 // @field meanTradeReturn Mean trade log return
+// @field mcOriginalDD Original max drawdown from actual trade sequence
+// @field mcMeanShuffledDD Mean max drawdown from shuffled permutations
+// @field mcPValue p-value (fraction of shuffles with lower drawdown)
+// @field mcSimsRun Number of Monte Carlo simulations completed
+// @field mcSignificant True if timing edge is statistically significant
 // @field lastOutcomeBar Bar index of last outcome
 // @field isHealthy Learning system health status
 type LearningMetrics
@@ -1272,6 +1373,12 @@ type LearningMetrics
     float sortinoRatio = 0.0       // (Rp - Rf) / σ_down
     float downsideDev = 0.0        // Downside deviation (σ_down)
     float meanTradeReturn = 0.0    // Mean trade log return
+    // Monte Carlo permutation test
+    float mcOriginalDD = 0.0       // Original max drawdown
+    float mcMeanShuffledDD = 0.0   // Mean of shuffled max drawdowns
+    float mcPValue = 1.0           // p-value (fraction of shuffles with lower DD)
+    int   mcSimsRun = 0            // Number of simulations completed
+    bool  mcSignificant = false    // True if timing edge is statistically significant
     // Health tracking
     int   lastOutcomeBar = 0
     bool  isHealthy = true
@@ -3867,6 +3974,26 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                 else
                     // No downside: cap at max if profitable, 0 otherwise
                     GLOBAL_learning.sortinoRatio := GLOBAL_learning.meanTradeReturn > 0 ? SORTINO_MAX_CAP : 0.0
+        
+        // ═══════════════════════════════════════════════════════════════════════════════
+        // PHASE 6: Monte Carlo Permutation Test
+        // ═══════════════════════════════════════════════════════════════════════════════
+        
+        // 6.1 Monte Carlo Permutation Test for Timing Edge Validation
+        if INPUT_MC_ENABLED and total_outcomes >= MC_MIN_TRADES
+            array<float> mc_returns = array.new_float(0)
+            for i = 0 to samples_to_check - 1
+                SetupRecord rec = GLOBAL_setupHistory.get(i)
+                if not na(rec) and rec.hasFlag(FLAG_ZONE_TOUCHED)
+                    array.push(mc_returns, rec.log_return)
+            
+            if array.size(mc_returns) >= MC_MIN_TRADES
+                [orig_dd, mean_shuf_dd, p_val, sims] = f_monteCarloDD(mc_returns, INPUT_MC_SIMS, MC_SEED_BASE)
+                GLOBAL_learning.mcOriginalDD := orig_dd
+                GLOBAL_learning.mcMeanShuffledDD := mean_shuf_dd
+                GLOBAL_learning.mcPValue := p_val
+                GLOBAL_learning.mcSimsRun := sims
+                GLOBAL_learning.mcSignificant := p_val < INPUT_MC_PVALUE
         
         // 4.6 Learning Health Check
         int bars_since_outcome = bar_index - GLOBAL_learning.lastOutcomeBar
