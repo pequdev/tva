@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.3.3', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.3.5', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -559,6 +559,117 @@ method getLevel(PivotContext this, float ratio) =>
          (this.reverse ? this.pEnd : this.pMid) + (this.reverse ? -1 : 1) * diff * ratio
     result
 
+// @type ZigZagEngine - Encapsulates ZigZag pivot detection and line drawing state
+// @field ln The current ZigZag line being drawn
+// @field iLast Bar index of last point
+// @field pLast Price of last point
+// @field isHighLast True if last pivot was a high
+// @field iPrev Bar index of previous point (before iLast)
+// @field iPrevPivot Bar index of the pivot before the current one (x1 of previous line)
+// @field pPrevPivot Price of the pivot before the current one
+// @field iLastPivot Bar index of the most recent confirmed pivot (x2 of previous line)
+// @field pLastPivot Price of the most recent confirmed pivot
+// @field changed True if a new pivot was confirmed this bar (reset each bar)
+type ZigZagEngine
+    line ln = na
+    int iLast = 0
+    float pLast = 0.0
+    bool isHighLast = false
+    int iPrev = 0
+    int iPrevPivot = 0
+    float pPrevPivot = 0.0
+    int iLastPivot = 0
+    float pLastPivot = 0.0
+    bool changed = false
+
+// @function Reset the changed flag at the start of each bar
+// @param this ZigZagEngine instance
+// @returns ZigZagEngine instance for chaining
+method resetChanged(ZigZagEngine this) =>
+    this.changed := false
+    this
+
+// @function Check if a pivot change occurred this bar
+// @param this ZigZagEngine instance
+// @returns True if pivot changed this bar
+method wasChanged(ZigZagEngine this) =>
+    this.changed
+
+// @function Calculate deviation between two prices (standalone function - no state needed)
+// @param base_price Base price for deviation calculation
+// @param price Current price to compare
+// @returns Deviation as percentage
+f_calcDev(float base_price, float price) =>
+    100 * (price - base_price) / price
+
+// @function Process a potential pivot and update ZigZag line
+// @param this ZigZagEngine instance
+// @param dev Deviation from last point
+// @param isHigh True if this is a high pivot candidate
+// @param index Bar index of the pivot
+// @param price Price of the pivot
+// @param dev_threshold Deviation threshold for confirming new pivots
+// @param zz_color Color for ZigZag lines
+// @param show_zigzag Whether to display the ZigZag lines
+// @returns True if a NEW line segment was created (not just extended)
+method processPivot(ZigZagEngine this, float dev, bool isHigh, int index, float price, float dev_threshold, color zz_color, bool show_zigzag) =>
+    bool newSegment = false
+    
+    if this.isHighLast == isHigh and not na(this.ln)
+        // Same direction - check if we should extend the existing line
+        if this.isHighLast ? price > this.pLast : price < this.pLast
+            line.set_xy2(this.ln, index, price)
+            // Update tracking vars
+            this.iPrev := this.iLast
+            this.iLast := index
+            this.pLast := price
+    else
+        // Different direction or no existing line
+        if na(this.ln)
+            // First line ever
+            line newLine = line.new(this.iLast, this.pLast, index, price, color=zz_color, width=2, style=line.style_solid)
+            this.ln := newLine
+            this.isHighLast := isHigh
+            this.iPrev := this.iLast
+            this.iLast := index
+            this.pLast := price
+            newSegment := true
+        else if math.abs(dev) > dev_threshold
+            // Deviation threshold met - create new line segment
+            // First, capture the previous line's coordinates for caching
+            this.iPrevPivot := line.get_x1(this.ln)
+            this.pPrevPivot := line.get_y1(this.ln)
+            this.iLastPivot := line.get_x2(this.ln)
+            this.pLastPivot := line.get_y2(this.ln)
+            
+            // Delete old line if ZigZag display is disabled
+            if not show_zigzag
+                line.delete(this.ln)
+            
+            // Create new line
+            line newLine = line.new(this.iLast, this.pLast, index, price, color=zz_color, width=2, style=line.style_solid)
+            this.ln := newLine
+            this.isHighLast := isHigh
+            this.iPrev := this.iLast
+            this.iLast := index
+            this.pLast := price
+            this.changed := true
+            newSegment := true
+    
+    newSegment
+
+// @function Initialize the ZigZag with the first pivot point (no line yet)
+// @param this ZigZagEngine instance
+// @param index Bar index of first point
+// @param price Price of first point
+// @param isHigh True if first point is a high
+// @returns ZigZagEngine instance for chaining
+method initFirst(ZigZagEngine this, int index, float price, bool isHigh) =>
+    this.iLast := index
+    this.pLast := price
+    this.isHighLast := isHigh
+    this
+
 type FibLevel
     float level
     color col
@@ -1058,7 +1169,7 @@ f_new_setup_state() =>
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE SEPARATION: Active Trade vs Projection Preview
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// GLOBAL_activeTrade: ONLY updated on pivotChanged (confirmed ZigZag pivots)
+// GLOBAL_activeTrade: ONLY updated on GLOBAL_zigzag.changed (confirmed ZigZag pivots)
 //                 Learning Engine reads/writes ONLY this state
 //                 Recorded to GLOBAL_setupHistory when next pivot confirms
 //                 Used for SOLID visual elements (confirmed state)
@@ -1131,19 +1242,10 @@ bool crossover_exhaustion = ta.crossover(nzVolume, i_vSMA * INPUT_VOL_SPIKE_THRE
 bool highVolatility = range_1 > i_weightedATR
 bool crossover_volatility = ta.crossover(range_1, i_weightedATR)
 
-// Variable Declarations
-var line lineLast = na
-var int iLast = 0
-var int iPrev = 0
-var float pLast = 0.0
-var bool isHighLast = false 
-var int iPrevPivot = 0
-var float pPrevPivot = 0.0
-var int iLastPivot = 0
-var float pLastPivot = 0.0
-
-// Track pivot changes to optimize drawing
-var bool pivotChanged = false
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ZIGZAG ENGINE - Manages ZigZag line drawing and pivot state
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+var ZigZagEngine GLOBAL_zigzag = ZigZagEngine.new()
 
 // Cached pivot coordinates for stable Fibonacci drawing
 var int cachedIMidPivot = na
@@ -1288,49 +1390,29 @@ float proj_pivot_price = proj_tentative_high ? proj_local_high : (proj_tentative
 int   proj_pivot_bar = proj_tentative_high ? proj_local_high_bar : (proj_tentative_low ? proj_local_low_bar : int(na))
 bool  proj_pivot_is_high = proj_tentative_high
 
-calc_dev(float base_price, float price) =>
-    100 * (price - base_price) / price
-    
-pivotFound(float dev, bool isHigh, int index, float price) =>
-    float dev_threshold = GLOBAL_DEV_THRESHOLD
-    if isHighLast == isHigh and not na(lineLast)
-        if isHighLast ? price > pLast : price < pLast
-            line.set_xy2(lineLast, index, price)
-            [lineLast, isHighLast]
-        else
-            [line(na), bool(na)]
-    else
-        if na(lineLast)
-            id = line.new(iLast, pLast, index, price, color=COLOR_ZZ, width=2, style=line.style_solid)
-            [id, isHigh]
-        else if math.abs(dev) > dev_threshold
-            id = line.new(iLast, pLast, index, price, color=COLOR_ZZ, width=2, style=line.style_solid)
-            [id, isHigh]
-        else
-            [line(na), bool(na)]
-
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // PRE-CALCULATION OF HISTORICAL PIVOT VALUES (Pine v6 - call ta.valuewhen unconditionally)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 // Pre-compute all ta.valuewhen calls unconditionally (Pine v6 best practice)
 // These maintain internal state and must be called on every bar
-bool _pivotChange_iPrev = ta.change(iPrevPivot != 0)
-bool _pivotChange_pPrev = ta.change(pPrevPivot != 0)
-bool _pivotChange_iLast = ta.change(iLastPivot != 0)
-bool _pivotChange_pLast = ta.change(pLastPivot != 0)
+// NOTE: Using GLOBAL_zigzag fields for pivot tracking
+bool _pivotChange_iPrev = ta.change(GLOBAL_zigzag.iPrevPivot != 0)
+bool _pivotChange_pPrev = ta.change(GLOBAL_zigzag.pPrevPivot != 0)
+bool _pivotChange_iLast = ta.change(GLOBAL_zigzag.iLastPivot != 0)
+bool _pivotChange_pLast = ta.change(GLOBAL_zigzag.pLastPivot != 0)
 
 // Historical pivot 1 - always compute, conditionally use
-int _iMidPivot_hist_0 = ta.valuewhen(_pivotChange_iPrev, iPrevPivot, math.max(0, INPUT_HIST_PIVOT - 1))
-float _pMidPivot_hist_0 = ta.valuewhen(_pivotChange_pPrev, pPrevPivot, math.max(0, INPUT_HIST_PIVOT - 1))
-int _iEndBase_hist_0 = ta.valuewhen(_pivotChange_iLast, iLastPivot, math.max(0, INPUT_HIST_PIVOT - 1))
-float _pEndBase_hist_0 = ta.valuewhen(_pivotChange_pLast, pLastPivot, math.max(0, INPUT_HIST_PIVOT - 1))
+int _iMidPivot_hist_0 = ta.valuewhen(_pivotChange_iPrev, GLOBAL_zigzag.iPrevPivot, math.max(0, INPUT_HIST_PIVOT - 1))
+float _pMidPivot_hist_0 = ta.valuewhen(_pivotChange_pPrev, GLOBAL_zigzag.pPrevPivot, math.max(0, INPUT_HIST_PIVOT - 1))
+int _iEndBase_hist_0 = ta.valuewhen(_pivotChange_iLast, GLOBAL_zigzag.iLastPivot, math.max(0, INPUT_HIST_PIVOT - 1))
+float _pEndBase_hist_0 = ta.valuewhen(_pivotChange_pLast, GLOBAL_zigzag.pLastPivot, math.max(0, INPUT_HIST_PIVOT - 1))
 
 // Historical pivot 2 - always compute, conditionally use
-int _iMidPivot_hist_1 = ta.valuewhen(_pivotChange_iPrev, iPrevPivot, math.max(0, INPUT_HIST_PIVOT_2 - 1))
-float _pMidPivot_hist_1 = ta.valuewhen(_pivotChange_pPrev, pPrevPivot, math.max(0, INPUT_HIST_PIVOT_2 - 1))
-int _iEndBase_hist_1 = ta.valuewhen(_pivotChange_iLast, iLastPivot, math.max(0, INPUT_HIST_PIVOT_2 - 1))
-float _pEndBase_hist_1 = ta.valuewhen(_pivotChange_pLast, pLastPivot, math.max(0, INPUT_HIST_PIVOT_2 - 1))
+int _iMidPivot_hist_1 = ta.valuewhen(_pivotChange_iPrev, GLOBAL_zigzag.iPrevPivot, math.max(0, INPUT_HIST_PIVOT_2 - 1))
+float _pMidPivot_hist_1 = ta.valuewhen(_pivotChange_pPrev, GLOBAL_zigzag.pPrevPivot, math.max(0, INPUT_HIST_PIVOT_2 - 1))
+int _iEndBase_hist_1 = ta.valuewhen(_pivotChange_iLast, GLOBAL_zigzag.iLastPivot, math.max(0, INPUT_HIST_PIVOT_2 - 1))
+float _pEndBase_hist_1 = ta.valuewhen(_pivotChange_pLast, GLOBAL_zigzag.pLastPivot, math.max(0, INPUT_HIST_PIVOT_2 - 1))
 
 // Apply conditional logic after function calls
 temp_iMidPivot_hist = INPUT_HIST_PIVOT > 0 ? _iMidPivot_hist_0 : int(na)
@@ -1347,105 +1429,61 @@ temp_pEndBase2_hist = INPUT_HIST_PIVOT_2 > 0 ? _pEndBase_hist_1 : float(na)
 // MAIN PIVOT DETECTION AND ZIGZAG CONSTRUCTION
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-pivotChanged := false
+GLOBAL_zigzag.resetChanged()
 
 if not na(iH)
-    if na(lineLast) and pLast == 0
-        iLast := iH
-        pLast := pH
-        isHighLast := true
+    if na(GLOBAL_zigzag.ln) and GLOBAL_zigzag.pLast == 0
+        GLOBAL_zigzag.initFirst(iH, pH, true)
     else
-        dev = calc_dev(pLast, pH)
-        [id, isHigh] = pivotFound(dev, true, iH, pH)
-        if not na(id)
-            if id != lineLast
-                if not na(lineLast)
-                    iPrevPivot := line.get_x1(lineLast)
-                    pPrevPivot := line.get_y1(lineLast)
-                    iLastPivot := line.get_x2(lineLast)
-                    pLastPivot := line.get_y2(lineLast)
-                else
-                    iPrevPivot := iLast
-                    pPrevPivot := pLast
-                    iLastPivot := iH
-                    pLastPivot := pH
-                
-                pivotChanged := true
-                
-                cachedIMidPivot := INPUT_HIST_PIVOT > 0 ? temp_iMidPivot_hist : iPrevPivot
-                cachedPMidPivot := INPUT_HIST_PIVOT > 0 ? temp_pMidPivot_hist : pPrevPivot
-                cachedIEndBase := INPUT_HIST_PIVOT > 0 ? temp_iEndBase_hist : iLastPivot
-                cachedPEndBase := INPUT_HIST_PIVOT > 0 ? temp_pEndBase_hist : pLastPivot
-                
-                cachedIMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iMidPivot2_hist : iPrevPivot
-                cachedPMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : pPrevPivot
-                cachedIEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : iLastPivot
-                cachedPEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : pLastPivot
-
-                if not INPUT_SHOW_ZIGZAG and not na(lineLast)
-                    line.delete(lineLast)
-            else
-                if INPUT_HIST_PIVOT == 0
-                    cachedIEndBase := iH
-                    cachedPEndBase := pH
-                    cachedIEndBase2 := iH
-                    cachedPEndBase2 := pH
-                    pivotChanged := true 
-
-            lineLast := id
-            isHighLast := isHigh
-            iPrev := iLast
-            iLast := iH
-            pLast := pH
+        float dev = f_calcDev(GLOBAL_zigzag.pLast, pH)
+        bool newSegment = GLOBAL_zigzag.processPivot(dev, true, iH, pH, GLOBAL_DEV_THRESHOLD, COLOR_ZZ, INPUT_SHOW_ZIGZAG)
+        
+        if newSegment
+            // New line segment was created - update cached pivot values
+            cachedIMidPivot := INPUT_HIST_PIVOT > 0 ? temp_iMidPivot_hist : GLOBAL_zigzag.iPrevPivot
+            cachedPMidPivot := INPUT_HIST_PIVOT > 0 ? temp_pMidPivot_hist : GLOBAL_zigzag.pPrevPivot
+            cachedIEndBase := INPUT_HIST_PIVOT > 0 ? temp_iEndBase_hist : GLOBAL_zigzag.iLastPivot
+            cachedPEndBase := INPUT_HIST_PIVOT > 0 ? temp_pEndBase_hist : GLOBAL_zigzag.pLastPivot
+            
+            cachedIMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iMidPivot2_hist : GLOBAL_zigzag.iPrevPivot
+            cachedPMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
+            cachedIEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : GLOBAL_zigzag.iLastPivot
+            cachedPEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : GLOBAL_zigzag.pLastPivot
+        else if not na(GLOBAL_zigzag.ln) and INPUT_HIST_PIVOT == 0
+            // Line was extended (same direction) - update endpoint caches
+            if GLOBAL_zigzag.isHighLast and pH > (GLOBAL_zigzag[1]).pLast
+                cachedIEndBase := iH
+                cachedPEndBase := pH
+                cachedIEndBase2 := iH
+                cachedPEndBase2 := pH
+                GLOBAL_zigzag.changed := true
 else
     if not na(iL)
-        if na(lineLast) and pLast == 0
-            iLast := iL
-            pLast := pL
-            isHighLast := false
+        if na(GLOBAL_zigzag.ln) and GLOBAL_zigzag.pLast == 0
+            GLOBAL_zigzag.initFirst(iL, pL, false)
         else
-            dev = calc_dev(pLast, pL)
-            [id, isHigh] = pivotFound(dev, false, iL, pL)
-            if not na(id)
-                if id != lineLast
-                    if not na(lineLast)
-                        iPrevPivot := line.get_x1(lineLast)
-                        pPrevPivot := line.get_y1(lineLast)
-                        iLastPivot := line.get_x2(lineLast)
-                        pLastPivot := line.get_y2(lineLast)
-                    else
-                        iPrevPivot := iLast
-                        pPrevPivot := pLast
-                        iLastPivot := iL
-                        pLastPivot := pL
-                    
-                    pivotChanged := true
-                    
-                    cachedIMidPivot := INPUT_HIST_PIVOT > 0 ? temp_iMidPivot_hist : iPrevPivot
-                    cachedPMidPivot := INPUT_HIST_PIVOT > 0 ? temp_pMidPivot_hist : pPrevPivot
-                    cachedIEndBase := INPUT_HIST_PIVOT > 0 ? temp_iEndBase_hist : iLastPivot
-                    cachedPEndBase := INPUT_HIST_PIVOT > 0 ? temp_pEndBase_hist : pLastPivot
-                    
-                    cachedIMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iMidPivot2_hist : iPrevPivot
-                    cachedPMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : pPrevPivot
-                    cachedIEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : iLastPivot
-                    cachedPEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : pLastPivot
-
-                    if not INPUT_SHOW_ZIGZAG and not na(lineLast)
-                        line.delete(lineLast)
-                else
-                    if INPUT_HIST_PIVOT == 0
-                        cachedIEndBase := iL
-                        cachedPEndBase := pL
-                        cachedIEndBase2 := iL
-                        cachedPEndBase2 := pL
-                        pivotChanged := true
-
-                lineLast := id
-                isHighLast := isHigh
-                iPrev := iLast
-                iLast := iL
-                pLast := pL
+            float dev = f_calcDev(GLOBAL_zigzag.pLast, pL)
+            bool newSegment = GLOBAL_zigzag.processPivot(dev, false, iL, pL, GLOBAL_DEV_THRESHOLD, COLOR_ZZ, INPUT_SHOW_ZIGZAG)
+            
+            if newSegment
+                // New line segment was created - update cached pivot values
+                cachedIMidPivot := INPUT_HIST_PIVOT > 0 ? temp_iMidPivot_hist : GLOBAL_zigzag.iPrevPivot
+                cachedPMidPivot := INPUT_HIST_PIVOT > 0 ? temp_pMidPivot_hist : GLOBAL_zigzag.pPrevPivot
+                cachedIEndBase := INPUT_HIST_PIVOT > 0 ? temp_iEndBase_hist : GLOBAL_zigzag.iLastPivot
+                cachedPEndBase := INPUT_HIST_PIVOT > 0 ? temp_pEndBase_hist : GLOBAL_zigzag.pLastPivot
+                
+                cachedIMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iMidPivot2_hist : GLOBAL_zigzag.iPrevPivot
+                cachedPMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
+                cachedIEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : GLOBAL_zigzag.iLastPivot
+                cachedPEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : GLOBAL_zigzag.pLastPivot
+            else if not na(GLOBAL_zigzag.ln) and INPUT_HIST_PIVOT == 0
+                // Line was extended (same direction) - update endpoint caches
+                if not GLOBAL_zigzag.isHighLast and pL < (GLOBAL_zigzag[1]).pLast
+                    cachedIEndBase := iL
+                    cachedPEndBase := pL
+                    cachedIEndBase2 := iL
+                    cachedPEndBase2 := pL
+                    GLOBAL_zigzag.changed := true
 
 f_htf_ohlc(string _htf) =>
     var htf_o  = 0.
@@ -1511,7 +1549,7 @@ if proj_tentative_high or proj_tentative_low
     projIEndBase := bar_index
     projPEndBase := proj_tentative_high ? low : high  // Current extreme in opposite direction
     projectionActive := true
-else if pivotChanged
+else if GLOBAL_zigzag.changed
     // Confirmed pivot overrides projection
     projectionActive := false
 
@@ -1675,28 +1713,28 @@ if INPUT_SHOW_FIB_TIME
 // CACHED COORDINATE INITIALIZATION AND UPDATE
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-if not na(lineLast)
-    currentX1 = line.get_x1(lineLast)
-    currentY1 = line.get_y1(lineLast)
-    currentX2 = line.get_x2(lineLast)
-    currentY2 = line.get_y2(lineLast)
+if not na(GLOBAL_zigzag.ln)
+    currentX1 = line.get_x1(GLOBAL_zigzag.ln)
+    currentY1 = line.get_y1(GLOBAL_zigzag.ln)
+    currentX2 = line.get_x2(GLOBAL_zigzag.ln)
+    currentY2 = line.get_y2(GLOBAL_zigzag.ln)
     
-    if na(cachedIMidPivot) or pivotChanged
-        cachedIMidPivot := iPrevPivot != 0 ? iPrevPivot : currentX1
-        cachedPMidPivot := pPrevPivot != 0 ? pPrevPivot : currentY1
-        cachedIEndBase := iLastPivot != 0 ? iLastPivot : currentX2
-        cachedPEndBase := pLastPivot != 0 ? pLastPivot : currentY2
-        cachedIMidPivot2 := iPrevPivot != 0 ? iPrevPivot : currentX1
-        cachedPMidPivot2 := pPrevPivot != 0 ? pPrevPivot : currentY1
-        cachedIEndBase2 := iLastPivot != 0 ? iLastPivot : currentX2
-        cachedPEndBase2 := pLastPivot != 0 ? pLastPivot : currentY2
+    if na(cachedIMidPivot) or GLOBAL_zigzag.changed
+        cachedIMidPivot := GLOBAL_zigzag.iPrevPivot != 0 ? GLOBAL_zigzag.iPrevPivot : currentX1
+        cachedPMidPivot := GLOBAL_zigzag.pPrevPivot != 0 ? GLOBAL_zigzag.pPrevPivot : currentY1
+        cachedIEndBase := GLOBAL_zigzag.iLastPivot != 0 ? GLOBAL_zigzag.iLastPivot : currentX2
+        cachedPEndBase := GLOBAL_zigzag.pLastPivot != 0 ? GLOBAL_zigzag.pLastPivot : currentY2
+        cachedIMidPivot2 := GLOBAL_zigzag.iPrevPivot != 0 ? GLOBAL_zigzag.iPrevPivot : currentX1
+        cachedPMidPivot2 := GLOBAL_zigzag.pPrevPivot != 0 ? GLOBAL_zigzag.pPrevPivot : currentY1
+        cachedIEndBase2 := GLOBAL_zigzag.iLastPivot != 0 ? GLOBAL_zigzag.iLastPivot : currentX2
+        cachedPEndBase2 := GLOBAL_zigzag.pLastPivot != 0 ? GLOBAL_zigzag.pLastPivot : currentY2
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // PRE-COMPUTED RSI DIVERGENCE VALUES (Pine v6 - must be called on every bar)
 // These ta.valuewhen calls capture RSI and price at pivot changes for divergence detection
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-float GLOBAL_rsi_at_pivot = ta.valuewhen(pivotChanged, GLOBAL_rsi, 0)
-float GLOBAL_priceAtPivot = ta.valuewhen(pivotChanged, close, 0)
+float GLOBAL_rsi_at_pivot = ta.valuewhen(GLOBAL_zigzag.changed, GLOBAL_rsi, 0)
+float GLOBAL_priceAtPivot = ta.valuewhen(GLOBAL_zigzag.changed, close, 0)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // FIBONACCI LEVEL DRAWING (Pine v6 - all functions called unconditionally)
@@ -1715,7 +1753,7 @@ for lvl in fibLevels
     lvl.crossed := f_crossingLevel(close, lvl_price)
 
 // Determine redraw need unconditionally
-bool needsFullRedraw = pivotChanged or (fibLevels.size() > 0 ? na(array.get(fibLevels, 0).ln) : false)
+bool needsFullRedraw = GLOBAL_zigzag.changed or (fibLevels.size() > 0 ? na(array.get(fibLevels, 0).ln) : false)
 bool canDrawFibs = not na(cachedIMidPivot) and not na(cachedPEndBase)
 
 // Always call draw method on every bar (Pine v6 - methods must be called consistently)
@@ -1756,10 +1794,10 @@ float raw_tp_price = raw_tp_target
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // CRITICAL: Spawn BEFORE management so new trades don't get processed on spawn bar
 // Only spawn when:
-// 1. pivotChanged is true (ZigZag confirmed)
+// 1. GLOBAL_zigzag.changed is true (ZigZag confirmed)
 // 2. current_sim is na (not already in a simulation)
 // 3. We have valid cached pivot data
-if pivotChanged and na(current_sim) and not na(cachedIMidPivot) and not na(cachedPEndBase)
+if GLOBAL_zigzag.changed and na(current_sim) and not na(cachedIMidPivot) and not na(cachedPEndBase)
     // Build initial state_mask: PENDING + direction flag (using arithmetic for raw int)
     int init_state = FLAG_PENDING + (raw_is_long ? FLAG_IS_LONG : 0)
     
@@ -1786,9 +1824,9 @@ if pivotChanged and na(current_sim) and not na(cachedIMidPivot) and not na(cache
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // PART B: Managing the Current Simulation (runs every bar AFTER spawn)
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-// CRITICAL: Skip processing on the SAME bar the trade was spawned (pivotChanged bar)
+// CRITICAL: Skip processing on the SAME bar the trade was spawned (GLOBAL_zigzag.changed bar)
 // This prevents the trade from being immediately killed or activated on spawn bar
-bool skip_this_bar = pivotChanged  // Don't process newly spawned trades on their creation bar
+bool skip_this_bar = GLOBAL_zigzag.changed  // Don't process newly spawned trades on their creation bar
 
 if not na(current_sim) and not skip_this_bar
     bool sim_is_long = current_sim.hasFlag(FLAG_IS_LONG)
@@ -2228,7 +2266,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     //           For projections: decay = 0 (always Fresh since we're projecting in real-time)
     //           For confirmed: decay = bar_index - creation_bar (smooth progression)
     //
-    // NOTE: creation_bar is set to bar_index when pivotChanged fires, so the FIRST bar after
+    // NOTE: creation_bar is set to bar_index when GLOBAL_zigzag.changed fires, so the FIRST bar after
     //       confirmation starts at 0 bars since creation, then increments smoothly.
     // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
     
@@ -2840,7 +2878,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // Record previous CONFIRMED setup BEFORE resetting state (order matters!)
     // CRITICAL: Only record from GLOBAL_activeTrade - NEVER from projection data
-    bool should_record = INPUT_LEARNING_ENABLED and pivotChanged and not na(GLOBAL_activeTrade.setup_bar)
+    bool should_record = INPUT_LEARNING_ENABLED and GLOBAL_zigzag.changed and not na(GLOBAL_activeTrade.setup_bar)
     if should_record
         // Calculate bars to outcome (0 if neither SL nor TP hit)
         int bars_to_out = GLOBAL_activeTrade.hasAny(MASK_OUTCOME) and not na(GLOBAL_activeTrade.entry_bar) ? 
@@ -2885,9 +2923,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                  GLOBAL_activeTrade.hasFlag(FLAG_TP_HIT),
                  GLOBAL_activeTrade.hasFlag(FLAG_WON))
     
-    // Initialize CONFIRMED trade tracking - ONLY reset on pivotChanged (never for projections)
+    // Initialize CONFIRMED trade tracking - ONLY reset on GLOBAL_zigzag.changed (never for projections)
     // This ensures Learning Engine data is ONLY from confirmed ZigZag pivots
-    if pivotChanged
+    if GLOBAL_zigzag.changed
         // Use CONFIRMED pivot (cachedIMidPivot), NOT effective pivot (which includes projections)
         GLOBAL_activeTrade.setup_bar := cachedIMidPivot
         // TASK 3 FIX: Store creation_bar = current bar_index for proper time decay
@@ -2959,7 +2997,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     wasProjection := isProjection
     
     // On pivot change OR projection state change, delete old objects and create fresh ones
-    bool needsRecreate = pivotChanged or projectionStateChanged or (isProjection and (proj_tentative_high or proj_tentative_low))
+    bool needsRecreate = GLOBAL_zigzag.changed or projectionStateChanged or (isProjection and (proj_tentative_high or proj_tentative_low))
     if needsRecreate
         if not na(box_entry)
             box.delete(box_entry)
