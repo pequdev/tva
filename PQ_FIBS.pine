@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.4.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.4.1', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -42,6 +42,22 @@ float FIB_GOLDEN_RATIO    = 0.618
 float FIB_GOLDEN_POCKET_H = 0.65
 float FIB_EXTENSION_1272  = 1.272
 float FIB_EXTENSION_1618  = 1.618
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// LOGARITHMIC RETURNS CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// Annualization factors (periods per year)
+int   LOG_PERIODS_DAILY         = 252   // Trading days per year (equities)
+int   LOG_PERIODS_CRYPTO        = 365   // Calendar days (24/7 markets)
+float LOG_PERIODS_1M            = 252.0 * 6.5 * 60  // 1-min bars per trading year
+float LOG_PERIODS_5M            = 252.0 * 6.5 * 12  // 5-min bars per trading year
+float LOG_PERIODS_15M           = 252.0 * 6.5 * 4   // 15-min bars per trading year
+float LOG_PERIODS_1H            = 252.0 * 6.5       // 1-hour bars per trading year
+float LOG_PERIODS_4H            = 252.0 * 1.625     // 4-hour bars per trading year
+
+// Volatility window defaults
+int   LOG_VOL_WINDOW            = 20    // Rolling volatility window
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS - Bitwise Trade/Setup State Representation
@@ -285,22 +301,6 @@ float DEFAULT_WIN_RATE          = 0.618
 float DEFAULT_DECAY_RATE        = 0.85
 float DEFAULT_CONFIDENCE        = 50.0
 float DEFAULT_MIN_DISTANCE      = 100.0
-
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// LOGARITHMIC RETURNS CONSTANTS
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-
-// Annualization factors (periods per year)
-int   LOG_PERIODS_DAILY         = 252   // Trading days per year (equities)
-int   LOG_PERIODS_CRYPTO        = 365   // Calendar days (24/7 markets)
-float LOG_PERIODS_1M            = 252.0 * 6.5 * 60  // 1-min bars per trading year
-float LOG_PERIODS_5M            = 252.0 * 6.5 * 12  // 5-min bars per trading year
-float LOG_PERIODS_15M           = 252.0 * 6.5 * 4   // 15-min bars per trading year
-float LOG_PERIODS_1H            = 252.0 * 6.5       // 1-hour bars per trading year
-float LOG_PERIODS_4H            = 252.0 * 1.625     // 4-hour bars per trading year
-
-// Volatility window defaults
-int   LOG_VOL_WINDOW            = 20    // Rolling volatility window
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // UI TEXT CONSTANTS
@@ -3229,7 +3229,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             float avg_loss_r = losses > 0 ? total_r_lost / float(losses) : 0
             float sum_log_returns = 0.0
             float sum_log_sq = 0.0
-            for i = 0 to sample_count - 1
+            for i = 0 to samples_to_check - 1
                 SetupRecord rec = GLOBAL_setupHistory.get(i)
                 if not na(rec) and rec.hasFlag(MASK_CLOSED)
                     float trade_r = rec.hasFlag(FLAG_WON) ? avg_win_r : -avg_loss_r
