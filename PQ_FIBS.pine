@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.1.47', overlay = true, format = format.price, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
+indicator(title = 'Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.1.48', overlay = true, format = format.price, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500, max_bars_back = 500)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -302,6 +302,7 @@ INPUT_LEARN_RSI_WEIGHT  = input.bool(true, '🧠 Learn RSI Weight', group=GROUP_
 INPUT_LEARN_MIN_SAMPLES = input.int(30, 'Min Samples for Learning', minval=10, maxval=100, group=GROUP_STAT_POS, tooltip="Minimum number of samples required before applying learned parameters.\nHigher = more stable but slower adaptation.")
 // --- PROJECTION MODE ---
 INPUT_PROJECTION_MODE   = input.bool(true, '⚡ Projection Mode (Early Pivot)', group=GROUP_STAT_POS, tooltip="Shows tentative Golden Pocket in real-time when price retraces by deviation threshold from local high/low.\nDoes not wait for full depth confirmation.\nAllows earlier entry signals but may repaint.")
+INPUT_PROJ_SENSITIVITY  = input.float(0.5, '   ↳ Sensitivity', minval=0.1, maxval=1.0, step=0.1, group=GROUP_STAT_POS, tooltip="Scalar for deviation threshold. < 1.0 reduces lag for tentative setups but increases false positive rate.\n0.5 = 50% of normal threshold (faster signals).\n1.0 = same as confirmed ZigZag (no early warning).")
 // ------------------------------------------
 
 // Fibonacci Levels
@@ -775,10 +776,13 @@ else
 float proj_dev_from_high = proj_local_high > 0 ? 100 * (proj_local_high - close) / proj_local_high : 0
 float proj_dev_from_low = proj_local_low > 0 ? 100 * (close - proj_local_low) / proj_local_low : 0
 
-// Tentative HIGH pivot: price retraced down from local high by threshold
-bool proj_tentative_high = INPUT_PROJECTION_MODE and proj_dev_from_high > GLOBAL_DEV_THRESHOLD and not proj_is_high_last
-// Tentative LOW pivot: price retraced up from local low by threshold  
-bool proj_tentative_low = INPUT_PROJECTION_MODE and proj_dev_from_low > GLOBAL_DEV_THRESHOLD and proj_is_high_last
+// Scaled threshold for projection: INPUT_PROJ_SENSITIVITY < 1.0 reduces lag (earlier signals)
+float proj_scaled_threshold = GLOBAL_DEV_THRESHOLD * INPUT_PROJ_SENSITIVITY
+
+// Tentative HIGH pivot: price retraced down from local high by scaled threshold
+bool proj_tentative_high = INPUT_PROJECTION_MODE and proj_dev_from_high > proj_scaled_threshold and not proj_is_high_last
+// Tentative LOW pivot: price retraced up from local low by scaled threshold  
+bool proj_tentative_low = INPUT_PROJECTION_MODE and proj_dev_from_low > proj_scaled_threshold and proj_is_high_last
 
 // Projection pivot values (use local extreme as tentative pivot)
 float proj_pivot_price = proj_tentative_high ? proj_local_high : (proj_tentative_low ? proj_local_low : na)
@@ -2381,8 +2385,10 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     var string box_style = line.style_dotted
     box_style := showingProjection ? line.style_dotted : line.style_solid
     
-    // Transparency: Projection = 40 (more transparent), Confirmed = 5 (solid)
-    int sl_tp_transparency = showingProjection ? 40 : 5
+    // Transparency: Scale by INPUT_PROJ_SENSITIVITY for projections
+    // Lower sensitivity (more stable) = more opaque. Higher sensitivity (more volatile) = more transparent.
+    // Formula: 80 - (sensitivity * 40) → at 0.5 sens = 60 trans, at 1.0 sens = 40 trans, at 0.1 sens = 76 trans
+    int sl_tp_transparency = showingProjection ? int(80 - INPUT_PROJ_SENSITIVITY * 40) : 5
     color sl_line_col = is_invalid ? color.new(COLOR_GRAY, 60) : color.new(COLOR_RED, sl_tp_transparency)
     color tp_line_col = is_invalid ? color.new(COLOR_GRAY, 60) : color.new(COLOR_GREEN, sl_tp_transparency)
     
