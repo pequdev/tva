@@ -313,61 +313,61 @@ float DEFAULT_MIN_DISTANCE      = 100.0
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // UI TEXT CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-TEXT_LONG                   = "LONG"
-TEXT_SHORT                  = "SHORT"
-TEXT_SETUP                  = " SETUP"
-TEXT_ACTIVE                 = " [ACTIVE]"
-TEXT_SL_HIT                 = " [SL HIT]"
-TEXT_TP_HIT                 = " [TP HIT]"
-TEXT_EXPIRED                = " [EXPIRED]"
-TEXT_FRESH                  = "FRESH"
-TEXT_STALE                  = "STALE"
-TEXT_LEARNING               = "📊 Learning..."
-TEXT_SAMPLES                = " samples"
+string TEXT_LONG        = "LONG"
+string TEXT_SHORT       = "SHORT"
+string TEXT_SETUP       = " SETUP"
+string TEXT_ACTIVE      = " [ACTIVE]"
+string TEXT_SL_HIT      = " [SL HIT]"
+string TEXT_TP_HIT      = " [TP HIT]"
+string TEXT_EXPIRED     = " [EXPIRED]"
+string TEXT_FRESH       = "FRESH"
+string TEXT_STALE       = "STALE"
+string TEXT_LEARNING    = "📊 Learning..."
+string TEXT_SAMPLES     = " samples"
 
 // UI Icons
-ICON_BRAIN                  = "🧠"
-ICON_CHART                  = "📊"
-ICON_TARGET                 = "🎯"
-ICON_FIRE                   = "🔥"
-ICON_ICE                    = "❄️"
-ICON_LIGHTNING              = "⚡"
-ICON_WAVE                   = "🌊"
-ICON_CHECK                  = "✓"
-ICON_WARNING                = "⚠"
-ICON_HOURGLASS              = "⏳"
+string ICON_BRAIN       = "🧠"
+string ICON_CHART       = "📊"
+string ICON_TARGET      = "🎯"
+string ICON_FIRE        = "🔥"
+string ICON_ICE         = "❄️"
+string ICON_LIGHTNING   = "⚡"
+string ICON_WAVE        = "🌊"
+string ICON_CHECK       = "✓"
+string ICON_WARNING     = "⚠"
+string ICON_HOURGLASS   = "⏳"
 
 // Tooltips
-TOOLTIP_THRESHOLD   = 'Deviation is a multiplier that affects how much the price should deviate from the previous pivot in order for the bar to become a new pivot\n\nDepth affects the minimum number of bars that will be taken into account when building'
-TOOLTIP_PIVOT_POINT = 'A pivot point is a technical analysis indicator used to determine the overall trend of the market over different time frames'
-TOOLTIP_ZIGZAG      = 'The Zig Zag indicator is used to identify price trends then connected by straight lines that help the trader visual the price action.'
-TOOLTIP_VOL_EXHAUST = 'Moments where huge volume detected'
-TOOLTIP_HIGH_VOL    = 'Moments where price range of the current bar is greater than average true range'
-TOOLTIP_STAT_POS    = 'Calculates the Statistical "Golden Pocket" (0.618-0.65) entry zone.\n\nStop Loss is placed at the Pivot Start (Invalidation) adjusted by an ATR variance to prevent Stop Hunting.\n\nTake Profit targets the Pivot End (Conservative) or 1.272 Extension (Aggressive).'
+string TOOLTIP_THRESHOLD   = 'Deviation is a multiplier that affects how much the price should deviate from the previous pivot in order for the bar to become a new pivot\n\nDepth affects the minimum number of bars that will be taken into account when building'
+string TOOLTIP_PIVOT_POINT = 'A pivot point is a technical analysis indicator used to determine the overall trend of the market over different time frames'
+string TOOLTIP_ZIGZAG      = 'The Zig Zag indicator is used to identify price trends then connected by straight lines that help the trader visual the price action.'
+string TOOLTIP_VOL_EXHAUST = 'Moments where huge volume detected'
+string TOOLTIP_HIGH_VOL    = 'Moments where price range of the current bar is greater than average true range'
+string TOOLTIP_STAT_POS    = 'Calculates the Statistical "Golden Pocket" (0.618-0.65) entry zone.\n\nStop Loss is placed at the Pivot Start (Invalidation) adjusted by an ATR variance to prevent Stop Hunting.\n\nTake Profit targets the Pivot End (Conservative) or 1.272 Extension (Aggressive).'
 
 // Groups
-GROUP_PICK          = 'Pick a Fibonacci Tool'
-GROUP_PIVOT         = 'Fibonacci Pivot Points Settings'
-GROUP_THRESH_SEC    = 'Threshold (sec)'
-GROUP_THRESH_MIN    = 'Threshold (minutes)'
-GROUP_THRESH_H      = 'Threshold (hours)'
-GROUP_THRESH_D      = 'Threshold (days)'
-GROUP_THRESH_W      = 'Threshold (weeks)'
-GROUP_THRESH_M      = 'Threshold (months)'
-GROUP_DEPTH_SEC     = 'Depth (seconds)'
-GROUP_DEPTH_MIN     = 'Depth (minutes)'
-GROUP_DEPTH_H       = 'Depth (hours)'
-GROUP_DEPTH_D       = 'Depth (days)'
-GROUP_DEPTH_W       = 'Depth (weeks)'
-GROUP_DEPTH_M       = 'Depth (months)'
-GROUP_FIB_TOOL      = 'Fibonacci Extention / Retracement / TimeZone Settings'
-GROUP_FIB_LEVELS    = 'Fibonacci Levels'
-GROUP_ZIGZAG        = 'ZigZag Settings'
-GROUP_VOL_VOL       = 'Volume / Volatility AddOns'
-GROUP_ALERTS        = 'Alerts'
-GROUP_STAT_POS      = 'Statistical Position Engine'
+string GROUP_PICK       = 'Pick a Fibonacci Tool'
+string GROUP_PIVOT      = 'Fibonacci Pivot Points Settings'
+string GROUP_THRESH_SEC = 'Threshold (sec)'
+string GROUP_THRESH_MIN = 'Threshold (minutes)'
+string GROUP_THRESH_H   = 'Threshold (hours)'
+string GROUP_THRESH_D   = 'Threshold (days)'
+string GROUP_THRESH_W   = 'Threshold (weeks)'
+string GROUP_THRESH_M   = 'Threshold (months)'
+string GROUP_DEPTH_SEC  = 'Depth (seconds)'
+string GROUP_DEPTH_MIN  = 'Depth (minutes)'
+string GROUP_DEPTH_H    = 'Depth (hours)'
+string GROUP_DEPTH_D    = 'Depth (days)'
+string GROUP_DEPTH_W    = 'Depth (weeks)'
+string GROUP_DEPTH_M    = 'Depth (months)'
+string GROUP_FIB_TOOL   = 'Fibonacci Extention / Retracement / TimeZone Settings'
+string GROUP_FIB_LEVELS = 'Fibonacci Levels'
+string GROUP_ZIGZAG     = 'ZigZag Settings'
+string GROUP_VOL_VOL    = 'Volume / Volatility AddOns'
+string GROUP_ALERTS     = 'Alerts'
+string GROUP_STAT_POS   = 'Statistical Position Engine'
 
-/// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // INPUTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
