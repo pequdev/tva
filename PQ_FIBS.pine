@@ -62,12 +62,12 @@ FLAG_TP_HIT         = 8       // Take profit was reached
 // Confluence Flags (Bit 4)
 FLAG_HAD_RSI_DIV    = 16      // RSI divergence was present at entry
 
-// TP Mode (Bit 5)
-FLAG_TP_AGGRESSIVE  = 32      // Aggressive TP mode was active
+// TP Mode (Bit 5) - configuration flag (set at setup time)
+FLAG_TP_AGGRESSIVE  = 32      // Aggressive TP mode was configured (setup-time config, not an outcome)
 
-// Analytics Tracking (Bits 6-7)
-FLAG_CONS_TP_HIT    = 64      // Conservative TP would have been hit
-FLAG_AGGR_TP_HIT    = 128     // Aggressive TP would have been hit
+// Analytics Tracking (Bits 6-7) - outcome tracking flags
+FLAG_CONS_TP_HIT    = 64      // Conservative TP level was (or would have been) hit
+FLAG_AGGR_TP_HIT    = 128     // Aggressive TP level was (or would have been) hit
 
 // Lifecycle States (Bits 8-10) - Mutually exclusive phases
 FLAG_PENDING        = 256     // Waiting for zone entry
@@ -78,10 +78,16 @@ FLAG_CLOSED         = 1024    // Trade completed (SL or TP hit)
 FLAG_WON            = 2048    // Trade was a winner (TP hit before SL)
 
 // Composite Masks for Fast Queries
-MASK_OUTCOME        = 12      // FLAG_SL_HIT + FLAG_TP_HIT (4 + 8)
-MASK_CLOSED         = 1036    // FLAG_SL_HIT + FLAG_TP_HIT + FLAG_CLOSED (4 + 8 + 1024)
+// NOTE: MASK_OUTCOME should be used with f_hasAny() to check if ANY outcome is set
+//       (SL_HIT and TP_HIT are mutually exclusive, so f_hasAll would never match)
+MASK_OUTCOME        = 12      // FLAG_SL_HIT + FLAG_TP_HIT (4 + 8) - use with f_hasAny()
+MASK_CLOSED         = 1024    // FLAG_CLOSED - trade lifecycle completed
 MASK_LIFECYCLE      = 1792    // FLAG_PENDING + FLAG_ACTIVE + FLAG_CLOSED (256 + 512 + 1024)
 MASK_TP_TRACKING    = 192     // FLAG_CONS_TP_HIT + FLAG_AGGR_TP_HIT (64 + 128)
+
+// Max bit index for loop bounds (FLAG_WON = 2048 = 2^11, so max bit is 11)
+// Pine Script for loop is INCLUSIVE: `for i = 0 to 11` runs 12 times (i = 0,1,2,...,11)
+STATE_MAX_BIT       = 11      // Highest bit index used (update if adding more flags)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS API - Arithmetic-Based Bit Operations for State Management
@@ -117,12 +123,9 @@ f_clearFlag(int state, int flag) =>
 f_hasAny(int state, int mask) =>
     // Check each possible flag in the mask
     bool result = false
-    int remaining = mask
     int testBit = 1
-    for i = 0 to 11  // Support up to 12 flags (bits 0-11)
-        if remaining <= 0
-            break
-        if math.floor(remaining / testBit) % 2 == 1  // This bit is in the mask
+    for i = 0 to STATE_MAX_BIT  // Iterate through bits 0 to STATE_MAX_BIT (inclusive)
+        if math.floor(mask / testBit) % 2 == 1  // This bit is in the mask
             if f_hasFlag(state, testBit)
                 result := true
                 break
@@ -136,12 +139,9 @@ f_hasAny(int state, int mask) =>
 f_hasAll(int state, int mask) =>
     // Check each possible flag in the mask
     bool result = true
-    int remaining = mask
     int testBit = 1
-    for i = 0 to 11  // Support up to 12 flags (bits 0-11)
-        if remaining <= 0
-            break
-        if math.floor(remaining / testBit) % 2 == 1  // This bit is in the mask
+    for i = 0 to STATE_MAX_BIT  // Iterate through bits 0 to STATE_MAX_BIT (inclusive)
+        if math.floor(mask / testBit) % 2 == 1  // This bit is in the mask
             if not f_hasFlag(state, testBit)
                 result := false
                 break
@@ -678,6 +678,7 @@ if barstate.isfirst
 // @type BacktestTrade - Represents a single simulated trade position
 // @field id Pivot Bar Index (unique identifier)
 // @field state_mask Bitwise flags: FLAG_IS_LONG for direction, FLAG_PENDING/ACTIVE/CLOSED for lifecycle, FLAG_WON for outcome
+//                   NOTE: Must be initialized via BacktestTrade.new() with proper flags (see lines ~1470-1485)
 // @field entry_price Calculated Golden Pocket entry level (mid of zone)
 // @field entry_top Golden Pocket upper boundary
 // @field entry_btm Golden Pocket lower boundary
@@ -689,7 +690,7 @@ if barstate.isfirst
 // @field exit_bar Bar index when position was Closed
 type BacktestTrade
     int    id
-    int    state_mask = 0
+    int    state_mask  // No default - must be initialized with proper flags
     float  entry_price
     float  entry_top
     float  entry_btm
@@ -1808,7 +1809,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Track SL/TP hits for CONFIRMED setup only (not projections)
     // CRITICAL: Only track SL/TP AFTER zone is touched (entry occurred)
     // Use STORED sl/tp prices from setup formation for consistent tracking
-    // CONSERVATIVE EXECUTION: If bar covers both SL and TP, assume SL hit unless Open closer to TP
+    // CONSERVATIVE EXECUTION: If bar covers both SL and TP, assume SL hit UNLESS
+    //   Open is at least 2x closer to TP than SL (dist_to_tp < dist_to_sl * 0.5)
     if not na(g_active_trade.setup_bar) and f_hasFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED) and not isProjection
         if f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG)
             bool sl_touched = low <= g_active_trade.sl_price
@@ -1825,12 +1827,14 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     // TP only wins if Open is significantly closer (50%+ closer) to TP
                     if dist_to_tp < dist_to_sl * 0.5
                         g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
+                        g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_WON)
                     else
                         g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
                 else if sl_touched
                     g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
                 else if tp_touched
                     g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
+                    g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_WON)
             
             // Phase 3: Track BOTH TP modes independently (for learning comparison)
             // These are analytics flags, not mutually exclusive with SL/TP outcome
@@ -1851,12 +1855,14 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     float dist_to_tp = math.abs(open - g_active_trade.tp_price)
                     if dist_to_tp < dist_to_sl * 0.5
                         g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
+                        g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_WON)
                     else
                         g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
                 else if sl_touched
                     g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
                 else if tp_touched
                     g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
+                    g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_WON)
             
             // Phase 3: Track BOTH TP modes independently (for learning comparison)
             // These are analytics flags, not mutually exclusive with SL/TP outcome
@@ -2552,8 +2558,13 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         g_learning_needs_recalc := true
         
         // DEBUG: Log when setup is recorded (using state_mask flags)
-        log.info("RECORDED: bar={0}, state_mask={1}, samples={2}", 
-                 g_active_trade.setup_bar, g_active_trade.state_mask, g_setup_history.size())
+        log.info("RECORDED: bar={0}, mask={1}, samples={2}, long={3}, touched={4}, sl={5}, tp={6}, won={7}", 
+                 g_active_trade.setup_bar, g_active_trade.state_mask, g_setup_history.size(),
+                 f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG),
+                 f_hasFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED),
+                 f_hasFlag(g_active_trade.state_mask, FLAG_SL_HIT),
+                 f_hasFlag(g_active_trade.state_mask, FLAG_TP_HIT),
+                 f_hasFlag(g_active_trade.state_mask, FLAG_WON))
     
     // Initialize CONFIRMED trade tracking - ONLY reset on pivotChanged (never for projections)
     // This ensures Learning Engine data is ONLY from confirmed ZigZag pivots
