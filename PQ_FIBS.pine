@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.0.1', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.1.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -130,6 +130,22 @@ int   MC_SIMS_MAX               = 500   // Maximum simulations (Pine runtime saf
 int   MC_MIN_TRADES             = 10    // Minimum trades for valid permutation test
 float MC_PVALUE_THRESH          = 0.05  // p-value threshold for significance (5%)
 int   MC_SEED_BASE              = 42    // Base seed for reproducible randomness
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// DYNAMIC REQUEST ENGINE CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+int   EXT_MAX_SYMBOLS_CAP       = 20    // Hard cap on external symbols (budget safety)
+int   EXT_MAX_CONTEXTS          = 40    // TradingView unique request limit
+int   EXT_DEFAULT_SYMBOLS       = 5     // Default symbol count
+string EXT_TF_CURRENT           = "CURRENT"
+string EXT_TF_CUSTOM            = "CUSTOM"
+string EXT_FIELDS_CLOSE         = "CLOSE_ONLY"
+string EXT_FIELDS_OHLCV         = "OHLCV"
+string EXT_GATE_ALWAYS          = "ALWAYS"
+string EXT_GATE_ENTROPY         = "ON_ENTROPY_DISORDER"
+string EXT_GATE_HURST           = "ON_LOW_HURST"
+string EXT_GATE_CUSTOM          = "CUSTOM"
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS - Bitwise Trade/Setup State Representation
@@ -549,6 +565,66 @@ f_rollingZScore(float norm_slope, int z_len, int min_samples, float z_thresh) =>
     [z_score, strong_momentum]
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// DYNAMIC REQUEST ENGINE - External Context Fetching with Budget Awareness
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Parse comma-separated symbol string into bounded array
+// @param csv Comma-separated ticker string (e.g., "CBOE:VIX, SP:SPX")
+// @param max_count Maximum symbols to return (budget cap)
+// @returns Array of trimmed, non-empty symbol strings
+f_parseSymbols(string csv, int max_count) =>
+    array<string> result = array.new<string>(0)
+    if na(csv) or str.length(csv) == 0
+        result
+    else
+        array<string> parts = str.split(csv, ",")
+        int parsed = 0
+        for i = 0 to array.size(parts) - 1
+            if parsed >= max_count
+                break
+            string raw = array.get(parts, i)
+            string trimmed = str.replace_all(str.replace_all(raw, " ", ""), "\t", "")
+            if str.length(trimmed) > 0
+                array.push(result, trimmed)
+                parsed += 1
+        result
+
+// @function Get effective timeframe for external requests
+// @param tf_mode Timeframe mode (CURRENT or CUSTOM)
+// @param tf_custom Custom timeframe string
+// @returns Resolved timeframe string
+f_getExtTimeframe(string tf_mode, string tf_custom) =>
+    tf_mode == EXT_TF_CURRENT ? timeframe.period : tf_custom
+
+// @function Compute gating condition for external requests
+// @param gate_mode Gating mode from input
+// @param entropy_regime Current entropy regime
+// @param hurst Current Hurst exponent
+// @param hurst_meanrev Hurst mean-revert threshold
+// @returns True if external requests should execute
+f_computeExtGate(string gate_mode, int entropy_regime, float hurst, float hurst_meanrev) =>
+    switch gate_mode
+        EXT_GATE_ALWAYS => true
+        EXT_GATE_ENTROPY => entropy_regime == ENTROPY_REGIME_DISORDERED
+        EXT_GATE_HURST => not na(hurst) and hurst < hurst_meanrev
+        EXT_GATE_CUSTOM => true
+        => true
+
+// @function Request close price for external symbol with invalid symbol tolerance
+// @param sym Symbol string (series)
+// @param tf Timeframe string (series)
+// @returns Close price or na if invalid
+f_reqExtClose(string sym, string tf) =>
+    request.security(sym, tf, close, ignore_invalid_symbol = true)
+
+// @function Request OHLCV tuple for external symbol with invalid symbol tolerance
+// @param sym Symbol string (series)
+// @param tf Timeframe string (series)
+// @returns Tuple [open, high, low, close, volume] or na values if invalid
+f_reqExtOHLCV(string sym, string tf) =>
+    request.security(sym, tf, [open, high, low, close, volume], ignore_invalid_symbol = true)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // BAYESIAN WIN-RATE - Beta-Binomial Model for Sample-Size Penalized Estimation
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -856,6 +932,7 @@ string GROUP_ZIGZAG     = 'ZigZag Settings'
 string GROUP_VOL_VOL    = 'Volume / Volatility AddOns'
 string GROUP_ALERTS     = 'Alerts'
 string GROUP_STAT_POS   = 'Statistical Position Engine'
+string GROUP_EXT_CTX    = 'External Context (Dynamic Requests)'
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // INPUTS
@@ -1013,6 +1090,15 @@ INPUT_SORTINO_MAR       = input.float(0.0, '   ↳ Min Acceptable Return', minva
 INPUT_MC_ENABLED        = input.bool(true, '🎲 Monte Carlo Validation', group=GROUP_STAT_POS, tooltip="Permutation test to validate timing edge.\nShuffles trade sequence to test if drawdown control is real.\nRejects strategies that look good by chance.")
 INPUT_MC_SIMS           = input.int(100, '   ↳ Simulations', minval=20, maxval=500, group=GROUP_STAT_POS, tooltip="Number of permutation simulations.\nMore = more accurate p-value, but slower.\n100 is a good balance.")
 INPUT_MC_PVALUE         = input.float(0.05, '   ↳ p-value Threshold', minval=0.01, maxval=0.20, step=0.01, group=GROUP_STAT_POS, tooltip="Significance threshold.\np < 0.05 = 95% confidence timing edge is real.\nLower = stricter filter.")
+// --- EXTERNAL CONTEXT (DYNAMIC REQUESTS) ---
+INPUT_EXT_ENABLED       = input.bool(false, '🌐 External Context', group=GROUP_EXT_CTX, tooltip="Enables dynamic data requests for external symbol context.\nUsed to improve confidence signals using another symbol (index/VIX/etc).\nOFF by default - no requests when disabled.")
+INPUT_EXT_TF_MODE       = input.string(EXT_TF_CURRENT, '   ↳ Timeframe Mode', options=[EXT_TF_CURRENT, EXT_TF_CUSTOM], group=GROUP_EXT_CTX, tooltip="CURRENT: Uses chart timeframe.\nCUSTOM: Uses user-defined timeframe.")
+INPUT_EXT_TF_CUSTOM     = input.string('60', '   ↳ Custom Timeframe', group=GROUP_EXT_CTX, tooltip="Timeframe string when using CUSTOM mode.\nExamples: 1, 5, 15, 60, 240, D, W, M")
+INPUT_EXT_SYMBOLS       = input.string('', '   ↳ Symbols (CSV)', group=GROUP_EXT_CTX, tooltip="Comma-separated ticker list.\nExample: CBOE:VIX, SP:SPX, BINANCE:BTCUSDT\nEmpty = no external requests.")
+INPUT_EXT_MAX_SYMBOLS   = input.int(EXT_DEFAULT_SYMBOLS, '   ↳ Max Symbols', minval=1, maxval=EXT_MAX_SYMBOLS_CAP, group=GROUP_EXT_CTX, tooltip="Maximum symbols to request.\nHigher values consume more of the 40-request budget.\nDefault 5 is conservative.")
+INPUT_EXT_FIELDS        = input.string(EXT_FIELDS_CLOSE, '   ↳ Fields', options=[EXT_FIELDS_CLOSE, EXT_FIELDS_OHLCV], group=GROUP_EXT_CTX, tooltip="CLOSE_ONLY: Requests only close price.\nOHLCV: Requests open/high/low/close/volume tuple.")
+INPUT_EXT_GATE_MODE     = input.string(EXT_GATE_ALWAYS, '   ↳ Gating Mode', options=[EXT_GATE_ALWAYS, EXT_GATE_ENTROPY, EXT_GATE_HURST, EXT_GATE_CUSTOM], group=GROUP_EXT_CTX, tooltip="Controls when external requests execute:\nALWAYS: Every bar when enabled.\nON_ENTROPY_DISORDER: Only during disordered entropy regime.\nON_LOW_HURST: Only when Hurst < mean-revert threshold.\nCUSTOM: Placeholder for custom logic.")
+INPUT_EXT_DEBUG         = input.bool(false, '   ↳ Debug Overlay', group=GROUP_EXT_CTX, tooltip="Shows debug info on last bar:\nGating state, used contexts, fetched values.\nNo per-bar labels (performance safe).")
 // ------------------------------------------
 
 // Fibonacci Levels
@@ -1314,6 +1400,55 @@ type RegimeState
     float rawAtr = na
     float atrPercentile = na
     float rsi = na
+
+// @type ExternalContextState - Manages dynamic external data requests
+// @description Encapsulates JIT external context fetching with budget awareness.
+//              Supports tuple-consolidated requests for up to MAX_SYMBOLS symbols.
+//              Integrates with regime gating for conditional execution.
+// @field enabled Feature toggle state
+// @field gated True if gating condition allows requests this bar
+// @field budgetExceeded True if request budget limit reached
+// @field usedContexts Count of unique request contexts used
+// @field symbols Array of parsed symbol strings (bounded)
+// @field closes Array of fetched close prices
+// @field opens Array of fetched open prices (OHLCV mode)
+// @field highs Array of fetched high prices (OHLCV mode)
+// @field lows Array of fetched low prices (OHLCV mode)
+// @field volumes Array of fetched volumes (OHLCV mode)
+// @field extOk Aggregated external validation (all symbols valid)
+// @field validCount Count of symbols with valid (non-na) data
+type ExternalContextState
+    bool  enabled = false
+    bool  gated = false
+    bool  budgetExceeded = false
+    int   usedContexts = 0
+    array<string> symbols = na
+    array<float>  closes = na
+    array<float>  opens = na
+    array<float>  highs = na
+    array<float>  lows = na
+    array<float>  volumes = na
+    bool  extOk = true
+    int   validCount = 0
+
+// @function Reset external context state for new bar
+// @param this ExternalContextState instance
+// @returns ExternalContextState for chaining
+method reset(ExternalContextState this) =>
+    this.gated := false
+    this.extOk := true
+    this.validCount := 0
+    if not na(this.closes)
+        this.closes.clear()
+    if not na(this.opens)
+        this.opens.clear()
+    if not na(this.highs)
+        this.highs.clear()
+    if not na(this.lows)
+        this.lows.clear()
+    if not na(this.volumes)
+        this.volumes.clear()
+    this
 
 // @type LearningMetrics - Encapsulates all machine learning computed values
 // @description Consolidates learning state and metrics into a single UDT.
@@ -2499,6 +2634,81 @@ bool highVolatility = range_1 > i_weightedATR
 bool crossover_volatility = ta.crossover(range_1, i_weightedATR)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// EXTERNAL CONTEXT ENGINE - Dynamic Requests with Budget Awareness
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: Uses Pine v6 dynamic requests (series string contexts) inside local scope.
+//       Gated execution prevents requests when feature disabled or gating condition false.
+//       Budget capped at EXT_MAX_SYMBOLS_CAP to avoid unique request limit (40).
+//       Intrabar requests (request.security_lower_tf) remain at global scope per Pine rules.
+
+var ExternalContextState GLOBAL_extContext = ExternalContextState.new()
+
+// Initialize persistent arrays once
+if barstate.isfirst
+    GLOBAL_extContext.symbols := array.new<string>(0)
+    GLOBAL_extContext.closes := array.new<float>(0)
+    GLOBAL_extContext.opens := array.new<float>(0)
+    GLOBAL_extContext.highs := array.new<float>(0)
+    GLOBAL_extContext.lows := array.new<float>(0)
+    GLOBAL_extContext.volumes := array.new<float>(0)
+    GLOBAL_extContext.enabled := INPUT_EXT_ENABLED
+
+// Reset state for new bar
+GLOBAL_extContext.reset()
+GLOBAL_extContext.enabled := INPUT_EXT_ENABLED
+
+// Compute gating condition
+bool _extGated = INPUT_EXT_ENABLED and f_computeExtGate(INPUT_EXT_GATE_MODE, GLOBAL_regime.entropyRegime, GLOBAL_regime.hurst, INPUT_HURST_MEANREV)
+GLOBAL_extContext.gated := _extGated
+
+// Execute external requests only when enabled and gated
+if _extGated and not GLOBAL_extContext.budgetExceeded
+    // Parse symbols once per change (stable ordering reduces uniqueness churn)
+    array<string> _parsedSymbols = f_parseSymbols(INPUT_EXT_SYMBOLS, INPUT_EXT_MAX_SYMBOLS)
+    int _symCount = array.size(_parsedSymbols)
+    
+    // Copy symbols to state
+    array.clear(GLOBAL_extContext.symbols)
+    for i = 0 to _symCount - 1
+        array.push(GLOBAL_extContext.symbols, array.get(_parsedSymbols, i))
+    
+    // Resolve effective timeframe
+    string _extTf = f_getExtTimeframe(INPUT_EXT_TF_MODE, INPUT_EXT_TF_CUSTOM)
+    
+    // Budget check: existing LTF requests (2) + external symbols
+    int _estimatedContexts = 2 + _symCount
+    if _estimatedContexts > EXT_MAX_CONTEXTS
+        GLOBAL_extContext.budgetExceeded := true
+    else
+        GLOBAL_extContext.usedContexts := _symCount
+        
+        // Request data for each symbol (bounded loop)
+        for i = 0 to _symCount - 1
+            string _sym = array.get(_parsedSymbols, i)
+            
+            if INPUT_EXT_FIELDS == EXT_FIELDS_OHLCV
+                [_o, _h, _l, _c, _v] = f_reqExtOHLCV(_sym, _extTf)
+                array.push(GLOBAL_extContext.opens, _o)
+                array.push(GLOBAL_extContext.highs, _h)
+                array.push(GLOBAL_extContext.lows, _l)
+                array.push(GLOBAL_extContext.closes, _c)
+                array.push(GLOBAL_extContext.volumes, _v)
+                if not na(_c)
+                    GLOBAL_extContext.validCount += 1
+            else
+                float _c = f_reqExtClose(_sym, _extTf)
+                array.push(GLOBAL_extContext.closes, _c)
+                if not na(_c)
+                    GLOBAL_extContext.validCount += 1
+
+// Compute aggregated extOk: true if disabled, or all valid when enabled
+bool _extOk = true
+if INPUT_EXT_ENABLED
+    if GLOBAL_extContext.gated and array.size(GLOBAL_extContext.closes) > 0
+        _extOk := GLOBAL_extContext.validCount > 0
+GLOBAL_extContext.extOk := _extOk
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // ZIGZAG ENGINE - Manages ZigZag line drawing and pivot state
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 var ZigZagEngine GLOBAL_zigzag = ZigZagEngine.new()
@@ -3267,7 +3477,8 @@ float raw_tp_price = raw_tp_target
 // 4. Entropy regime allows trading (ORDERED or TRANSITION)
 // 5. Hurst regime allows trading (if blocking random is enabled)
 // 6. Momentum is statistically significant (if Z-score filter enabled)
-if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cachedPivots.iMidPivot) and not na(GLOBAL_cachedPivots.pEndBase) and GLOBAL_regime.entropyOk and GLOBAL_regime.hurstOk and GLOBAL_regime.momentumOk
+// 7. External context valid (if enabled) - non-breaking: extOk=true when disabled
+if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cachedPivots.iMidPivot) and not na(GLOBAL_cachedPivots.pEndBase) and GLOBAL_regime.entropyOk and GLOBAL_regime.hurstOk and GLOBAL_regime.momentumOk and GLOBAL_extContext.extOk
     // Build initial state_mask: PENDING + direction flag (using arithmetic for raw int)
     int init_state = FLAG_PENDING + (raw_is_long ? FLAG_IS_LONG : 0)
     
@@ -4782,3 +4993,39 @@ if INPUT_ALERT_ENABLED
     if barstate.ishistory
         GLOBAL_pivotLevelsLogRetracements.clear()
         GLOBAL_pivotLevelsLogCrossed.clear()
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// EXTERNAL CONTEXT DEBUG OVERLAY - Last Bar Only
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+if INPUT_EXT_DEBUG and barstate.islast
+    var table extDebugTable = table.new(position.bottom_left, 2, 8, bgcolor = color.new(color.black, 80), border_width = 1)
+    
+    table.cell(extDebugTable, 0, 0, "External Context", text_color = color.white, text_size = size.small)
+    table.cell(extDebugTable, 1, 0, "", text_color = color.white, text_size = size.small)
+    
+    table.cell(extDebugTable, 0, 1, "Enabled", text_color = color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 1, GLOBAL_extContext.enabled ? "✓" : "✗", text_color = GLOBAL_extContext.enabled ? color.green : color.red, text_size = size.tiny)
+    
+    table.cell(extDebugTable, 0, 2, "Gated", text_color = color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 2, GLOBAL_extContext.gated ? "✓" : "✗", text_color = GLOBAL_extContext.gated ? color.green : color.gray, text_size = size.tiny)
+    
+    table.cell(extDebugTable, 0, 3, "Budget OK", text_color = color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 3, GLOBAL_extContext.budgetExceeded ? "⚠ EXCEEDED" : "✓", text_color = GLOBAL_extContext.budgetExceeded ? color.orange : color.green, text_size = size.tiny)
+    
+    table.cell(extDebugTable, 0, 4, "Contexts", text_color = color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 4, str.tostring(GLOBAL_extContext.usedContexts), text_color = color.white, text_size = size.tiny)
+    
+    table.cell(extDebugTable, 0, 5, "Valid", text_color = color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 5, str.tostring(GLOBAL_extContext.validCount) + "/" + str.tostring(array.size(GLOBAL_extContext.symbols)), text_color = color.white, text_size = size.tiny)
+    
+    table.cell(extDebugTable, 0, 6, "extOk", text_color = color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 6, GLOBAL_extContext.extOk ? "✓" : "✗", text_color = GLOBAL_extContext.extOk ? color.green : color.red, text_size = size.tiny)
+    
+    // Show first symbol + close if available
+    string _symInfo = "—"
+    if array.size(GLOBAL_extContext.symbols) > 0
+        string _firstSym = array.get(GLOBAL_extContext.symbols, 0)
+        float _firstClose = array.size(GLOBAL_extContext.closes) > 0 ? array.get(GLOBAL_extContext.closes, 0) : na
+        _symInfo := _firstSym + ": " + (na(_firstClose) ? "na" : str.tostring(_firstClose, "#.##"))
+    table.cell(extDebugTable, 0, 7, "Symbol[0]", text_color = color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 7, _symInfo, text_color = color.white, text_size = size.tiny)
