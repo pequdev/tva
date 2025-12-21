@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.1.49', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.2.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -436,6 +436,7 @@ int decimalsCount = math.round(math.abs(math.log(1 / syminfo.mintick) / math.log
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 // SetupRecord UDT: Tracks outcome of each Golden Pocket setup for backtesting learning
+// NOTE: Must be declared before CircularBufferSetupRecord which references it
 type SetupRecord
     int    setup_bar         // Bar index when setup formed
     bool   is_long           // Direction of setup
@@ -464,8 +465,75 @@ type SetupRecord
     // Phase 4: Regime detection
     float  vol_percentile    // ATR percentile at setup formation (0-100, for regime classification)
 
-// Rolling window of historical setups for learning
-var array<SetupRecord> g_setup_history = array.new<SetupRecord>()
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// CIRCULAR BUFFER - O(1) Fixed-Size Ring Buffer for Historical Data
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// @type CircularBuffer - Fixed-size ring buffer with O(1) operations
+// @field data Preallocated array of SetupRecord (size = capacity)
+// @field head Index of next write position (0 to capacity-1)
+// @field count Number of valid entries (0 to capacity)
+// @field capacity Maximum buffer size (fixed at initialization)
+type CircularBufferSetupRecord
+    array<SetupRecord> data
+    int head = 0
+    int count = 0
+    int capacity = 50
+
+// @function Initialize a CircularBuffer with preallocated capacity
+// @param this CircularBuffer instance
+// @param _capacity Maximum number of elements to store
+// @returns Initialized CircularBuffer
+method init(CircularBufferSetupRecord this, int _capacity) =>
+    this.capacity := _capacity
+    this.head := 0
+    this.count := 0
+    this.data := array.new<SetupRecord>(_capacity)
+    this
+
+// @function Push a new value into the buffer (overwrites oldest when full)
+// @param this CircularBuffer instance
+// @param value SetupRecord to push
+// @returns The CircularBuffer instance (for chaining)
+method push(CircularBufferSetupRecord this, SetupRecord value) =>
+    array.set(this.data, this.head, value)
+    this.head := (this.head + 1) % this.capacity
+    this.count := math.min(this.count + 1, this.capacity)
+    this
+
+// @function Get value at lookback index (0 = newest, count-1 = oldest valid)
+// @param this CircularBuffer instance
+// @param lookback Lookback index (0 = most recent push)
+// @returns SetupRecord at that position, or na if out of bounds
+method get(CircularBufferSetupRecord this, int lookback) =>
+    if lookback < 0 or lookback >= this.count
+        na
+    else
+        int physicalIndex = (this.head - 1 - lookback + this.capacity) % this.capacity
+        array.get(this.data, physicalIndex)
+
+// @function Get the number of valid entries in the buffer
+// @param this CircularBuffer instance
+// @returns Number of entries (0 to capacity)
+method size(CircularBufferSetupRecord this) =>
+    this.count
+
+// @function Check if buffer has any valid entries
+// @param this CircularBuffer instance
+// @returns True if count > 0
+method isEmpty(CircularBufferSetupRecord this) =>
+    this.count == 0
+
+// @function Check if buffer is at capacity
+// @param this CircularBuffer instance
+// @returns True if count == capacity
+method isFull(CircularBufferSetupRecord this) =>
+    this.count == this.capacity
+
+var CircularBufferSetupRecord g_setup_history = CircularBufferSetupRecord.new()
+
+// Initialize the circular buffer on first bar
+if barstate.isfirst
+    g_setup_history.init(INPUT_LEARNING_SAMPLES)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // BACKTESTING ENGINE - Trade Mining System
@@ -1433,7 +1501,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Phase 2: Use learned SL multiplier if enabled and sufficient data
     // g_learned_sl_mult is computed from: avg MAE of winning trades + SL_BUFFER_ATR buffer
     float base_sl_mult = INPUT_POS_SL_MULT
-    bool use_learned = INPUT_USE_LEARNED_SL and INPUT_LEARNING_ENABLED and array.size(g_setup_history) >= LEARN_MIN_SAMPLES_SL and g_learned_sl_mult > 0
+    bool use_learned = INPUT_USE_LEARNED_SL and INPUT_LEARNING_ENABLED and g_setup_history.size() >= LEARN_MIN_SAMPLES_SL and g_learned_sl_mult > 0
     if use_learned
         base_sl_mult := g_learned_sl_mult
         // Validation: if losing trades had larger MAE, consider widening SL
@@ -1465,7 +1533,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // Determine which TP mode to use (Phase 3: can be learned)
     bool use_aggressive_tp = INPUT_POS_TP_MODE == 'Aggressive'
-    bool has_learned_tp = INPUT_LEARN_TP and INPUT_LEARNING_ENABLED and array.size(g_setup_history) >= INPUT_LEARN_MIN_SAMPLES
+    bool has_learned_tp = INPUT_LEARN_TP and INPUT_LEARNING_ENABLED and g_setup_history.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_learned_tp
         // Prefer learned EV-based decision if available
         if g_learned_aggr_ev != 0 or g_learned_cons_ev != 0
@@ -1488,13 +1556,15 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Start with previously learned buffer if available, otherwise base
     float adaptive_buffer = g_learned_zone_buffer > 0 ? g_learned_zone_buffer : INPUT_ZONE_BUFFER_BASE
     
-    if INPUT_LEARNING_ENABLED and array.size(g_setup_history) >= LEARN_MIN_SAMPLES_BUFFER
+    if INPUT_LEARNING_ENABLED and g_setup_history.size() >= LEARN_MIN_SAMPLES_BUFFER
         // Count near-misses in recent history
         int near_misses = 0
         int total_valid = 0
-        int max_check = math.min(INPUT_LEARNING_SAMPLES - 1, array.size(g_setup_history) - 1)
+        int max_check = math.min(INPUT_LEARNING_SAMPLES - 1, g_setup_history.size() - 1)
         for i = 0 to max_check
-            SetupRecord rec = array.get(g_setup_history, i)
+            SetupRecord rec = g_setup_history.get(i)
+            if na(rec)
+                continue
             if rec.closest_approach > 0 and rec.closest_approach < INPUT_NEAR_MISS_THRESH and not rec.zone_touched
                 near_misses += 1
             total_valid += 1
@@ -1511,8 +1581,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             float avg_approach = 0.0
             int approach_count = 0
             for j = 0 to max_check
-                SetupRecord rec2 = array.get(g_setup_history, j)
-                if rec2.closest_approach > 0 and rec2.closest_approach < INPUT_NEAR_MISS_THRESH and not rec2.zone_touched
+                SetupRecord rec2 = g_setup_history.get(j)
+                if not na(rec2) and rec2.closest_approach > 0 and rec2.closest_approach < INPUT_NEAR_MISS_THRESH and not rec2.zone_touched
                     avg_approach += rec2.closest_approach
                     approach_count += 1
             if approach_count > 0
@@ -1532,7 +1602,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // DEBUG: Log learning engine values on bar confirmation
     if barstate.isconfirmed and INPUT_LEARNING_ENABLED
-        int sample_count = array.size(g_setup_history)
+        int sample_count = g_setup_history.size()
         log.info("LEARNING: samples={0}, zone_buffer={1}%, sl_mult={2}, win_rate={3}%, sl_price={4}, tp_price={5}", 
                  sample_count, adaptive_buffer, effective_sl_mult, g_learned_win_rate * 100, sl_price, tp_price)
     
@@ -1714,7 +1784,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // Phase 3: Use learned decay rate if enabled and sufficient data
     float decay_rate = TIME_DECAY_DEFAULT_RATE
-    bool has_learned_decay = INPUT_LEARN_DECAY and INPUT_LEARNING_ENABLED and array.size(g_setup_history) >= INPUT_LEARN_MIN_SAMPLES
+    bool has_learned_decay = INPUT_LEARN_DECAY and INPUT_LEARNING_ENABLED and g_setup_history.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_learned_decay and g_learned_decay_rate > 0
         decay_rate := g_learned_decay_rate
     float time_decay = INPUT_POS_TIME_DECAY ? math.pow(decay_rate, time_phase) : 1.0
@@ -1781,7 +1851,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Calculate empirical win rate from learning history
     // OPTIMIZATION: Only recalculate when new trade was recorded (flag set in should_record block)
     float p_empirical = p_base
-    if INPUT_LEARNING_ENABLED and array.size(g_setup_history) >= LEARN_MIN_SAMPLES_SL and g_learning_needs_recalc
+    if INPUT_LEARNING_ENABLED and g_setup_history.size() >= LEARN_MIN_SAMPLES_SL and g_learning_needs_recalc
         // Reset flag - we're about to recalculate
         g_learning_needs_recalc := false
         
@@ -1827,13 +1897,15 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         int streak_state = 0       // 0=unknown, 1=in_win_streak, -1=in_loss_streak
         bool streak_frozen = false // Once streak is broken, stop updating current streak
         
-        // Iterate from NEWEST to OLDEST (array.push adds to end, so last index = newest)
-        int history_size = array.size(g_setup_history)
+        // Iterate from NEWEST to OLDEST using CircularBuffer (get(0) = newest)
+        int history_size = g_setup_history.size()
         int samples_to_check = math.min(INPUT_LEARNING_SAMPLES, history_size)
         for idx = 0 to samples_to_check - 1
-            int i = history_size - 1 - idx  // Reverse: start from newest (end of array)
-            SetupRecord rec = array.get(g_setup_history, i)
-            // CRITICAL: Only count as win/loss if zone was actually touched (entry occurred)
+            // CircularBuffer: idx=0 is newest, idx=samples_to_check-1 is oldest in window
+            SetupRecord rec = g_setup_history.get(idx)
+            // Skip if na (buffer not yet full at this index)
+            if na(rec)
+                continue
             // Setups where zone was never touched are "no trade" - don't affect win rate
             if not rec.zone_touched
                 continue  // Skip - no entry, no trade
@@ -2072,7 +2144,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Phase 2: Use direction-specific win rate for more accurate Kelly sizing
     // NOTE: g_learned_win_rate is already clamped to 0.30-0.70 above
     float p_effective = p_base
-    if INPUT_LEARNING_ENABLED and array.size(g_setup_history) >= LEARN_MIN_SAMPLES_SL
+    if INPUT_LEARNING_ENABLED and g_setup_history.size() >= LEARN_MIN_SAMPLES_SL
         // Use direction-specific win rate if we have enough samples per direction
         // Also clamp direction-specific rates to prevent wild Kelly values
         bool has_dir_data = (is_long_setup and g_learned_wr_long != DEFAULT_WIN_RATE) or (not is_long_setup and g_learned_wr_short != DEFAULT_WIN_RATE)
@@ -2089,7 +2161,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float current_regime_percentile = ta.percentrank(ta.atr(INPUT_ATR_LENGTH), 100)  // Real-time regime check
     bool is_high_vol_regime = current_regime_percentile >= VOL_REGIME_HIGH_THRESH
     bool is_low_vol_regime = current_regime_percentile <= VOL_REGIME_LOW_THRESH
-    bool has_regime_data = INPUT_LEARNING_ENABLED and array.size(g_setup_history) >= INPUT_LEARN_MIN_SAMPLES
+    bool has_regime_data = INPUT_LEARNING_ENABLED and g_setup_history.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_regime_data
         if is_high_vol_regime and g_learned_wr_high_vol != DEFAULT_WIN_RATE
             // Blend: 70% direction WR + 30% regime WR for stability
@@ -2100,7 +2172,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Phase 3: Apply learned RSI weight to boost probability when divergence is present
     // This adjusts the effective win rate based on the edge RSI divergence provides
     float p_rsi_adjusted = p_regime_adjusted
-    bool has_learned_rsi_weight = INPUT_LEARN_RSI_WEIGHT and INPUT_LEARNING_ENABLED and array.size(g_setup_history) >= INPUT_LEARN_MIN_SAMPLES
+    bool has_learned_rsi_weight = INPUT_LEARN_RSI_WEIGHT and INPUT_LEARNING_ENABLED and g_setup_history.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_learned_rsi_weight and rsi_confirm and g_learned_rsi_weight > 0
         // Boost win rate by learned edge: p + (edge * weight * (1-p)) to stay bounded
         float boost = g_learned_div_edge * g_learned_rsi_weight * (1 - p_regime_adjusted)
@@ -2114,7 +2186,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Phase 4: Apply confidence-based Kelly scaling
     // High confidence (>70) = full fraction, low confidence (<40) = reduced fraction
     float conf_scale = 1.0
-    bool has_conf_data = INPUT_LEARNING_ENABLED and array.size(g_setup_history) >= INPUT_LEARN_MIN_SAMPLES
+    bool has_conf_data = INPUT_LEARNING_ENABLED and g_setup_history.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_conf_data
         // Map confidence 30-80 → scale 0.5-1.0
         conf_scale := math.max(0.5, math.min(1.0, (g_learned_confidence - 30) / 50))
@@ -2157,7 +2229,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Learning stats for display
     string learn_text = ""
     if INPUT_LEARNING_ENABLED
-        int sample_count = array.size(g_setup_history)
+        int sample_count = g_setup_history.size()
         if sample_count >= 10
             learn_text := "\n📊 " + str.tostring(sample_count) + " samples"
             if g_learned_zone_buffer > 0
@@ -2319,19 +2391,15 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // Phase 4: Record last outcome bar for staleness detection
         g_learned_last_outcome_bar := bar_index
         
-        // Add to history (newest at end)
-        array.push(g_setup_history, completed_setup)
-        
-        // Trim history to max size (FIFO)
-        if array.size(g_setup_history) > INPUT_LEARNING_SAMPLES
-            array.shift(g_setup_history)
+        // Add to circular buffer (O(1) operation, auto-overwrites oldest when full)
+        g_setup_history.push(completed_setup)
         
         // OPTIMIZATION: Set flag to trigger learning recalculation (only on new trade)
         g_learning_needs_recalc := true
         
         // DEBUG: Log when setup is recorded
         log.info("RECORDED: bar={0}, is_long={1}, zone_touched={2}, sl_hit={3}, tp_hit={4}, samples={5}", 
-                 g_active_trade.setup_bar, g_active_trade.is_long, g_active_trade.zone_touched, g_active_trade.sl_hit, g_active_trade.tp_hit, array.size(g_setup_history))
+                 g_active_trade.setup_bar, g_active_trade.is_long, g_active_trade.zone_touched, g_active_trade.sl_hit, g_active_trade.tp_hit, g_setup_history.size())
     
     // Initialize CONFIRMED trade tracking - ONLY reset on pivotChanged (never for projections)
     // This ensures Learning Engine data is ONLY from confirmed ZigZag pivots
