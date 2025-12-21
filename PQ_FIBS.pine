@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.10.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.11.1', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -34,6 +34,13 @@ string ALERT_ID_UPDATE     = 'FBU'
 string ALERT_ID_EXHAUSTION = 'EXH'
 string ALERT_ID_VOLATILITY = 'HVO'
 string ALERT_ID_CROSSING   = 'RCL'
+string ALERT_ID_SETUP      = 'SCT'
+string ALERT_ID_ENTRY      = 'SEN'
+string ALERT_ID_OUTCOME    = 'SOT'
+string ALERT_ID_LEARNING   = 'LRN'
+
+// Alert Schema Version
+string ALERT_SCHEMA_VERSION = '1.0.0'
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // FIBONACCI CONSTANTS
@@ -2274,6 +2281,103 @@ f_new_setup_state() =>
     )
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ALERT STATE UDT
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// @type AlertState - Captures all state needed for JSON alert generation
+// @description Populated at end of Statistical Position Engine block, consumed in ALERTS section
+type AlertState
+    // Setup flags
+    bool isProjection = false
+    bool isLong = false
+    bool zoneTouched = false
+    bool slHit = false
+    bool tpHit = false
+    bool inZone = false
+    bool zoneEntry = false
+    bool useAggressiveTp = false
+    bool expired = false
+    // Zone/position values
+    float rawZoneTop = na
+    float rawZoneBottom = na
+    float adjustedZoneTop = na
+    float adjustedZoneBottom = na
+    float bufferPct = na
+    float minDistance = na
+    float slPrice = na
+    float tpPrice = na
+    float tpCons = na
+    float tpAggr = na
+    float slMult = na
+    float atr = na
+    float smartSl = na
+    // Time decay
+    int creationBar = na
+    int barsSinceCreation = 0
+    int timePhase = 0
+    float decayRate = 0.85
+
+// @function Populate all alert state fields from Statistical Position Engine context
+// @param this AlertState instance
+// @param _isProj Projection mode active
+// @param _isLong Long direction
+// @param _zoneTouched Zone was touched
+// @param _slHit SL hit
+// @param _tpHit TP hit
+// @param _inZone Currently in zone
+// @param _zoneEntry Just entered zone
+// @param _useAggr Using aggressive TP
+// @param _expired Time expired
+// @param _rawTop Raw zone top
+// @param _rawBottom Raw zone bottom
+// @param _adjTop Adjusted zone top
+// @param _adjBottom Adjusted zone bottom
+// @param _bufferPct Buffer percentage
+// @param _minDist Minimum distance
+// @param _sl SL price
+// @param _tp TP price
+// @param _tpCons Conservative TP
+// @param _tpAggr Aggressive TP
+// @param _slMult SL multiplier
+// @param _atr ATR value
+// @param _smartSl Smart SL price
+// @param _creationBar Creation bar
+// @param _barsSince Bars since creation
+// @param _phase Time phase
+// @param _decay Decay rate
+// @returns AlertState instance for chaining
+method populate(AlertState this, bool _isProj, bool _isLong, bool _zoneTouched, bool _slHit, bool _tpHit, bool _inZone, bool _zoneEntry, bool _useAggr, bool _expired, float _rawTop, float _rawBottom, float _adjTop, float _adjBottom, float _bufferPct, float _minDist, float _sl, float _tp, float _tpCons, float _tpAggr, float _slMult, float _atr, float _smartSl, int _creationBar, int _barsSince, int _phase, float _decay) =>
+    this.isProjection := _isProj
+    this.isLong := _isLong
+    this.zoneTouched := _zoneTouched
+    this.slHit := _slHit
+    this.tpHit := _tpHit
+    this.inZone := _inZone
+    this.zoneEntry := _zoneEntry
+    this.useAggressiveTp := _useAggr
+    this.expired := _expired
+    this.rawZoneTop := _rawTop
+    this.rawZoneBottom := _rawBottom
+    this.adjustedZoneTop := _adjTop
+    this.adjustedZoneBottom := _adjBottom
+    this.bufferPct := _bufferPct
+    this.minDistance := _minDist
+    this.slPrice := _sl
+    this.tpPrice := _tp
+    this.tpCons := _tpCons
+    this.tpAggr := _tpAggr
+    this.slMult := _slMult
+    this.atr := _atr
+    this.smartSl := _smartSl
+    this.creationBar := _creationBar
+    this.barsSinceCreation := _barsSince
+    this.timePhase := _phase
+    this.decayRate := _decay
+    this
+
+// Global alert state - populated in Statistical Position Engine, consumed in ALERTS
+var AlertState GLOBAL_alertState = AlertState.new()
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE SEPARATION: Active Trade vs Projection Preview
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // GLOBAL_activeTrade: Updated on confirmed ZigZag pivots (GLOBAL_zigzag.changed)
@@ -2814,7 +2918,312 @@ method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRed
         if this.crossed
             GLOBAL_pivotLevelsLogCrossed.put(this.level, price)
 
-// @function Construct JSON alert message
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// JSON SERIALIZATION HELPERS - Alert Event Payload Construction
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Serialize float to JSON (handles na as null)
+// @param v Float value
+// @returns JSON string representation
+f_jsonFloat(float v) =>
+    na(v) ? 'null' : str.tostring(v)
+
+// @function Serialize int to JSON (handles na as null)
+// @param v Int value
+// @returns JSON string representation
+f_jsonInt(int v) =>
+    na(v) ? 'null' : str.tostring(v)
+
+// @function Serialize bool to JSON
+// @param v Bool value
+// @returns JSON string representation
+f_jsonBool(bool v) =>
+    v ? 'true' : 'false'
+
+// @function Serialize string to JSON with quotes
+// @param v String value
+// @returns JSON string representation
+f_jsonStr(string v) =>
+    na(v) ? 'null' : '"' + v + '"'
+
+// @function Build common envelope JSON for all events
+// @param id Event ID
+// @param eventType Event type string
+// @returns JSON string with common fields
+f_jsonEnvelope(string id, string eventType) =>
+    string barstate_json = '{"is_new":' + f_jsonBool(barstate.isnew) + 
+        ',"is_first":' + f_jsonBool(barstate.isfirst) + 
+        ',"is_last":' + f_jsonBool(barstate.islast) + 
+        ',"is_confirmed":' + f_jsonBool(barstate.isconfirmed) + 
+        ',"is_history":' + f_jsonBool(barstate.ishistory) + '}'
+    string ohlcv_json = '{"open":' + f_jsonFloat(open) + 
+        ',"high":' + f_jsonFloat(high) + 
+        ',"low":' + f_jsonFloat(low) + 
+        ',"close":' + f_jsonFloat(close) + 
+        ',"volume":' + f_jsonFloat(volume) + '}'
+    '"schema_version":"' + ALERT_SCHEMA_VERSION + '"' +
+        ',"event_id":"' + id + '"' +
+        ',"event_type":"' + eventType + '"' +
+        ',"symbol":"' + syminfo.tickerid + '"' +
+        ',"timeframe":"' + timeframe.period + '"' +
+        ',"bar_index":' + str.tostring(bar_index) +
+        ',"last_bar_index":' + str.tostring(last_bar_index) +
+        ',"time":' + str.tostring(time) +
+        ',"time_close":' + str.tostring(time_close) +
+        ',"time_tradingday":' + str.tostring(time_tradingday) +
+        ',"barstate":' + barstate_json +
+        ',"ohlcv":' + ohlcv_json
+
+// @function Serialize pivots context to JSON
+// @param confirmedMidBar Confirmed mid pivot bar
+// @param confirmedMidPrice Confirmed mid pivot price
+// @param confirmedEndBar Confirmed end pivot bar
+// @param confirmedEndPrice Confirmed end pivot price
+// @param effMidBar Effective mid pivot bar
+// @param effMidPrice Effective mid pivot price
+// @param effEndBar Effective end pivot bar (na for projection)
+// @param effEndPrice Effective end pivot price
+// @param projActive Projection active flag
+// @returns JSON string for pivots object
+f_jsonPivots(int confirmedMidBar, float confirmedMidPrice, int confirmedEndBar, float confirmedEndPrice, int effMidBar, float effMidPrice, int effEndBar, float effEndPrice, bool projActive) =>
+    '{"confirmed":{"mid_bar":' + f_jsonInt(confirmedMidBar) + 
+        ',"mid_price":' + f_jsonFloat(confirmedMidPrice) + 
+        ',"end_bar":' + f_jsonInt(confirmedEndBar) + 
+        ',"end_price":' + f_jsonFloat(confirmedEndPrice) + '}' +
+        ',"effective":{"mid_bar":' + f_jsonInt(effMidBar) + 
+        ',"mid_price":' + f_jsonFloat(effMidPrice) + 
+        ',"end_bar":' + f_jsonInt(effEndBar) + 
+        ',"end_price":' + f_jsonFloat(effEndPrice) + 
+        ',"projection_active":' + f_jsonBool(projActive) + '}}'
+
+// @function Serialize setup state to JSON
+// @param isProjection Whether in projection mode
+// @param isLong Long direction
+// @param zoneTouched Zone was touched
+// @param slHit SL hit flag
+// @param tpHit TP hit flag
+// @returns JSON string for setup object
+f_jsonSetup(bool isProjection, bool isLong, bool zoneTouched, bool slHit, bool tpHit) =>
+    string state = isProjection ? 'projection' : 'confirmed'
+    string labelPrefix = isProjection ? '⚡PROJ' : '✓ACTIVE'
+    bool isRecordable = not isProjection and zoneTouched
+    '{"state":"' + state + '"' +
+        ',"is_long":' + f_jsonBool(isLong) +
+        ',"label_prefix":"' + labelPrefix + '"' +
+        ',"is_recordable":' + f_jsonBool(isRecordable) +
+        ',"zone_touched":' + f_jsonBool(zoneTouched) +
+        ',"sl_hit":' + f_jsonBool(slHit) +
+        ',"tp_hit":' + f_jsonBool(tpHit) + '}'
+
+// @function Serialize zone data to JSON
+// @param rawTop Raw zone top
+// @param rawBottom Raw zone bottom
+// @param adjTop Adjusted zone top
+// @param adjBottom Adjusted zone bottom
+// @param bufferPct Buffer percentage
+// @param inZone Currently in zone
+// @param zoneEntry Zone entry event
+// @param minDistPct Minimum distance percentage
+// @returns JSON string for zone object
+f_jsonZone(float rawTop, float rawBottom, float adjTop, float adjBottom, float bufferPct, bool inZone, bool zoneEntry, float minDistPct) =>
+    float rawMid = (rawTop + rawBottom) / 2
+    float adjMid = (adjTop + adjBottom) / 2
+    '{"raw":{"top":' + f_jsonFloat(rawTop) + 
+        ',"bottom":' + f_jsonFloat(rawBottom) + 
+        ',"mid":' + f_jsonFloat(rawMid) + '}' +
+        ',"adjusted":{"top":' + f_jsonFloat(adjTop) + 
+        ',"bottom":' + f_jsonFloat(adjBottom) + 
+        ',"mid":' + f_jsonFloat(adjMid) + 
+        ',"buffer_pct":' + f_jsonFloat(bufferPct) + '}' +
+        ',"status":{"in_zone":' + f_jsonBool(inZone) + 
+        ',"zone_entry":' + f_jsonBool(zoneEntry) + 
+        ',"min_distance_pct":' + f_jsonFloat(minDistPct) + '}}'
+
+// @function Serialize position data to JSON
+// @param entryMid Entry mid price
+// @param slPrice Stop loss price
+// @param tpPrice Take profit price
+// @param tpCons Conservative TP
+// @param tpAggr Aggressive TP
+// @param useAggr Using aggressive TP
+// @param slMult SL multiplier
+// @param atr ATR value
+// @param smartSlPrice Smart SL price (na if not available)
+// @returns JSON string for position object
+f_jsonPosition(float entryMid, float slPrice, float tpPrice, float tpCons, float tpAggr, bool useAggr, float slMult, float atr, float smartSlPrice) =>
+    string tpMode = useAggr ? 'aggressive' : 'conservative'
+    float risk = math.abs(entryMid - slPrice)
+    float reward = math.abs(tpPrice - entryMid)
+    float rr = risk > 0 ? reward / risk : 0.0
+    '{"entry_mid":' + f_jsonFloat(entryMid) + 
+        ',"sl_price":' + f_jsonFloat(slPrice) + 
+        ',"tp_price":' + f_jsonFloat(tpPrice) + 
+        ',"tp_mode":"' + tpMode + '"' +
+        ',"tp_cons":' + f_jsonFloat(tpCons) + 
+        ',"tp_aggr":' + f_jsonFloat(tpAggr) + 
+        ',"sl_mult":' + f_jsonFloat(slMult) + 
+        ',"atr":' + f_jsonFloat(atr) + 
+        ',"risk_abs":' + f_jsonFloat(risk) + 
+        ',"reward_abs":' + f_jsonFloat(reward) + 
+        ',"rr":' + f_jsonFloat(rr) + 
+        ',"smart_sl":' + f_jsonFloat(smartSlPrice) + '}'
+
+// @function Serialize time decay data to JSON
+// @param enabled Time decay enabled
+// @param creationBar Creation bar index
+// @param barsSince Bars since creation
+// @param phase Current phase (0-6)
+// @param decayRate Decay rate
+// @param expired Whether expired
+// @returns JSON string for time_decay object
+f_jsonTimeDecay(bool enabled, int creationBar, int barsSince, int phase, float decayRate, bool expired) =>
+    string status = phase >= 5 ? 'expired' : (phase >= 3 ? 'stale' : 'fresh')
+    '{"enabled":' + f_jsonBool(enabled) + 
+        ',"creation_bar":' + f_jsonInt(creationBar) + 
+        ',"bars_since":' + f_jsonInt(barsSince) + 
+        ',"phase":' + f_jsonInt(phase) + 
+        ',"decay_rate":' + f_jsonFloat(decayRate) + 
+        ',"status":"' + status + '"' +
+        ',"expired":' + f_jsonBool(expired) + '}'
+
+// @function Serialize regime data to JSON
+// @param entropyNorm Normalized entropy
+// @param entropyRegime Entropy regime (0=ordered, 1=transition, 2=disordered)
+// @param hurstValue Hurst exponent
+// @param hurstRegime Hurst regime (0=trend, 1=random, 2=meanrev)
+// @param zscore Z-score value
+// @param strongMom Strong momentum flag
+// @returns JSON string for regime object
+f_jsonRegime(float entropyNorm, int entropyRegime, float hurstValue, int hurstRegime, float zscore, bool strongMom) =>
+    string entropyStr = entropyRegime == 0 ? 'ordered' : (entropyRegime == 1 ? 'transition' : 'disordered')
+    string hurstStr = hurstRegime == 0 ? 'trend' : (hurstRegime == 1 ? 'random' : 'mean_revert')
+    '{"entropy":{"value":' + f_jsonFloat(entropyNorm) + 
+        ',"regime":"' + entropyStr + '"}' +
+        ',"hurst":{"value":' + f_jsonFloat(hurstValue) + 
+        ',"regime":"' + hurstStr + '"}' +
+        ',"momentum":{"zscore":' + f_jsonFloat(zscore) + 
+        ',"strong":' + f_jsonBool(strongMom) + '}}'
+
+// @function Serialize learning metrics to JSON
+// @param lm LearningMetrics instance
+// @param samples Sample count
+// @param needsRecalc Needs recalculation flag
+// @returns JSON string for learning object
+f_jsonLearning(LearningMetrics lm, int samples, bool needsRecalc) =>
+    '{"enabled":true' +
+        ',"samples":' + f_jsonInt(samples) +
+        ',"needs_recalc":' + f_jsonBool(needsRecalc) +
+        ',"win_rate":' + f_jsonFloat(lm.winRate) +
+        ',"zone_buffer_pct":' + f_jsonFloat(lm.zoneBuffer) +
+        ',"avg_mae":' + f_jsonFloat(lm.avgMae) +
+        ',"avg_mfe":' + f_jsonFloat(lm.avgMfe) +
+        ',"avg_bars":' + f_jsonInt(lm.avgBars) +
+        ',"sl_mult":' + f_jsonFloat(lm.slMult) +
+        ',"confidence":' + f_jsonFloat(lm.confidence) +
+        ',"profit_factor":' + f_jsonFloat(lm.profitFactor) +
+        ',"expectancy":' + f_jsonFloat(lm.expectancy) +
+        ',"wr_long":' + f_jsonFloat(lm.wrLong) +
+        ',"wr_short":' + f_jsonFloat(lm.wrShort) +
+        ',"wr_high_vol":' + f_jsonFloat(lm.wrHighVol) +
+        ',"wr_low_vol":' + f_jsonFloat(lm.wrLowVol) +
+        ',"div_edge":' + f_jsonFloat(lm.divEdge) +
+        ',"rsi_weight":' + f_jsonFloat(lm.rsiWeight) +
+        ',"decay_rate":' + f_jsonFloat(lm.decayRate) +
+        ',"bayes_mean":' + f_jsonFloat(lm.bayesMean) +
+        ',"bayes_lower":' + f_jsonFloat(lm.bayesLowerBound) +
+        ',"sortino":' + f_jsonFloat(lm.sortinoRatio) +
+        ',"is_healthy":' + f_jsonBool(lm.isHealthy) +
+        ',"win_streak":' + f_jsonInt(lm.winStreak) +
+        ',"loss_streak":' + f_jsonInt(lm.lossStreak) + '}'
+
+// @function Serialize backtest stats to JSON
+// @param bs BacktestStats instance
+// @returns JSON string for backtest object
+f_jsonBacktest(BacktestStats bs) =>
+    '{"ready":' + f_jsonBool(bs.statsReady) +
+        ',"total_trades":' + f_jsonInt(bs.totalTrades) +
+        ',"win_rate":' + f_jsonFloat(bs.winRate) +
+        ',"winning_trades":' + f_jsonInt(bs.winningTrades) +
+        ',"avg_winning_mae":' + f_jsonFloat(bs.avgWinningMae) +
+        ',"avg_losing_mae":' + f_jsonFloat(bs.avgLosingMae) +
+        ',"smart_sl_offset":' + f_jsonFloat(bs.smartSlOffset) +
+        ',"low_confidence":' + f_jsonBool(bs.lowConfidence) + '}'
+
+// @function Serialize Monte Carlo results to JSON
+// @param lm LearningMetrics with MC fields
+// @returns JSON string for monte_carlo object
+f_jsonMonteCarlo(LearningMetrics lm) =>
+    '{"original_dd":' + f_jsonFloat(lm.mcOriginalDD) +
+        ',"mean_shuffled_dd":' + f_jsonFloat(lm.mcMeanShuffledDD) +
+        ',"p_value":' + f_jsonFloat(lm.mcPValue) +
+        ',"sims_run":' + f_jsonInt(lm.mcSimsRun) +
+        ',"significant":' + f_jsonBool(lm.mcSignificant) + '}'
+
+// @function Construct JSON alert message with full state snapshot
+// @param id Alert ID string
+// @param eventType Event type string for categorization
+// @param isProj Projection mode active
+// @param isLong Long direction
+// @param zoneTouched Zone touched flag
+// @param slHit SL hit flag
+// @param tpHit TP hit flag
+// @param zoneTop Adjusted zone top
+// @param zoneBottom Adjusted zone bottom
+// @param slPrice Stop loss price
+// @param tpPrice Take profit price
+// @param tpCons Conservative TP
+// @param tpAggr Aggressive TP
+// @param useAggr Using aggressive TP mode
+// @param slMult SL multiplier
+// @param atr ATR value
+// @param smartSl Smart SL price
+// @param creationBar Creation bar for time decay
+// @param barsSince Bars since creation
+// @param timePhase Time decay phase
+// @param decayRate Decay rate
+// @param expired Expired flag
+// @returns JSON formatted string with complete state snapshot
+f_getAlertMessageFull(string id, string eventType, bool isProj, bool isLong, bool zoneTouched, bool slHit, bool tpHit, float rawZoneTop, float rawZoneBottom, float zoneTop, float zoneBottom, float bufferPct, bool inZone, bool zoneEntry, float minDist, float slPrice, float tpPrice, float tpCons, float tpAggr, bool useAggr, float slMult, float atr, float smartSl, int creationBar, int barsSince, int timePhase, float decayRate, bool expired) =>
+    float entryMid = (zoneTop + zoneBottom) / 2
+    
+    // Build envelope
+    string envelope = f_jsonEnvelope(id, eventType)
+    
+    // Build component JSONs
+    string pivots_json = f_jsonPivots(
+        GLOBAL_cachedPivots.iMidPivot, GLOBAL_cachedPivots.pMidPivot,
+        GLOBAL_cachedPivots.iEndBase, GLOBAL_cachedPivots.pEndBase,
+        GLOBAL_projection.isActive() ? GLOBAL_projection.iMidPivot : GLOBAL_cachedPivots.iMidPivot,
+        GLOBAL_projection.isActive() ? GLOBAL_projection.pMidPivot : GLOBAL_cachedPivots.pMidPivot,
+        GLOBAL_projection.isActive() ? bar_index : GLOBAL_cachedPivots.iEndBase,
+        GLOBAL_projection.isActive() ? GLOBAL_projection.pEndBase : GLOBAL_cachedPivots.pEndBase,
+        GLOBAL_projection.isActive())
+    string setup_json = f_jsonSetup(isProj, isLong, zoneTouched, slHit, tpHit)
+    string zone_json = f_jsonZone(rawZoneTop, rawZoneBottom, zoneTop, zoneBottom, bufferPct, inZone, zoneEntry, minDist)
+    string position_json = f_jsonPosition(entryMid, slPrice, tpPrice, tpCons, tpAggr, useAggr, slMult, atr, smartSl)
+    string time_decay_json = f_jsonTimeDecay(INPUT_POS_TIME_DECAY, creationBar, barsSince, timePhase, decayRate, expired)
+    string regime_json = f_jsonRegime(GLOBAL_entropyNorm, GLOBAL_entropyRegime, GLOBAL_hurst, GLOBAL_hurstRegime, GLOBAL_zscore, GLOBAL_strongMomentum)
+    string learning_json = f_jsonLearning(GLOBAL_learning, GLOBAL_setupHistory.size(), GLOBAL_learningNeedsRecalc)
+    string backtest_json = f_jsonBacktest(GLOBAL_backtest.stats)
+    string mc_json = f_jsonMonteCarlo(GLOBAL_learning)
+    
+    // Assemble full JSON
+    '{' + envelope +
+        ',"pivots":' + pivots_json +
+        ',"setup":' + setup_json +
+        ',"zone":' + zone_json +
+        ',"position":' + position_json +
+        ',"time_decay":' + time_decay_json +
+        ',"regime":' + regime_json +
+        ',"learning":' + learning_json +
+        ',"backtest":' + backtest_json +
+        ',"monte_carlo":' + mc_json +
+        ',"retracements":' + GLOBAL_pivotLevelsLogRetracements.toJson() +
+        ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() +
+        ',"confluence":{"exhaust_vol":' + f_jsonBool(exhaustVol) + ',"high_volatility":' + f_jsonBool(highVolatility) + '}' +
+        '}'
+
+// @function Construct legacy JSON alert message (backward compatible)
 // @param id Alert ID string
 // @returns JSON formatted string with alert details
 f_getAlertMessage(string id) =>
@@ -2835,7 +3244,10 @@ f_getAlertMessage(string id) =>
         ',"hlcc4":' + str.tostring(hlcc4) + 
         ',"ohlc4":' + str.tostring(ohlc4) + 
         ',"volume":' + str.tostring(volume) + '}')
-    string base_json = ('"event_id":"' + id + '"' +
+    string base_json = ('"schema_version":"' + ALERT_SCHEMA_VERSION + '"' +
+                        ',"event_id":"' + id + '"' +
+                        ',"symbol":"' + syminfo.tickerid + '"' +
+                        ',"timeframe":"' + timeframe.period + '"' +
                         ',"bar_index":' + str.tostring(bar_index) + 
                         ',"last_bar_index":' + str.tostring(last_bar_index) + 
                         ',"time_tradingday":' + str.tostring(time_tradingday) + 
@@ -4405,9 +4817,32 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // Update existing objects with current values (dynamic learning adjustments)
         GLOBAL_posVisual.update(display_zone_top, display_zone_bottom, display_sl, display_tp, mid_entry, pos_text, bg_col, border_col, sl_line_col, tp_line_col, smartSlForMethod, smart_sl_col)
     
-    // Alert on zone entry
+    // Populate global alert state for use in ALERTS section
+    bool as_zone_touched = not na(GLOBAL_activeTrade.setup_bar) and GLOBAL_activeTrade.hasFlag(FLAG_ZONE_TOUCHED)
+    bool as_sl_hit = not na(GLOBAL_activeTrade.setup_bar) and GLOBAL_activeTrade.hasFlag(FLAG_SL_HIT)
+    bool as_tp_hit = not na(GLOBAL_activeTrade.setup_bar) and GLOBAL_activeTrade.hasFlag(FLAG_TP_HIT)
+    int as_creation_bar = isProjection ? bar_index : nz(GLOBAL_activeTrade.creation_bar, bar_index)
+    GLOBAL_alertState.populate(
+        isProjection, is_long_setup, as_zone_touched, as_sl_hit, as_tp_hit,
+        in_zone, zone_entry, use_aggressive_tp, zone_expired,
+        box_top, box_bottom, adjusted_box_top, adjusted_box_bottom, adaptive_buffer,
+        nz(GLOBAL_activeTrade.min_distance, DEFAULT_MIN_DISTANCE),
+        sl_price, tp_price, tp_conservative, tp_aggressive, effective_sl_mult, current_atr,
+        smart_sl_price, as_creation_bar, bars_since_creation, time_phase, decay_rate)
+    
+    // Alert on zone entry with full JSON context
     if zone_entry and INPUT_ALERT_ENABLED
-        alert("Price entered Golden Pocket - " + (active_is_long ? TEXT_LONG : TEXT_SHORT) + " setup active", alert.freq_once_per_bar)
+        string entry_msg = f_getAlertMessageFull(ALERT_ID_ENTRY, "zone_entry",
+            GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+            GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+            GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+            GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+            GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+            GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+            GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+            GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+            GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+        alert(entry_msg, alert.freq_once_per_bar)
 
 // AddOns
 plotchar(INPUT_SHOW_VOL_SPIKE and nzVolume != 0 ? exhaustVol : false, 'Exhaustion Bar', '🚦', location.abovebar, size=size.tiny, display = display.pane)
@@ -4431,10 +4866,95 @@ plot(v_618,   "Fib 0.618",   color = color.new(color.orange, 0), display = displ
 // ALERTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-if INPUT_ALERT_ENABLED and INPUT_ALERT_MODE == 'calculateAlertUpdates'
-    if barstate.isconfirmed
-        alert(f_getAlertMessage(ALERT_ID_UPDATE), alert.freq_once_per_bar) 
+if INPUT_ALERT_ENABLED
+    // Event-based alert routing
+    if INPUT_ALERT_MODE == 'calculateAlertUpdates'
+        // FBU: Full state snapshot on bar confirmation
+        if barstate.isconfirmed
+            string fbu_msg = f_getAlertMessageFull(ALERT_ID_UPDATE, "fib_update",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(fbu_msg, alert.freq_once_per_bar)
+        
+        // SCT: Setup created on pivot change
+        if GLOBAL_zigzag.changed and barstate.isconfirmed
+            string sct_msg = f_getAlertMessageFull(ALERT_ID_SETUP, "setup_created",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(sct_msg, alert.freq_once_per_bar)
+        
+        // EXH: Volume exhaustion signal
+        if exhaustVol and barstate.isconfirmed
+            string exh_msg = f_getAlertMessageFull(ALERT_ID_EXHAUSTION, "vol_exhaustion",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(exh_msg, alert.freq_once_per_bar)
+        
+        // HVO: High volatility signal
+        if highVolatility and barstate.isconfirmed
+            string hvo_msg = f_getAlertMessageFull(ALERT_ID_VOLATILITY, "high_volatility",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(hvo_msg, alert.freq_once_per_bar)
+        
+        // LRN: Learning recalculated
+        if GLOBAL_learningNeedsRecalc and barstate.isconfirmed
+            string lrn_msg = f_getAlertMessageFull(ALERT_ID_LEARNING, "learning_recalc",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(lrn_msg, alert.freq_once_per_bar)
     
+    else if INPUT_ALERT_MODE == 'calculateAlertData'
+        // Full snapshot on every confirmed bar
+        if barstate.isconfirmed
+            string full_msg = f_getAlertMessageFull(ALERT_ID_UPDATE, "fib_update",
+                GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
+                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
+                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
+                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
+                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
+                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            alert(full_msg, alert.freq_once_per_bar)
+    
+    // Clear logs on history for performance
     if barstate.ishistory
         GLOBAL_pivotLevelsLogRetracements.clear()
         GLOBAL_pivotLevelsLogCrossed.clear()
