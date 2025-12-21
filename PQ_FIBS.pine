@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.1.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.2.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -305,6 +305,72 @@ f_annualizedVol(float log_return_stdev, float periods_per_year) =>
     log_return_stdev * math.sqrt(periods_per_year)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// MEMORY OPTIMIZATION - Circular Buffer Helpers (Pine v6 patterns)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: All rolling-window storage uses var array<T> bounded buffers initialized once.
+//       Buffers maintain constant memory after warm-up via push/shift pattern.
+//       Pine v6 negative indexing (array.get(buf, -1)) provides O(1) last-element access.
+//       Arrays for 1D time-series; matrices only for true 2D operations (none currently).
+
+// @function Push value to bounded buffer, maintaining max window size
+// @param buf Persistent array buffer (must be var initialized)
+// @param v Value to push
+// @param window Maximum window size
+method pushBounded(array<float> buf, float v, int window) =>
+    if not na(v)
+        buf.push(v)
+        while buf.size() > window
+            buf.shift()
+
+// @function Push int value to bounded buffer
+// @param buf Persistent array buffer (must be var initialized)
+// @param v Value to push
+// @param window Maximum window size
+method pushBounded(array<int> buf, int v, int window) =>
+    if not na(v)
+        buf.push(v)
+        while buf.size() > window
+            buf.shift()
+
+// @function Check if buffer has reached target window size (warm-up complete)
+// @param buf Array buffer
+// @param window Target window size
+// @returns True if buffer is full
+method isFull(array<float> buf, int window) =>
+    buf.size() >= window
+
+// @function Get last element using Pine v6 negative indexing
+// @param buf Array buffer
+// @returns Last element or na if empty
+method last(array<float> buf) =>
+    buf.size() > 0 ? buf.get(-1) : na
+
+// @function Get second-to-last element using Pine v6 negative indexing
+// @param buf Array buffer
+// @returns Second-to-last element or na if size < 2
+method prev(array<float> buf) =>
+    buf.size() > 1 ? buf.get(-2) : na
+
+// @function Single-pass mean and stdev computation (avoids O(2N) dual iteration)
+// @param buf Array buffer
+// @returns Tuple [mean, stdev]
+method meanStdev(array<float> buf) =>
+    int n = buf.size()
+    float mean_val = 0.0
+    float stdev_val = 0.0
+    if n > 0
+        float sum = 0.0
+        float sq_sum = 0.0
+        for i = 0 to n - 1
+            float v = buf.get(i)
+            sum += v
+            sq_sum += v * v
+        mean_val := sum / float(n)
+        float variance = (sq_sum / float(n)) - (mean_val * mean_val)
+        stdev_val := variance > 0 ? math.sqrt(variance) : 0.0
+    [mean_val, stdev_val]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // SHANNON ENTROPY - Regime Filter for Price Action Structure
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
@@ -331,34 +397,36 @@ f_shannonEntropy(array<int> bin_counts, int total_count, int num_bins) =>
 // @param num_bins Number of bins for discretization
 // @returns Tuple [raw_entropy, normalized_entropy, regime]
 f_rollingEntropy(float log_return, int window, int num_bins, float threshold, bool allow_transition) =>
-    var array<float> return_buffer = array.new_float(0)
+    var array<float> return_buffer = array.new<float>(0)
+    var array<int> bin_counts = array.new<int>(0)
     var float prev_entropy_norm = na
     
-    if not na(log_return)
-        array.push(return_buffer, log_return)
-        if array.size(return_buffer) > window
-            array.shift(return_buffer)
+    // Push using bounded pattern
+    return_buffer.pushBounded(log_return, window)
     
     float entropy = 0.0
     float entropy_norm = 0.0
     int regime = ENTROPY_REGIME_DISORDERED
     
-    int buf_size = array.size(return_buffer)
+    int buf_size = return_buffer.size()
     if buf_size >= num_bins
-        float min_ret = array.min(return_buffer)
-        float max_ret = array.max(return_buffer)
+        float min_ret = return_buffer.min()
+        float max_ret = return_buffer.max()
         float range_ret = max_ret - min_ret
         
-        array<int> bin_counts = array.new_int(num_bins, 0)
+        // Reuse persistent bin_counts array (clear and resize)
+        bin_counts.clear()
+        for _i = 0 to num_bins - 1
+            bin_counts.push(0)
         
         if range_ret > 0
             for i = 0 to buf_size - 1
-                float r = array.get(return_buffer, i)
+                float r = return_buffer.get(i)
                 int bin_idx = int(math.floor((r - min_ret) / range_ret * float(num_bins - 1)))
                 bin_idx := math.min(bin_idx, num_bins - 1)
-                array.set(bin_counts, bin_idx, array.get(bin_counts, bin_idx) + 1)
+                bin_counts.set(bin_idx, bin_counts.get(bin_idx) + 1)
         else
-            array.set(bin_counts, num_bins / 2, buf_size)
+            bin_counts.set(num_bins / 2, buf_size)
         
         [raw_h, norm_h] = f_shannonEntropy(bin_counts, buf_size, num_bins)
         entropy := raw_h
@@ -421,29 +489,25 @@ f_computeRS(array<float> data, int start_idx, int length) =>
 // @param min_window Minimum sub-window size
 // @returns Tuple [hurst_value, regime]
 f_rollingHurst(float log_return, int window, int min_window, float trend_thresh, float meanrev_thresh) =>
-    var array<float> return_buffer = array.new_float(0)
+    var array<float> return_buffer = array.new<float>(0)
+    var array<float> log_n = array.new<float>(0)
+    var array<float> log_rs = array.new<float>(0)
     
-    // Accumulate log returns
-    if not na(log_return)
-        array.push(return_buffer, log_return)
-        if array.size(return_buffer) > window
-            array.shift(return_buffer)
+    // Push using bounded pattern
+    return_buffer.pushBounded(log_return, window)
     
-    float hurst = 0.5   // Default to random walk
+    float hurst = 0.5
     int regime = HURST_REGIME_RANDOM
     
-    int buf_size = array.size(return_buffer)
+    int buf_size = return_buffer.size()
     
-    // Need enough data for multi-scale analysis
     if buf_size >= min_window
-        // Multi-scale R/S regression: use sub-windows of increasing size
-        // Sub-window sizes: min_window, min_window*1.5, min_window*2, ... up to buf_size
-        array<float> log_n = array.new_float(0)
-        array<float> log_rs = array.new_float(0)
+        // Clear persistent regression arrays for reuse
+        log_n.clear()
+        log_rs.clear()
         
         int n = min_window
         while n <= buf_size
-            // Compute average R/S for this window size by dividing buffer into chunks
             int num_chunks = buf_size / n
             if num_chunks > 0
                 float rs_sum = 0.0
@@ -457,15 +521,12 @@ f_rollingHurst(float log_return, int window, int min_window, float trend_thresh,
                 
                 if valid_chunks > 0
                     float avg_rs = rs_sum / float(valid_chunks)
-                    array.push(log_n, math.log(float(n)))
-                    array.push(log_rs, math.log(avg_rs))
+                    log_n.push(math.log(float(n)))
+                    log_rs.push(math.log(avg_rs))
             
-            // Increase window size (geometric progression for efficiency)
             n := int(math.ceil(float(n) * 1.5))
         
-        // Linear regression: log(R/S) = H * log(n) + c
-        // Hurst = slope of the line
-        int num_points = array.size(log_n)
+        int num_points = log_n.size()
         if num_points >= 2
             float sum_x = 0.0
             float sum_y = 0.0
@@ -473,8 +534,8 @@ f_rollingHurst(float log_return, int window, int min_window, float trend_thresh,
             float sum_xx = 0.0
             
             for i = 0 to num_points - 1
-                float x = array.get(log_n, i)
-                float y = array.get(log_rs, i)
+                float x = log_n.get(i)
+                float y = log_rs.get(i)
                 sum_x += x
                 sum_y += y
                 sum_xy += x * y
@@ -484,10 +545,8 @@ f_rollingHurst(float log_return, int window, int min_window, float trend_thresh,
             float denom = n_pts * sum_xx - sum_x * sum_x
             if math.abs(denom) > 1e-10
                 hurst := (n_pts * sum_xy - sum_x * sum_y) / denom
-                // Clamp to valid Hurst range [0, 1]
                 hurst := math.max(0.0, math.min(1.0, hurst))
         
-        // Classify regime based on thresholds
         if hurst > trend_thresh
             regime := HURST_REGIME_TREND
         else if hurst < meanrev_thresh
@@ -530,36 +589,22 @@ f_linregSlope(float src, int length) =>
 // @param min_samples Minimum samples for valid Z-score
 // @returns Tuple [z_score, strong_momentum]
 f_rollingZScore(float norm_slope, int z_len, int min_samples, float z_thresh) =>
-    var array<float> slope_buffer = array.new_float(0)
+    var array<float> slope_buffer = array.new<float>(0)
     
-    // Accumulate normalized slopes
-    if not na(norm_slope)
-        array.push(slope_buffer, norm_slope)
-        if array.size(slope_buffer) > z_len
-            array.shift(slope_buffer)
+    // Push using bounded pattern
+    slope_buffer.pushBounded(norm_slope, z_len)
     
     float z_score = 0.0
     bool strong_momentum = false
     
-    int buf_size = array.size(slope_buffer)
+    int buf_size = slope_buffer.size()
     if buf_size >= min_samples
-        // Compute rolling mean
-        float sum = 0.0
-        for i = 0 to buf_size - 1
-            sum += array.get(slope_buffer, i)
-        float mean_val = sum / float(buf_size)
+        // Single-pass mean/stdev computation
+        [mean_val, stdev] = slope_buffer.meanStdev()
         
-        // Compute rolling stdev
-        float sq_sum = 0.0
-        for i = 0 to buf_size - 1
-            float dev = array.get(slope_buffer, i) - mean_val
-            sq_sum += dev * dev
-        float stdev = math.sqrt(sq_sum / float(buf_size))
-        
-        // Compute Z-score (with stdev=0 handling)
-        z_score := stdev > 1e-10 ? (norm_slope - mean_val) / stdev : 0.0
-        
-        // Strong momentum = absolute Z exceeds threshold
+        // Compute Z-score using last value via negative indexing
+        float last_slope = slope_buffer.last()
+        z_score := stdev > 1e-10 ? (last_slope - mean_val) / stdev : 0.0
         strong_momentum := math.abs(z_score) >= z_thresh
     
     [z_score, strong_momentum]
@@ -2780,12 +2825,10 @@ method updateSecondary(CachedPivots this, int iMid, float pMid, int iEnd, float 
 var CachedPivots GLOBAL_cachedPivots = CachedPivots.new()
 
 // Timeframe-based deviation threshold (O(1) map lookup)
-float GLOBAL_DEV_THRESHOLD = INPUT_CUSTOM_THRESHOLD and TF_DEV_THRESHOLDS.contains(timeframe.period) ? 
-    TF_DEV_THRESHOLDS.get(timeframe.period) : TF_DEV_THRESHOLDS.get("DEFAULT")
+float GLOBAL_DEV_THRESHOLD = INPUT_CUSTOM_THRESHOLD and TF_DEV_THRESHOLDS.contains(timeframe.period) ? TF_DEV_THRESHOLDS.get(timeframe.period) : TF_DEV_THRESHOLDS.get("DEFAULT")
 
 // Timeframe-based depth (O(1) map lookup)
-int i_depth = INPUT_CUSTOM_DEPTH and TF_DEPTHS.contains(timeframe.period) ? 
-    TF_DEPTHS.get(timeframe.period) : TF_DEPTHS.get("DEFAULT")
+int i_depth = INPUT_CUSTOM_DEPTH and TF_DEPTHS.contains(timeframe.period) ? TF_DEPTHS.get(timeframe.period) : TF_DEPTHS.get("DEFAULT")
 
 // Determine HTF
 htf_auto = timeframe.period == '1'   ? '240' : 
