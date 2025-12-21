@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.2.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.2.5', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -42,6 +42,134 @@ FIB_GOLDEN_RATIO    = 0.618       // Golden ratio (phi inverse)
 FIB_GOLDEN_POCKET_H = 0.65        // Golden pocket upper bound
 FIB_EXTENSION_1272  = 1.272       // First extension level
 FIB_EXTENSION_1618  = 1.618       // Golden extension level
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// STATE FLAGS - Bitwise Trade/Setup State Representation
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Each flag is a power-of-two constant enabling O(1) bitwise state checks.
+// Usage: f_setFlag(state, FLAG) / f_hasFlag(state, FLAG) / f_clearFlag(state, FLAG)
+
+// Direction Flag (Bit 0)
+FLAG_IS_LONG        = 1       // Long setup (1) vs Short (0 = flag not set)
+
+// Entry State (Bit 1)
+FLAG_ZONE_TOUCHED   = 2       // Price entered the Golden Pocket zone
+
+// Exit States (Bits 2-3) - Mutually exclusive outcomes
+FLAG_SL_HIT         = 4       // Stop loss was triggered
+FLAG_TP_HIT         = 8       // Take profit was reached
+
+// Confluence Flags (Bit 4)
+FLAG_HAD_RSI_DIV    = 16      // RSI divergence was present at entry
+
+// TP Mode (Bit 5)
+FLAG_TP_AGGRESSIVE  = 32      // Aggressive TP mode was active
+
+// Analytics Tracking (Bits 6-7)
+FLAG_CONS_TP_HIT    = 64      // Conservative TP would have been hit
+FLAG_AGGR_TP_HIT    = 128     // Aggressive TP would have been hit
+
+// Lifecycle States (Bits 8-10) - Mutually exclusive phases
+FLAG_PENDING        = 256     // Waiting for zone entry
+FLAG_ACTIVE         = 512     // In position (zone touched, not exited)
+FLAG_CLOSED         = 1024    // Trade completed (SL or TP hit)
+
+// Outcome (Bit 11)
+FLAG_WON            = 2048    // Trade was a winner (TP hit before SL)
+
+// Composite Masks for Fast Queries
+MASK_OUTCOME        = 12      // FLAG_SL_HIT + FLAG_TP_HIT (4 + 8)
+MASK_CLOSED         = 1036    // FLAG_SL_HIT + FLAG_TP_HIT + FLAG_CLOSED (4 + 8 + 1024)
+MASK_LIFECYCLE      = 1792    // FLAG_PENDING + FLAG_ACTIVE + FLAG_CLOSED (256 + 512 + 1024)
+MASK_TP_TRACKING    = 192     // FLAG_CONS_TP_HIT + FLAG_AGGR_TP_HIT (64 + 128)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// STATE FLAGS API - Arithmetic-Based Bit Operations for State Management
+// Pine Script v6 does not have native bitwise operators, so we simulate them using arithmetic.
+// Flags must be powers of 2: 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048...
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// @function Check if a specific flag (single power-of-2) is set in state
+// @param state Current state mask
+// @param flag Flag to check (must be a power of 2)
+// @returns True if flag is set
+f_hasFlag(int state, int flag) =>
+    math.floor(state / flag) % 2 == 1
+
+// @function Set a flag in the state mask (idempotent - safe to call multiple times)
+// @param state Current state mask
+// @param flag Flag to set (power-of-two constant)
+// @returns Updated state mask with flag set
+f_setFlag(int state, int flag) =>
+    f_hasFlag(state, flag) ? state : state + flag
+
+// @function Clear a flag from the state mask (idempotent - safe to call if already clear)
+// @param state Current state mask
+// @param flag Flag to clear (power-of-two constant)
+// @returns Updated state mask with flag cleared
+f_clearFlag(int state, int flag) =>
+    f_hasFlag(state, flag) ? state - flag : state
+
+// @function Check if ANY of the flags in a composite mask are set
+// @param state Current state mask
+// @param mask Composite mask (sum of multiple power-of-2 flags)
+// @returns True if at least one flag in mask is set
+f_hasAny(int state, int mask) =>
+    // Check each possible flag in the mask
+    bool result = false
+    int remaining = mask
+    int testBit = 1
+    for i = 0 to 11  // Support up to 12 flags (bits 0-11)
+        if remaining <= 0
+            break
+        if math.floor(remaining / testBit) % 2 == 1  // This bit is in the mask
+            if f_hasFlag(state, testBit)
+                result := true
+                break
+        testBit := testBit * 2
+    result
+
+// @function Check if ALL flags in a composite mask are set
+// @param state Current state mask
+// @param mask Composite mask (sum of multiple power-of-2 flags)
+// @returns True if all flags in mask are set
+f_hasAll(int state, int mask) =>
+    // Check each possible flag in the mask
+    bool result = true
+    int remaining = mask
+    int testBit = 1
+    for i = 0 to 11  // Support up to 12 flags (bits 0-11)
+        if remaining <= 0
+            break
+        if math.floor(remaining / testBit) % 2 == 1  // This bit is in the mask
+            if not f_hasFlag(state, testBit)
+                result := false
+                break
+        testBit := testBit * 2
+    result
+
+// @function Set lifecycle phase with mutual exclusion (clears other lifecycle flags first)
+// @param state Current state mask
+// @param phase Lifecycle flag (FLAG_PENDING, FLAG_ACTIVE, or FLAG_CLOSED)
+// @returns Updated state mask with only the specified lifecycle phase set
+f_setLifecycle(int state, int phase) =>
+    // Clear all lifecycle flags first
+    int cleared = f_clearFlag(state, FLAG_PENDING)
+    cleared := f_clearFlag(cleared, FLAG_ACTIVE)
+    cleared := f_clearFlag(cleared, FLAG_CLOSED)
+    // Set the new phase
+    f_setFlag(cleared, phase)
+
+// @function Set outcome with mutual exclusion (only one of SL_HIT or TP_HIT can be set)
+// @param state Current state mask
+// @param outcome Outcome flag (FLAG_SL_HIT or FLAG_TP_HIT)
+// @returns Updated state mask with only the specified outcome set (clears the other)
+f_setOutcome(int state, int outcome) =>
+    // Clear both outcome flags first to enforce mutual exclusion
+    int cleared = f_clearFlag(state, FLAG_SL_HIT)
+    cleared := f_clearFlag(cleared, FLAG_TP_HIT)
+    // Set the new outcome
+    f_setFlag(cleared, outcome)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // LEARNING ENGINE CONSTANTS
@@ -435,35 +563,41 @@ int decimalsCount = math.round(math.abs(math.log(1 / syminfo.mintick) / math.log
 // LEARNING ENGINE DATA STRUCTURES
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-// SetupRecord UDT: Tracks outcome of each Golden Pocket setup for backtesting learning
+// @type SetupRecord - Tracks outcome of each Golden Pocket setup for backtesting learning
+// @field setup_bar Bar index when setup formed
+// @field state_mask Bitwise flags for boolean states (see FLAG_* constants)
+// @field zone_top Golden Pocket upper boundary
+// @field zone_bottom Golden Pocket lower boundary
+// @field sl_level Stop loss price
+// @field tp_level Take profit price
+// @field closest_approach Closest distance to zone (% of zone width)
+// @field bars_to_outcome Bars from setup to SL/TP hit (0 if neither)
+// @field max_adverse Maximum Adverse Excursion (ATR multiple)
+// @field max_favorable Maximum Favorable Excursion (ATR multiple)
+// @field entry_price Price when zone was first touched
+// @field atr_at_setup ATR value when setup formed
+// @field rsi_at_entry RSI when zone was touched
+// @field tp_conservative Conservative TP price (Pivot End)
+// @field tp_aggressive Aggressive TP price (1.272 Extension)
+// @field vol_percentile ATR percentile at setup (0-100)
 // NOTE: Must be declared before CircularBufferSetupRecord which references it
 type SetupRecord
-    int    setup_bar         // Bar index when setup formed
-    bool   is_long           // Direction of setup
-    float  zone_top          // Golden Pocket upper boundary
-    float  zone_bottom       // Golden Pocket lower boundary
-    float  sl_level          // Stop loss price
-    float  tp_level          // Take profit price
-    float  closest_approach  // Closest distance to zone (% of zone width)
-    bool   zone_touched      // Did price enter the zone?
-    bool   sl_hit            // Was stop loss triggered?
-    bool   tp_hit            // Was take profit reached?
-    // Extended metrics for advanced learning (Phase 1)
-    int    bars_to_outcome   // Bars from setup to SL/TP hit (0 if neither)
-    float  max_adverse       // Maximum Adverse Excursion (worst drawdown as ATR multiple)
-    float  max_favorable     // Maximum Favorable Excursion (best unrealized profit as ATR multiple)
-    float  entry_price       // Price when zone was first touched (or mid if never touched)
-    float  atr_at_setup      // ATR value when setup formed (for normalization)
-    float  rsi_at_entry      // RSI when zone was touched
-    bool   had_rsi_div       // Was RSI divergence present at entry?
-    // Phase 3: TP mode and extended tracking
-    bool   tp_was_aggressive // Was Aggressive TP mode used for this setup?
-    float  tp_conservative   // Conservative TP price (Pivot End)
-    float  tp_aggressive     // Aggressive TP price (1.272 Extension)
-    bool   cons_tp_hit       // Would Conservative TP have been hit?
-    bool   aggr_tp_hit       // Would Aggressive TP have been hit?
-    // Phase 4: Regime detection
-    float  vol_percentile    // ATR percentile at setup formation (0-100, for regime classification)
+    int    setup_bar
+    int    state_mask = 0
+    float  zone_top
+    float  zone_bottom
+    float  sl_level
+    float  tp_level
+    float  closest_approach
+    int    bars_to_outcome
+    float  max_adverse
+    float  max_favorable
+    float  entry_price
+    float  atr_at_setup
+    float  rsi_at_entry
+    float  tp_conservative
+    float  tp_aggressive
+    float  vol_percentile
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CIRCULAR BUFFER - O(1) Fixed-Size Ring Buffer for Historical Data
@@ -541,21 +675,30 @@ if barstate.isfirst
 // This engine "mines" historical trades as the script loads, building a complete trade history
 // bar-by-bar. Uses RAW Fib levels (no learned adjustments) to keep data pure for learning.
 
-// BacktestTrade UDT: Represents a single simulated trade position
+// @type BacktestTrade - Represents a single simulated trade position
+// @field id Pivot Bar Index (unique identifier)
+// @field state_mask Bitwise flags: FLAG_IS_LONG for direction, FLAG_PENDING/ACTIVE/CLOSED for lifecycle, FLAG_WON for outcome
+// @field entry_price Calculated Golden Pocket entry level (mid of zone)
+// @field entry_top Golden Pocket upper boundary
+// @field entry_btm Golden Pocket lower boundary
+// @field sl_price Initial Stop Loss price
+// @field tp_price Initial Take Profit price
+// @field mae Max Adverse Excursion (worst drawdown from entry, in price)
+// @field mfe Max Favorable Excursion (best unrealized profit from entry, in price)
+// @field entry_bar Bar index when position became Active
+// @field exit_bar Bar index when position was Closed
 type BacktestTrade
-    int    id               // Pivot Bar Index (unique identifier)
-    int    direction        // 1 = Long, -1 = Short
-    float  entry_price      // The calculated Golden Pocket entry level (mid of zone)
-    float  entry_top        // Golden Pocket upper boundary
-    float  entry_btm        // Golden Pocket lower boundary
-    float  sl_price         // Initial Stop Loss price
-    float  tp_price         // Initial Take Profit price
-    int    status           // 0 = Pending (waiting for entry), 1 = Active (in trade), 2 = Closed
-    float  mae              // Max Adverse Excursion (worst drawdown from entry, in price)
-    float  mfe              // Max Favorable Excursion (best unrealized profit from entry, in price)
-    bool   won              // True if TP hit first, false if SL hit first
-    int    entry_bar        // Bar index when position became Active
-    int    exit_bar         // Bar index when position was Closed
+    int    id
+    int    state_mask = 0
+    float  entry_price
+    float  entry_top
+    float  entry_btm
+    float  sl_price
+    float  tp_price
+    float  mae
+    float  mfe
+    int    entry_bar
+    int    exit_bar
 
 // Global Storage for Backtesting Engine
 var array<BacktestTrade> history_log = array.new<BacktestTrade>()  // Completed trade history
@@ -575,60 +718,63 @@ var bool  bt_stats_ready = false       // True once stats have been calculated
 // SetupState UDT: Tracks LIVE state of a Golden Pocket setup
 // Used to separate CONFIRMED trade tracking (for learning) from PROJECTION preview (visual only)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// @type SetupState - Tracks live state of a Golden Pocket setup
+// @field setup_bar Bar index when setup formed (pivot bar)
+// @field creation_bar Bar index when this setup was CREATED (for time decay)
+// @field state_mask Bitwise flags for boolean states (see FLAG_* constants)
+// @field zone_top Golden Pocket upper boundary (with buffer)
+// @field zone_bottom Golden Pocket lower boundary (with buffer)
+// @field sl_price Stop loss price
+// @field tp_price Take profit price (active mode)
+// @field tp_cons Conservative TP price (MidPivot)
+// @field tp_aggr Aggressive TP price (1.272 extension)
+// @field min_distance Closest approach to zone (% of zone width)
+// @field entry_bar Bar when zone was first touched
+// @field entry_price Price at zone entry
+// @field max_adverse Worst drawdown from entry (ATR units)
+// @field max_favorable Best unrealized profit (ATR units)
+// @field atr_at_setup ATR at setup formation
+// @field rsi_at_entry RSI when zone touched
+// @field vol_percentile ATR percentile at setup (0-100)
 type SetupState
-    int    setup_bar           // Bar index when setup formed (pivot bar)
-    int    creation_bar        // Bar index when this setup was CREATED (for time decay)
-    bool   is_long             // Direction: true = LONG (buy retracement up), false = SHORT
-    float  zone_top            // Golden Pocket upper boundary (with buffer)
-    float  zone_bottom         // Golden Pocket lower boundary (with buffer)
-    float  sl_price            // Stop loss price
-    float  tp_price            // Take profit price (active mode)
-    float  tp_cons             // Conservative TP price (MidPivot)
-    float  tp_aggr             // Aggressive TP price (1.272 extension)
-    bool   tp_aggressive       // Was Aggressive TP mode active?
-    float  min_distance        // Closest approach to zone (% of zone width)
-    bool   zone_touched        // Did price enter the zone?
-    bool   sl_hit              // Was stop loss triggered?
-    bool   tp_hit              // Was take profit reached?
-    bool   cons_tp_hit         // Would Conservative TP have been hit?
-    bool   aggr_tp_hit         // Would Aggressive TP have been hit?
-    // MAE/MFE tracking (Phase 1)
-    int    entry_bar           // Bar when zone was first touched
-    float  entry_price         // Price at zone entry
-    float  max_adverse         // Worst drawdown from entry (ATR units)
-    float  max_favorable       // Best unrealized profit from entry (ATR units)
-    float  atr_at_setup        // ATR at setup formation
-    float  rsi_at_entry        // RSI when zone touched
-    bool   had_rsi_div         // RSI divergence present at entry
-    // Phase 4: Regime tracking
-    float  vol_percentile      // ATR percentile at setup formation (0-100)
+    int    setup_bar
+    int    creation_bar
+    int    state_mask = 0
+    float  zone_top
+    float  zone_bottom
+    float  sl_price
+    float  tp_price
+    float  tp_cons
+    float  tp_aggr
+    float  min_distance
+    int    entry_bar
+    float  entry_price
+    float  max_adverse
+    float  max_favorable
+    float  atr_at_setup
+    float  rsi_at_entry
+    float  vol_percentile
 
-// Helper function to create a fresh SetupState with default values
+// @function Create a fresh SetupState with default values
+// @returns New SetupState with state_mask = 0 (no flags set)
 f_new_setup_state() =>
     SetupState.new(
         na,                    // setup_bar
         na,                    // creation_bar
-        false,                 // is_long
+        0,                     // state_mask (no flags)
         na,                    // zone_top
         na,                    // zone_bottom
         na,                    // sl_price
         na,                    // tp_price
         na,                    // tp_cons
         na,                    // tp_aggr
-        false,                 // tp_aggressive
         DEFAULT_MIN_DISTANCE,  // min_distance
-        false,                 // zone_touched
-        false,                 // sl_hit
-        false,                 // tp_hit
-        false,                 // cons_tp_hit
-        false,                 // aggr_tp_hit
         na,                    // entry_bar
         na,                    // entry_price
         0.0,                   // max_adverse
         0.0,                   // max_favorable
         na,                    // atr_at_setup
         na,                    // rsi_at_entry
-        false,                 // had_rsi_div
         DEFAULT_CONFIDENCE     // vol_percentile
     )
 
@@ -1315,26 +1461,29 @@ float raw_tp_price = raw_tp_target
 // 2. current_sim is na (not already in a simulation)
 // 3. We have valid cached pivot data
 if pivotChanged and na(current_sim) and not na(cachedIMidPivot) and not na(cachedPEndBase)
+    // Build initial state_mask: PENDING + direction flag
+    int init_state = FLAG_PENDING
+    if raw_is_long
+        init_state := f_setFlag(init_state, FLAG_IS_LONG)
+    
     // Create a new BacktestTrade with RAW levels
     current_sim := BacktestTrade.new(
         cachedIMidPivot,       // id: Pivot bar index
-        raw_direction,         // direction: 1=Long, -1=Short
+        init_state,            // state_mask: FLAG_PENDING + FLAG_IS_LONG if long
         raw_entry_mid,         // entry_price: mid of Golden Pocket (updated on activation)
         raw_zone_top,          // entry_top: zone upper boundary
         raw_zone_btm,          // entry_btm: zone lower boundary
         raw_sl_price,          // sl_price: initial SL
         raw_tp_price,          // tp_price: initial TP
-        0,                     // status: 0=Pending
         0.0,                   // mae: starts at 0
         0.0,                   // mfe: starts at 0
-        false,                 // won: unknown yet
         na,                    // entry_bar: not yet entered
         na                     // exit_bar: not yet exited
     )
     
     // DEBUG: Log trade spawn
     log.info("BACKTEST SPAWN: {0} trade #{1}, Zone=[{2}, {3}], SL={4}, TP={5}", 
-             raw_direction == 1 ? "LONG" : "SHORT", cachedIMidPivot, 
+             raw_is_long ? "LONG" : "SHORT", cachedIMidPivot, 
              raw_zone_btm, raw_zone_top, raw_sl_price, raw_tp_price)
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1345,40 +1494,40 @@ if pivotChanged and na(current_sim) and not na(cachedIMidPivot) and not na(cache
 bool skip_this_bar = pivotChanged  // Don't process newly spawned trades on their creation bar
 
 if not na(current_sim) and not skip_this_bar
-    // Status 0 = Pending Entry: Waiting for price to touch the Golden Pocket zone
-    if current_sim.status == 0
+    bool sim_is_long = f_hasFlag(current_sim.state_mask, FLAG_IS_LONG)
+    
+    // PENDING: Waiting for price to touch the Golden Pocket zone
+    if f_hasFlag(current_sim.state_mask, FLAG_PENDING)
         bool zone_touched = false
         bool sl_breached_before_entry = false
         
-        if current_sim.direction == 1  // LONG: waiting for price to dip INTO zone
+        if sim_is_long  // LONG: waiting for price to dip INTO zone
             zone_touched := low <= current_sim.entry_top and high >= current_sim.entry_btm
-            // Kill trade if SL breached before entry (price dropped too far without touching zone)
             sl_breached_before_entry := low <= current_sim.sl_price and not zone_touched
         else  // SHORT: waiting for price to rise INTO zone
             zone_touched := high >= current_sim.entry_btm and low <= current_sim.entry_top
-            // Kill trade if SL breached before entry (price rose too far without touching zone)
             sl_breached_before_entry := high >= current_sim.sl_price and not zone_touched
         
         // Handle SL breach before entry (trade invalidated)
         if sl_breached_before_entry
             log.info("BACKTEST KILLED: {0} trade #{1} - SL breached before entry", 
-                     current_sim.direction == 1 ? "LONG" : "SHORT", current_sim.id)
+                     sim_is_long ? "LONG" : "SHORT", current_sim.id)
             current_sim := na
-        // If zone touched, activate the trade
+        // If zone touched, activate the trade (transition: PENDING -> ACTIVE)
         else if zone_touched
-            current_sim.status := 1
+            current_sim.state_mask := f_setLifecycle(current_sim.state_mask, FLAG_ACTIVE)
+            current_sim.state_mask := f_setFlag(current_sim.state_mask, FLAG_ZONE_TOUCHED)
             current_sim.entry_bar := bar_index
-            // Entry price is the zone boundary first touched (more realistic)
-            current_sim.entry_price := current_sim.direction == 1 ? current_sim.entry_top : current_sim.entry_btm
+            current_sim.entry_price := sim_is_long ? current_sim.entry_top : current_sim.entry_btm
             current_sim.mae := 0.0
             current_sim.mfe := 0.0
             log.info("BACKTEST ACTIVATED: {0} trade #{1} at entry={2}", 
-                     current_sim.direction == 1 ? "LONG" : "SHORT", current_sim.id, current_sim.entry_price)
+                     sim_is_long ? "LONG" : "SHORT", current_sim.id, current_sim.entry_price)
     
-    // Status 1 = Active: In trade, tracking MAE/MFE and checking for exit
-    else if current_sim.status == 1
+    // ACTIVE: In trade, tracking MAE/MFE and checking for exit
+    else if f_hasFlag(current_sim.state_mask, FLAG_ACTIVE)
         // Update MAE (Max Adverse Excursion) - worst price against us
-        if current_sim.direction == 1  // LONG: adverse = price going DOWN
+        if sim_is_long  // LONG: adverse = price going DOWN
             float adverse = current_sim.entry_price - low
             current_sim.mae := math.max(current_sim.mae, adverse)
         else  // SHORT: adverse = price going UP
@@ -1386,7 +1535,7 @@ if not na(current_sim) and not skip_this_bar
             current_sim.mae := math.max(current_sim.mae, adverse)
         
         // Update MFE (Max Favorable Excursion) - best price in our favor
-        if current_sim.direction == 1  // LONG: favorable = price going UP
+        if sim_is_long  // LONG: favorable = price going UP
             float favorable = high - current_sim.entry_price
             current_sim.mfe := math.max(current_sim.mfe, favorable)
         else  // SHORT: favorable = price going DOWN
@@ -1394,31 +1543,37 @@ if not na(current_sim) and not skip_this_bar
             current_sim.mfe := math.max(current_sim.mfe, favorable)
         
         // Check for exit conditions
-        bool sl_hit = current_sim.direction == 1 ? (low <= current_sim.sl_price) : (high >= current_sim.sl_price)
-        bool tp_hit = current_sim.direction == 1 ? (high >= current_sim.tp_price) : (low <= current_sim.tp_price)
+        bool sl_hit = sim_is_long ? (low <= current_sim.sl_price) : (high >= current_sim.sl_price)
+        bool tp_hit = sim_is_long ? (high >= current_sim.tp_price) : (low <= current_sim.tp_price)
         
-        // Handle exits
+        // Handle exits (transition: ACTIVE -> CLOSED)
         if sl_hit or tp_hit
-            current_sim.status := 2
+            current_sim.state_mask := f_setLifecycle(current_sim.state_mask, FLAG_CLOSED)
             current_sim.exit_bar := bar_index
             
-            // Conflict resolution: both hit in same bar
+            // Conflict resolution: both hit in same bar (per FR-4 transition rules)
+            bool trade_won = false
             if sl_hit and tp_hit
-                // Conservative: assume Loss UNLESS Open was significantly closer to TP
                 float dist_to_sl = math.abs(open - current_sim.sl_price)
                 float dist_to_tp = math.abs(open - current_sim.tp_price)
-                // If Open is 50%+ closer to TP, assume TP hit first (optimistic case)
-                current_sim.won := dist_to_tp < dist_to_sl * 0.5
+                trade_won := dist_to_tp < dist_to_sl * 0.5
             else
-                current_sim.won := tp_hit
+                trade_won := tp_hit
+            
+            // Set outcome flags using f_setOutcome for mutual exclusion (SL_HIT xor TP_HIT)
+            if trade_won
+                current_sim.state_mask := f_setOutcome(current_sim.state_mask, FLAG_TP_HIT)
+                current_sim.state_mask := f_setFlag(current_sim.state_mask, FLAG_WON)
+            else
+                current_sim.state_mask := f_setOutcome(current_sim.state_mask, FLAG_SL_HIT)
             
             // Push completed trade to history_log
             array.push(history_log, current_sim)
             
             // DEBUG: Log trade completion
             log.info("BACKTEST CLOSED: {0} trade #{1}, Entry={2}, Won={3}, MAE={4}, MFE={5}", 
-                     current_sim.direction == 1 ? "LONG" : "SHORT", 
-                     current_sim.id, current_sim.entry_price, current_sim.won, 
+                     sim_is_long ? "LONG" : "SHORT", 
+                     current_sim.id, current_sim.entry_price, trade_won, 
                      current_sim.mae, current_sim.mfe)
             
             // Clear current simulation
@@ -1440,7 +1595,7 @@ if barstate.islast and array.size(history_log) > 0 and not bt_stats_ready
     // Loop through all completed trades
     for i = 0 to total - 1
         BacktestTrade trade = array.get(history_log, i)
-        if trade.won
+        if f_hasFlag(trade.state_mask, FLAG_WON)
             wins += 1
             sum_winning_mae += trade.mae
         else
@@ -1565,7 +1720,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             SetupRecord rec = g_setup_history.get(i)
             if na(rec)
                 continue
-            if rec.closest_approach > 0 and rec.closest_approach < INPUT_NEAR_MISS_THRESH and not rec.zone_touched
+            if rec.closest_approach > 0 and rec.closest_approach < INPUT_NEAR_MISS_THRESH and not f_hasFlag(rec.state_mask, FLAG_ZONE_TOUCHED)
                 near_misses += 1
             total_valid += 1
         
@@ -1582,7 +1737,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             int approach_count = 0
             for j = 0 to max_check
                 SetupRecord rec2 = g_setup_history.get(j)
-                if not na(rec2) and rec2.closest_approach > 0 and rec2.closest_approach < INPUT_NEAR_MISS_THRESH and not rec2.zone_touched
+                if not na(rec2) and rec2.closest_approach > 0 and rec2.closest_approach < INPUT_NEAR_MISS_THRESH and not f_hasFlag(rec2.state_mask, FLAG_ZONE_TOUCHED)
                     avg_approach += rec2.closest_approach
                     approach_count += 1
             if approach_count > 0
@@ -1640,70 +1795,75 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool confirmed_zone_entry = false
     if not na(g_active_trade.setup_bar)
         confirmed_in_zone := low <= g_active_trade.zone_top and high >= g_active_trade.zone_bottom
-        confirmed_zone_entry := confirmed_in_zone and not g_active_trade.zone_touched
+        confirmed_zone_entry := confirmed_in_zone and not f_hasFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED)
     
     // Check against CURRENT boundaries (for display)
     in_zone := low <= adjusted_box_top and high >= adjusted_box_bottom
-    zone_entry := in_zone and (na(g_active_trade.setup_bar) or not g_active_trade.zone_touched)
+    zone_entry := in_zone and (na(g_active_trade.setup_bar) or not f_hasFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED))
     
     // Track if zone was touched for CONFIRMED setup only (not projections)
     if confirmed_in_zone and not na(g_active_trade.setup_bar) and not isProjection
-        g_active_trade.zone_touched := true
+        g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED)
     
     // Track SL/TP hits for CONFIRMED setup only (not projections)
     // CRITICAL: Only track SL/TP AFTER zone is touched (entry occurred)
     // Use STORED sl/tp prices from setup formation for consistent tracking
     // CONSERVATIVE EXECUTION: If bar covers both SL and TP, assume SL hit unless Open closer to TP
-    if not na(g_active_trade.setup_bar) and g_active_trade.zone_touched and not isProjection
-        if g_active_trade.is_long
+    if not na(g_active_trade.setup_bar) and f_hasFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED) and not isProjection
+        if f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG)
             bool sl_touched = low <= g_active_trade.sl_price
             bool tp_touched = high >= g_active_trade.tp_price
             
-            // Conservative execution: when both hit in same bar, prioritize capital preservation
-            if sl_touched and tp_touched and not g_active_trade.sl_hit and not g_active_trade.tp_hit
-                // Check if Open was closer to TP - only then assume TP hit first
-                float dist_to_sl = math.abs(open - g_active_trade.sl_price)
-                float dist_to_tp = math.abs(open - g_active_trade.tp_price)
-                // TP only wins if Open is significantly closer (50%+ closer) to TP
-                if dist_to_tp < dist_to_sl * 0.5
-                    g_active_trade.tp_hit := true
-                else
-                    g_active_trade.sl_hit := true  // Conservative: assume SL hit
-            else
-                if sl_touched
-                    g_active_trade.sl_hit := true
-                if tp_touched
-                    g_active_trade.tp_hit := true
+            // Outcome detection with mutual exclusion (first outcome wins, per FR-4 invariant)
+            // Skip if outcome already determined
+            if not f_hasAny(g_active_trade.state_mask, MASK_OUTCOME)
+                if sl_touched and tp_touched
+                    // Conservative execution: when both hit in same bar, prioritize capital preservation
+                    // Check if Open was closer to TP - only then assume TP hit first
+                    float dist_to_sl = math.abs(open - g_active_trade.sl_price)
+                    float dist_to_tp = math.abs(open - g_active_trade.tp_price)
+                    // TP only wins if Open is significantly closer (50%+ closer) to TP
+                    if dist_to_tp < dist_to_sl * 0.5
+                        g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
+                    else
+                        g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
+                else if sl_touched
+                    g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
+                else if tp_touched
+                    g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
             
             // Phase 3: Track BOTH TP modes independently (for learning comparison)
-            // These track "would have been hit" - no conservative logic needed
+            // These are analytics flags, not mutually exclusive with SL/TP outcome
             if high >= g_active_trade.tp_cons
-                g_active_trade.cons_tp_hit := true
+                g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_CONS_TP_HIT)
             if high >= g_active_trade.tp_aggr
-                g_active_trade.aggr_tp_hit := true
+                g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_AGGR_TP_HIT)
         else
             bool sl_touched = high >= g_active_trade.sl_price
             bool tp_touched = low <= g_active_trade.tp_price
             
-            // Conservative execution: when both hit in same bar, prioritize capital preservation
-            if sl_touched and tp_touched and not g_active_trade.sl_hit and not g_active_trade.tp_hit
-                float dist_to_sl = math.abs(open - g_active_trade.sl_price)
-                float dist_to_tp = math.abs(open - g_active_trade.tp_price)
-                if dist_to_tp < dist_to_sl * 0.5
-                    g_active_trade.tp_hit := true
-                else
-                    g_active_trade.sl_hit := true  // Conservative: assume SL hit
-            else
-                if sl_touched
-                    g_active_trade.sl_hit := true
-                if tp_touched
-                    g_active_trade.tp_hit := true
+            // Outcome detection with mutual exclusion (first outcome wins, per FR-4 invariant)
+            // Skip if outcome already determined
+            if not f_hasAny(g_active_trade.state_mask, MASK_OUTCOME)
+                if sl_touched and tp_touched
+                    // Conservative execution: when both hit in same bar, prioritize capital preservation
+                    float dist_to_sl = math.abs(open - g_active_trade.sl_price)
+                    float dist_to_tp = math.abs(open - g_active_trade.tp_price)
+                    if dist_to_tp < dist_to_sl * 0.5
+                        g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
+                    else
+                        g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
+                else if sl_touched
+                    g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
+                else if tp_touched
+                    g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
             
             // Phase 3: Track BOTH TP modes independently (for learning comparison)
+            // These are analytics flags, not mutually exclusive with SL/TP outcome
             if low <= g_active_trade.tp_cons
-                g_active_trade.cons_tp_hit := true
+                g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_CONS_TP_HIT)
             if low <= g_active_trade.tp_aggr
-                g_active_trade.aggr_tp_hit := true
+                g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_AGGR_TP_HIT)
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // EXTENDED LEARNING: MAE/MFE Tracking (Phase 1) - CONFIRMED TRADES ONLY
@@ -1712,14 +1872,13 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     if confirmed_zone_entry and not na(g_active_trade.setup_bar) and not isProjection
         if na(g_active_trade.entry_bar)  // Only capture first touch
             g_active_trade.entry_bar := bar_index
-            g_active_trade.entry_price := close  // Entry price at zone touch
-            g_active_trade.rsi_at_entry := ta.rsi(close, INPUT_POS_RSI_LEN)  // Capture RSI at entry
-            // Note: g_active_trade.had_rsi_div is captured after RSI divergence is computed (below)
+            g_active_trade.entry_price := close
+            g_active_trade.rsi_at_entry := ta.rsi(close, INPUT_POS_RSI_LEN)
     
     // Track MAE/MFE from entry (only after zone touched, CONFIRMED trades only)
     if not na(g_active_trade.entry_bar) and not na(g_active_trade.entry_price) and not na(g_active_trade.atr_at_setup) and not isProjection
-        if not g_active_trade.sl_hit and not g_active_trade.tp_hit  // Still in trade
-            if g_active_trade.is_long
+        if not f_hasAny(g_active_trade.state_mask, MASK_OUTCOME)
+            if f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG)
                 // MAE: How much price moved against us (low - entry, negative is adverse)
                 float adverse = (g_active_trade.entry_price - low) / g_active_trade.atr_at_setup
                 g_active_trade.max_adverse := math.max(g_active_trade.max_adverse, adverse)
@@ -1799,7 +1958,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // SL breach invalidation (also invalidate on zone expiration)
     // Use CONFIRMED trade direction and SL for consistency (not projection)
-    bool sl_check_long = not na(g_active_trade.setup_bar) ? g_active_trade.is_long : is_long_setup
+    bool sl_check_long = not na(g_active_trade.setup_bar) ? f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG) : is_long_setup
     float sl_check_price = not na(g_active_trade.setup_bar) ? g_active_trade.sl_price : sl_price
     bool sl_breached = sl_check_long ? close < sl_check_price : close > sl_check_price
     bool is_invalid = sl_breached or zone_expired
@@ -1813,7 +1972,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float price_at_pivot = ta.valuewhen(pivotChanged, close, 0)
     
     // Use CONFIRMED trade direction for divergence check (for learning consistency)
-    bool check_long = not na(g_active_trade.setup_bar) ? g_active_trade.is_long : is_long_setup
+    bool check_long = not na(g_active_trade.setup_bar) ? f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG) : is_long_setup
     // Bullish divergence: price made lower low but RSI made higher low (momentum building)
     bool bullish_div = check_long and close < price_at_pivot and rsi > rsi_at_pivot
     // Bearish divergence: price made higher high but RSI made lower high (momentum fading)
@@ -1822,14 +1981,15 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // Capture RSI divergence flag for learning (CONFIRMED trades only, not projections)
     if confirmed_zone_entry and not na(g_active_trade.setup_bar) and not isProjection
-        g_active_trade.had_rsi_div := bullish_div or bearish_div
+        if bullish_div or bearish_div
+            g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_HAD_RSI_DIV)
     
     // Combined confluence: volume OR RSI divergence
     bool full_confirm = vol_confirm or rsi_confirm
     
     // Determine box color based on state (apply time decay to transparency)
     // Use current calculation for display (projection or confirmed)
-    bool active_is_long = isProjection ? is_long_setup : (not na(g_active_trade.setup_bar) ? g_active_trade.is_long : is_long_setup)
+    bool active_is_long = isProjection ? is_long_setup : (not na(g_active_trade.setup_bar) ? f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG) : is_long_setup)
     color base_color = active_is_long ? COLOR_BLUE : COLOR_RED
     int decay_trans_add = int((1 - time_decay) * 20)  // Add 0-20 transparency based on decay
     int bg_trans = is_invalid ? 90 : (in_zone ? (full_confirm ? 45 : (vol_confirm or rsi_confirm ? 55 : 65)) : 75) + decay_trans_add
@@ -1907,10 +2067,10 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             if na(rec)
                 continue
             // Setups where zone was never touched are "no trade" - don't affect win rate
-            if not rec.zone_touched
+            if not f_hasFlag(rec.state_mask, FLAG_ZONE_TOUCHED)
                 continue  // Skip - no entry, no trade
             
-            if rec.tp_hit and not rec.sl_hit
+            if f_hasFlag(rec.state_mask, FLAG_TP_HIT) and not f_hasFlag(rec.state_mask, FLAG_SL_HIT)
                 wins += 1
                 // Aggregate winning trade metrics for MAE/MFE analysis
                 total_mae += rec.max_adverse
@@ -1918,12 +2078,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                 total_bars += rec.bars_to_outcome
                 outcome_count += 1
                 // Phase 2: RSI divergence stratification
-                if rec.had_rsi_div
+                if f_hasFlag(rec.state_mask, FLAG_HAD_RSI_DIV)
                     wins_with_div += 1
                 else
                     wins_without_div += 1
                 // Phase 2: Direction stratification
-                if rec.is_long
+                if f_hasFlag(rec.state_mask, FLAG_IS_LONG)
                     wins_long += 1
                 else
                     wins_short += 1
@@ -1949,18 +2109,18 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     else
                         // Was in loss streak, this win breaks it
                         streak_frozen := true
-            else if rec.sl_hit
+            else if f_hasFlag(rec.state_mask, FLAG_SL_HIT)
                 losses += 1
                 // Phase 2: Track losing trade MAE
                 losing_mae_total += rec.max_adverse
                 losing_count += 1
                 // Phase 2: RSI divergence stratification
-                if rec.had_rsi_div
+                if f_hasFlag(rec.state_mask, FLAG_HAD_RSI_DIV)
                     losses_with_div += 1
                 else
                     losses_without_div += 1
                 // Phase 2: Direction stratification
-                if rec.is_long
+                if f_hasFlag(rec.state_mask, FLAG_IS_LONG)
                     losses_long += 1
                 else
                     losses_short += 1
@@ -1984,12 +2144,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             
             // Phase 3: TP mode comparison (track both modes regardless of which was used)
             // Only count if SL wasn't hit first
-            if not rec.sl_hit
+            if not f_hasFlag(rec.state_mask, FLAG_SL_HIT)
                 cons_tp_total += 1
                 aggr_tp_total += 1
-                if rec.cons_tp_hit
+                if f_hasFlag(rec.state_mask, FLAG_CONS_TP_HIT)
                     cons_tp_wins += 1
-                if rec.aggr_tp_hit
+                if f_hasFlag(rec.state_mask, FLAG_AGGR_TP_HIT)
                     aggr_tp_wins += 1
         
         int total_outcomes = wins + losses
@@ -2325,7 +2485,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float display_tp_text = tp_price  // Always show current calculation with learning
     float display_sl_text = sl_price  // Always show current calculation with learning
     // Use current calculation for display (projection shows current direction)
-    bool display_is_long = isProjection ? is_long_setup : (not na(g_active_trade.setup_bar) ? g_active_trade.is_long : is_long_setup)
+    bool display_is_long = isProjection ? is_long_setup : (not na(g_active_trade.setup_bar) ? f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG) : is_long_setup)
     
     // Status prefix: clearly distinguish between Confirmed Active and Projected trades
     // ⚡PROJ = Projection (tentative, not recorded to learning)
@@ -2358,34 +2518,28 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool should_record = INPUT_LEARNING_ENABLED and pivotChanged and not na(g_active_trade.setup_bar)
     if should_record
         // Calculate bars to outcome (0 if neither SL nor TP hit)
-        int bars_to_out = (g_active_trade.sl_hit or g_active_trade.tp_hit) and not na(g_active_trade.entry_bar) ? 
+        int bars_to_out = f_hasAny(g_active_trade.state_mask, MASK_OUTCOME) and not na(g_active_trade.entry_bar) ? 
                           (bar_index - g_active_trade.entry_bar) : 0
         
         // Record the previous CONFIRMED setup's outcome before it changes
+        // Copy state_mask directly from g_active_trade (contains is_long, zone_touched, sl_hit, tp_hit, had_rsi_div, etc.)
         SetupRecord completed_setup = SetupRecord.new(
-            g_active_trade.setup_bar,
-            g_active_trade.is_long,
-            g_active_trade.zone_top,
-            g_active_trade.zone_bottom,
-            g_active_trade.sl_price,
-            g_active_trade.tp_price,
-            g_active_trade.min_distance,
-            g_active_trade.zone_touched,
-            g_active_trade.sl_hit,
-            g_active_trade.tp_hit,
-            bars_to_out,                   // bars_to_outcome
+            g_active_trade.setup_bar,           // setup_bar
+            g_active_trade.state_mask,          // state_mask (copy all flags directly)
+            g_active_trade.zone_top,            // zone_top
+            g_active_trade.zone_bottom,         // zone_bottom
+            g_active_trade.sl_price,            // sl_level
+            g_active_trade.tp_price,            // tp_level
+            g_active_trade.min_distance,        // closest_approach
+            bars_to_out,                        // bars_to_outcome
             g_active_trade.max_adverse,         // max_adverse (ATR units)
             g_active_trade.max_favorable,       // max_favorable (ATR units)
             nz(g_active_trade.entry_price, (g_active_trade.zone_top + g_active_trade.zone_bottom) / 2),  // entry_price
             nz(g_active_trade.atr_at_setup, 1.0),        // atr_at_setup
-            nz(g_active_trade.rsi_at_entry, 50.0),  // rsi_at_entry
-            g_active_trade.had_rsi_div,         // had_rsi_div
-            g_active_trade.tp_aggressive,       // tp_was_aggressive (Phase 3)
-            g_active_trade.tp_cons,             // tp_conservative (Phase 3)
-            g_active_trade.tp_aggr,             // tp_aggressive (Phase 3)
-            g_active_trade.cons_tp_hit,         // cons_tp_hit (Phase 3)
-            g_active_trade.aggr_tp_hit,         // aggr_tp_hit (Phase 3)
-            g_active_trade.vol_percentile       // vol_percentile (Phase 4)
+            nz(g_active_trade.rsi_at_entry, 50.0),       // rsi_at_entry
+            g_active_trade.tp_cons,             // tp_conservative
+            g_active_trade.tp_aggr,             // tp_aggressive
+            g_active_trade.vol_percentile       // vol_percentile
         )
         
         // Phase 4: Record last outcome bar for staleness detection
@@ -2397,9 +2551,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // OPTIMIZATION: Set flag to trigger learning recalculation (only on new trade)
         g_learning_needs_recalc := true
         
-        // DEBUG: Log when setup is recorded
-        log.info("RECORDED: bar={0}, is_long={1}, zone_touched={2}, sl_hit={3}, tp_hit={4}, samples={5}", 
-                 g_active_trade.setup_bar, g_active_trade.is_long, g_active_trade.zone_touched, g_active_trade.sl_hit, g_active_trade.tp_hit, g_setup_history.size())
+        // DEBUG: Log when setup is recorded (using state_mask flags)
+        log.info("RECORDED: bar={0}, state_mask={1}, samples={2}", 
+                 g_active_trade.setup_bar, g_active_trade.state_mask, g_setup_history.size())
     
     // Initialize CONFIRMED trade tracking - ONLY reset on pivotChanged (never for projections)
     // This ensures Learning Engine data is ONLY from confirmed ZigZag pivots
@@ -2411,20 +2565,17 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // So cachedIMidPivot is typically bar_index - pivotLength
         // creation_bar tracks when WE created the setup, not when the pivot occurred
         g_active_trade.creation_bar := bar_index
-        g_active_trade.is_long := is_long_setup
+        // Build initial state_mask: direction + TP mode (all event flags start cleared)
+        int new_state = is_long_setup ? FLAG_IS_LONG : 0
+        new_state := use_aggressive_tp ? f_setFlag(new_state, FLAG_TP_AGGRESSIVE) : new_state
+        g_active_trade.state_mask := new_state
         g_active_trade.zone_top := adjusted_box_top
         g_active_trade.zone_bottom := adjusted_box_bottom
         g_active_trade.sl_price := sl_price
         g_active_trade.tp_price := tp_price
         g_active_trade.tp_cons := tp_conservative
         g_active_trade.tp_aggr := tp_aggressive
-        g_active_trade.tp_aggressive := use_aggressive_tp
         g_active_trade.min_distance := DEFAULT_MIN_DISTANCE
-        g_active_trade.zone_touched := false
-        g_active_trade.sl_hit := false
-        g_active_trade.tp_hit := false
-        g_active_trade.cons_tp_hit := false
-        g_active_trade.aggr_tp_hit := false
         // Extended tracking reset (Phase 1)
         g_active_trade.entry_bar := na
         g_active_trade.entry_price := na
@@ -2432,7 +2583,6 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         g_active_trade.max_favorable := 0.0
         g_active_trade.atr_at_setup := nz(ta.atr(INPUT_ATR_LENGTH), 1.0)  // Capture ATR at setup formation
         g_active_trade.rsi_at_entry := na
-        g_active_trade.had_rsi_div := false
         // Phase 4: Regime tracking reset
         g_active_trade.vol_percentile := atr_percentile  // Capture current volatility regime
 
