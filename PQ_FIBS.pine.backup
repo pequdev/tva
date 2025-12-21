@@ -1,91 +1,96 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.3.3', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS0.3.2', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 // Colors
-color COLOR_FG_MAIN     = chart.fg_color
-color COLOR_RED         = #f44336
-color COLOR_GREEN       = #4caf50
-color COLOR_TEAL        = #009688
-color COLOR_BLUE        = #2196f3
-color COLOR_PURPLE      = #9c27b0
-color COLOR_PINK        = #e91e63
-color COLOR_GRAY        = #a2a2a2
-color COLOR_LIGHT_GREEN = #81c784
-color COLOR_LIGHT_BLUE  = #64b5f6
+COLOR_FG_MAIN       = chart.fg_color
+COLOR_RED           = #f44336
+COLOR_GREEN         = #4caf50
+COLOR_TEAL          = #009688
+COLOR_BLUE          = #2196f3
+COLOR_PURPLE        = #9c27b0
+COLOR_PINK          = #e91e63
+COLOR_GRAY          = #a2a2a2
+COLOR_LIGHT_GREEN   = #81c784
+COLOR_LIGHT_BLUE    = #64b5f6
 
 // Theme Transparencies
-int TRANS_MAIN          = 25
-int TRANS_SUPP          = 70
+TRANS_MAIN          = 25
+TRANS_SUPP          = 70
 
 // Static Colors
-color COLOR_TZ          = color.new(COLOR_FG_MAIN, 80)
-color COLOR_ZZ          = color.new(COLOR_FG_MAIN, 75)
-color COLOR_TEXT        = color.new(COLOR_FG_MAIN, 0)
+COLOR_TZ            = color.new(COLOR_FG_MAIN, 80)
+COLOR_ZZ            = color.new(COLOR_FG_MAIN, 75)
+COLOR_TEXT          = color.new(COLOR_FG_MAIN, 0)
 
 // Configuration Constants
-int LEVELS_COUNT        = 22
+LEVELS_COUNT        = 22
 
 // Alert IDs
-string ALERT_ID_UPDATE     = 'FBU'
-string ALERT_ID_EXHAUSTION = 'EXH'
-string ALERT_ID_VOLATILITY = 'HVO'
-string ALERT_ID_CROSSING   = 'RCL'
+ALERT_ID_UPDATE     = 'FBU'
+ALERT_ID_EXHAUSTION = 'EXH'
+ALERT_ID_VOLATILITY = 'HVO'
+ALERT_ID_CROSSING   = 'RCL'
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // FIBONACCI CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-float FIB_GOLDEN_RATIO    = 0.618
-float FIB_GOLDEN_POCKET_H = 0.65
-float FIB_EXTENSION_1272  = 1.272
-float FIB_EXTENSION_1618  = 1.618
+FIB_GOLDEN_RATIO    = 0.618       // Golden ratio (phi inverse)
+FIB_GOLDEN_POCKET_H = 0.65        // Golden pocket upper bound
+FIB_EXTENSION_1272  = 1.272       // First extension level
+FIB_EXTENSION_1618  = 1.618       // Golden extension level
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS - Bitwise Trade/Setup State Representation
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Each flag is a power-of-two constant enabling O(1) bitwise state checks.
+// Usage: f_setFlag(state, FLAG) / f_hasFlag(state, FLAG) / f_clearFlag(state, FLAG)
 
 // Direction Flag (Bit 0)
-int FLAG_IS_LONG        = 1
+FLAG_IS_LONG        = 1       // Long setup (1) vs Short (0 = flag not set)
 
 // Entry State (Bit 1)
-int FLAG_ZONE_TOUCHED   = 2
+FLAG_ZONE_TOUCHED   = 2       // Price entered the Golden Pocket zone
 
-// Exit States (Bits 2-3) - Mutually exclusive
-int FLAG_SL_HIT         = 4
-int FLAG_TP_HIT         = 8
+// Exit States (Bits 2-3) - Mutually exclusive outcomes
+FLAG_SL_HIT         = 4       // Stop loss was triggered
+FLAG_TP_HIT         = 8       // Take profit was reached
 
 // Confluence Flags (Bit 4)
-int FLAG_HAD_RSI_DIV    = 16
+FLAG_HAD_RSI_DIV    = 16      // RSI divergence was present at entry
 
-// TP Mode (Bit 5)
-int FLAG_TP_AGGRESSIVE  = 32
+// TP Mode (Bit 5) - configuration flag (set at setup time)
+FLAG_TP_AGGRESSIVE  = 32      // Aggressive TP mode was configured (setup-time config, not an outcome)
 
-// Analytics Tracking (Bits 6-7)
-int FLAG_CONS_TP_HIT    = 64
-int FLAG_AGGR_TP_HIT    = 128
+// Analytics Tracking (Bits 6-7) - outcome tracking flags
+FLAG_CONS_TP_HIT    = 64      // Conservative TP level was (or would have been) hit
+FLAG_AGGR_TP_HIT    = 128     // Aggressive TP level was (or would have been) hit
 
-// Lifecycle States (Bits 8-10) - Mutually exclusive
-int FLAG_PENDING        = 256
-int FLAG_ACTIVE         = 512
-int FLAG_CLOSED         = 1024
+// Lifecycle States (Bits 8-10) - Mutually exclusive phases
+FLAG_PENDING        = 256     // Waiting for zone entry
+FLAG_ACTIVE         = 512     // In position (zone touched, not exited)
+FLAG_CLOSED         = 1024    // Trade completed (SL or TP hit)
 
 // Outcome (Bit 11)
-int FLAG_WON            = 2048
+FLAG_WON            = 2048    // Trade was a winner (TP hit before SL)
 
-// Intrabar Resolution (Bit 12)
-int FLAG_LTF_RESOLVED   = 4096
+// Intrabar Resolution (Bit 12) - diagnostic flag
+FLAG_LTF_RESOLVED   = 4096    // Outcome was resolved using LTF intrabar data (vs HTF heuristic)
 
-// Composite Masks
-int MASK_OUTCOME        = 12
-int MASK_CLOSED         = 1024
-int MASK_LIFECYCLE      = 1792
-int MASK_TP_TRACKING    = 192
+// Composite Masks for Fast Queries
+// NOTE: MASK_OUTCOME should be used with f_hasAny() to check if ANY outcome is set
+//       (SL_HIT and TP_HIT are mutually exclusive, so f_hasAll would never match)
+MASK_OUTCOME        = 12      // FLAG_SL_HIT + FLAG_TP_HIT (4 + 8) - use with f_hasAny()
+MASK_CLOSED         = 1024    // FLAG_CLOSED - trade lifecycle completed
+MASK_LIFECYCLE      = 1792    // FLAG_PENDING + FLAG_ACTIVE + FLAG_CLOSED (256 + 512 + 1024)
+MASK_TP_TRACKING    = 192     // FLAG_CONS_TP_HIT + FLAG_AGGR_TP_HIT (64 + 128)
 
-// Max bit index
-int STATE_MAX_BIT       = 12
+// Max bit index for loop bounds (FLAG_LTF_RESOLVED = 4096 = 2^12, so max bit is 12)
+// Pine Script for loop is INCLUSIVE: `for i = 0 to 12` runs 13 times (i = 0,1,2,...,12)
+STATE_MAX_BIT       = 12      // Highest bit index used (update if adding more flags)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS API - Arithmetic-Based Bit Operations for State Management
@@ -227,88 +232,87 @@ f_resolveIntrabar(array<float> ltf_highs, array<float> ltf_lows, bool is_long, f
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // LEARNING ENGINE CONSTANTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Minimum sample thresholds for learning activation
+LEARN_MIN_SAMPLES_SL        = 20      // Min samples before applying learned SL
+LEARN_MIN_SAMPLES_BUFFER    = 10      // Min samples before adaptive buffer
+LEARN_MIN_SAMPLES_WR        = 10      // Min samples before win rate calculation
+LEARN_MIN_SAMPLES_MAE       = 5       // Min winning trades for MAE/MFE averages
+LEARN_MIN_SAMPLES_DIV       = 5       // Min samples for divergence effectiveness
+LEARN_MIN_SAMPLES_DIR       = 5       // Min samples for direction-specific WR
+LEARN_MIN_SAMPLES_LOSING    = 3       // Min losing trades for losing MAE
+LEARN_MIN_SAMPLES_TP_COMP   = 10      // Min samples for TP mode comparison
+LEARN_MIN_SAMPLES_TIME      = 10      // Min samples for time decay learning
 
-// Minimum sample thresholds
-int   LEARN_MIN_SAMPLES_SL      = 20
-int   LEARN_MIN_SAMPLES_BUFFER  = 10
-int   LEARN_MIN_SAMPLES_WR      = 10
-int   LEARN_MIN_SAMPLES_MAE     = 5
-int   LEARN_MIN_SAMPLES_DIV     = 5
-int   LEARN_MIN_SAMPLES_DIR     = 5
-int   LEARN_MIN_SAMPLES_LOSING  = 3
-int   LEARN_MIN_SAMPLES_TP_COMP = 10
-int   LEARN_MIN_SAMPLES_TIME    = 10
-
-// Volatility regime thresholds
-int   VOL_REGIME_HIGH_THRESH    = 60
-int   VOL_REGIME_LOW_THRESH     = 40
+// Volatility regime thresholds (ATR percentile)
+VOL_REGIME_HIGH_THRESH      = 60      // >= 60 percentile = high volatility
+VOL_REGIME_LOW_THRESH       = 40      // <= 40 percentile = low volatility
 
 // Near-miss detection
-float NEAR_MISS_RATE_THRESH     = 0.10
-float NEAR_MISS_BUFFER_MULT     = 5.0
-float NEAR_MISS_BUFFER_MAX      = 5.0
-float NEAR_MISS_CLOSE_THRESH    = 0.3
+NEAR_MISS_RATE_THRESH       = 0.10    // 10% miss rate triggers buffer expansion
+NEAR_MISS_BUFFER_MULT       = 5.0     // Multiplier for miss rate to buffer %
+NEAR_MISS_BUFFER_MAX        = 5.0     // Maximum buffer expansion (%)
+NEAR_MISS_CLOSE_THRESH      = 0.3     // Near-misses closer than this get extra buffer
 
-// Time decay Fibonacci thresholds
-int   TIME_DECAY_T1             = 8
-int   TIME_DECAY_T2             = 13
-int   TIME_DECAY_T3             = 21
-int   TIME_DECAY_T4             = 34
-int   TIME_DECAY_T5             = 55
-float TIME_DECAY_DEFAULT_RATE   = 0.85
-float TIME_DECAY_SCALE_MIN      = 0.5
-float TIME_DECAY_SCALE_MAX      = 2.0
-int   TIME_DECAY_REFERENCE_BARS = 13
+// Time decay Fibonacci thresholds (scaled by learned avg_bars)
+TIME_DECAY_T1               = 8       // First Fib threshold (bars)
+TIME_DECAY_T2               = 13      // Second Fib threshold
+TIME_DECAY_T3               = 21      // Third Fib threshold
+TIME_DECAY_T4               = 34      // Fourth Fib threshold
+TIME_DECAY_T5               = 55      // Fifth Fib threshold (expiry)
+TIME_DECAY_DEFAULT_RATE     = 0.85    // Default decay rate per threshold
+TIME_DECAY_SCALE_MIN        = 0.5     // Minimum time scale factor
+TIME_DECAY_SCALE_MAX        = 2.0     // Maximum time scale factor
+TIME_DECAY_REFERENCE_BARS   = 13      // Reference bars for scaling calculation
 
 // SL learning
-float SL_BUFFER_ATR             = 0.5
-float SL_LOSING_MAE_FACTOR      = 1.5
+SL_BUFFER_ATR               = 0.5     // ATR buffer added to learned MAE for SL
+SL_LOSING_MAE_FACTOR        = 1.5     // Threshold: if losing MAE > winning MAE * this, widen SL
 
 // Confidence scoring thresholds
-int   CONF_GRADE_D_THRESH       = 25
-int   CONF_GRADE_C_THRESH       = 50
-int   CONF_GRADE_B_THRESH       = 70
-int   CONF_GRADE_A_THRESH       = 85
+CONF_GRADE_D_THRESH         = 25      // Below = D grade
+CONF_GRADE_C_THRESH         = 50      // Below = C grade
+CONF_GRADE_B_THRESH         = 70      // Below = B grade
+CONF_GRADE_A_THRESH         = 85      // Below = A, above = A+
 
 // Streak tracking
-int   STREAK_WIN_BONUS_THRESH   = 3
-int   STREAK_LOSS_PENALTY_THRESH = 3
-int   STREAK_PENALTY_MAX        = 15
-float STREAK_PENALTY_RATE       = 5.0
-int   STREAK_LOSS_PENALTY_BASE  = 2
-int   STREAK_BONUS_MAX          = 10
-float STREAK_BONUS_RATE         = 3.33
-int   STREAK_WIN_BONUS_BASE     = 2
+STREAK_WIN_BONUS_THRESH     = 3       // Consecutive wins before confidence bonus
+STREAK_LOSS_PENALTY_THRESH  = 3       // Consecutive losses before confidence penalty
+STREAK_PENALTY_MAX          = 15      // Maximum penalty for losing streak
+STREAK_PENALTY_RATE         = 5.0     // Penalty per loss beyond threshold
+STREAK_LOSS_PENALTY_BASE    = 2       // Base subtracted from consecutive losses for penalty calc
+STREAK_BONUS_MAX            = 10      // Maximum bonus for winning streak
+STREAK_BONUS_RATE           = 3.33    // Bonus per win beyond threshold
+STREAK_WIN_BONUS_BASE       = 2       // Base subtracted from consecutive wins for bonus calc
 
 // Health check thresholds
-int   HEALTH_STALE_BARS         = 100
-float HEALTH_WR_MIN             = 0.25
-float HEALTH_WR_MAX             = 0.85
-float HEALTH_PF_MIN             = 0.7
+HEALTH_STALE_BARS           = 100     // Bars without outcome = stale
+HEALTH_WR_MIN               = 0.25    // Minimum sane win rate
+HEALTH_WR_MAX               = 0.85    // Maximum sane win rate
+HEALTH_PF_MIN               = 0.7     // Minimum sane profit factor
 
 // Kelly calculation
-float KELLY_MIN_EDGE            = 0.01
+KELLY_MIN_EDGE              = 0.01    // Minimum edge for positive Kelly
 
 // Decay rate learning
-float DECAY_RATE_MIN            = 0.75
-float DECAY_RATE_MAX            = 0.95
-float DECAY_RATE_ADJUST         = 0.14
+DECAY_RATE_MIN              = 0.75    // Minimum learned decay rate
+DECAY_RATE_MAX              = 0.95    // Maximum learned decay rate
+DECAY_RATE_ADJUST           = 0.14    // Decay rate adjustment factor
 
-// Confidence scoring weights
-int   CONF_WR_WEIGHT            = 35
-float CONF_WR_MIN_MAP           = 0.3
-float CONF_WR_MAX_MAP           = 0.8
-int   CONF_RSI_WEIGHT           = 20
-int   CONF_PF_WEIGHT            = 15
-int   CONF_HEALTH_WEIGHT        = 15
-float CONF_PF_MIN_MAP           = 0.5
-float CONF_PF_MAX_MAP           = 2.0
+// Confidence scoring weights and mappings
+CONF_WR_WEIGHT              = 35      // Weight for win rate component (%)
+CONF_WR_MIN_MAP             = 0.3     // Win rate mapping lower bound
+CONF_WR_MAX_MAP             = 0.8     // Win rate mapping upper bound
+CONF_RSI_WEIGHT             = 20      // Weight for RSI edge component (%)
+CONF_PF_WEIGHT              = 15      // Weight for profit factor component (%)
+CONF_HEALTH_WEIGHT          = 15      // Weight for health component (%)
+CONF_PF_MIN_MAP             = 0.5     // Profit factor mapping lower bound
+CONF_PF_MAX_MAP             = 2.0     // Profit factor mapping upper bound
 
 // Default initial values
-float DEFAULT_WIN_RATE          = 0.618
-float DEFAULT_DECAY_RATE        = 0.85
-float DEFAULT_CONFIDENCE        = 50.0
-float DEFAULT_MIN_DISTANCE      = 100.0
+DEFAULT_WIN_RATE            = 0.618   // Initial win rate assumption (golden ratio)
+DEFAULT_DECAY_RATE          = 0.85    // Default time decay rate
+DEFAULT_CONFIDENCE          = 50.0    // Initial confidence score
+DEFAULT_MIN_DISTANCE        = 100.0   // Initial min distance (%)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // UI TEXT CONSTANTS
@@ -580,8 +584,8 @@ INPUT_VOL_SPIKE_THRESH  = input.float(2.5, 'Volume Spike Theshold     
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 // Data Structures
-var map<float, float> GLOBAL_pivotLevelsLogRetracements = map.new<float, float>()
-var map<float, float> GLOBAL_pivotLevelsLogCrossed = map.new<float, float>()
+var map<float, float> l_pivotLevelsLog_retracements = map.new<float, float>()
+var map<float, float> l_pivotLevelsLog_crossed_retracements = map.new<float, float>()
 
 type FibLevel
     float level
@@ -627,8 +631,8 @@ int decimalsCount = math.round(math.abs(math.log(1 / syminfo.mintick) / math.log
 
 // Fetch LTF high/low arrays for intrabar resolution (uses configured timeframe)
 // The arrays contain all LTF bars that fall within the current HTF bar
-array<float> GLOBAL_ltfHighs = request.security_lower_tf(syminfo.tickerid, INPUT_INTRABAR_TF, high)
-array<float> GLOBAL_ltfLows  = request.security_lower_tf(syminfo.tickerid, INPUT_INTRABAR_TF, low)
+array<float> g_ltf_highs = request.security_lower_tf(syminfo.tickerid, INPUT_INTRABAR_TF, high)
+array<float> g_ltf_lows  = request.security_lower_tf(syminfo.tickerid, INPUT_INTRABAR_TF, low)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // LEARNING ENGINE DATA STRUCTURES
@@ -734,11 +738,11 @@ method isEmpty(CircularBufferSetupRecord this) =>
 method isFull(CircularBufferSetupRecord this) =>
     this.count == this.capacity
 
-var CircularBufferSetupRecord GLOBAL_setupHistory = CircularBufferSetupRecord.new()
+var CircularBufferSetupRecord g_setup_history = CircularBufferSetupRecord.new()
 
 // Initialize the circular buffer on first bar
 if barstate.isfirst
-    GLOBAL_setupHistory.init(INPUT_LEARNING_SAMPLES)
+    g_setup_history.init(INPUT_LEARNING_SAMPLES)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // BACKTESTING ENGINE - Trade Mining System
@@ -853,57 +857,57 @@ f_new_setup_state() =>
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE SEPARATION: Active Trade vs Projection Preview
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// GLOBAL_activeTrade: ONLY updated on pivotChanged (confirmed ZigZag pivots)
+// g_active_trade: ONLY updated on pivotChanged (confirmed ZigZag pivots)
 //                 Learning Engine reads/writes ONLY this state
-//                 Recorded to GLOBAL_setupHistory when next pivot confirms
+//                 Recorded to g_setup_history when next pivot confirms
 //                 Used for SOLID visual elements (confirmed state)
-var SetupState GLOBAL_activeTrade = f_new_setup_state()
+var SetupState g_active_trade = f_new_setup_state()
 
-// GLOBAL_projectionPreview: Recalculated EVERY bar when projection mode is active
+// g_projection_preview: Recalculated EVERY bar when projection mode is active
 //                       Used for VISUAL display only - NEVER recorded to history
 //                       Does NOT affect learning engine calculations
 //                       Used for DASHED visual elements (tentative state)
 // Note: Not persistent (no var) - recalculated fresh each bar
-SetupState GLOBAL_projectionPreview = f_new_setup_state()
+SetupState g_projection_preview = f_new_setup_state()
 
 // Learning engine computed values (updated only when new trade recorded)
-var float  GLOBAL_learnedZoneBuffer = 0.0
-var float  GLOBAL_learnedWinRate = DEFAULT_WIN_RATE
-var int    GLOBAL_nearMissCount = 0
-var int    GLOBAL_totalSetups = 0
+var float  g_learned_zone_buffer = 0.0
+var float  g_learned_win_rate = DEFAULT_WIN_RATE
+var int    g_near_miss_count = 0
+var int    g_total_setups = 0
 // Flag to track when learning recalculation is needed (only after new trade recorded)
-var bool   GLOBAL_learningNeedsRecalc = false
+var bool   g_learning_needs_recalc = false
 // Extended learned values (Phase 1)
-var float  GLOBAL_learnedSlMult = 1.5        // Optimal SL multiplier from MAE analysis
-var float  GLOBAL_learnedAvgMae = 0.0        // Average MAE of winning trades
-var float  GLOBAL_learnedAvgMfe = 0.0        // Average MFE before outcome
-var int    GLOBAL_learnedAvgBars = 0         // Average bars to outcome
+var float  g_learned_sl_mult = 1.5        // Optimal SL multiplier from MAE analysis
+var float  g_learned_avg_mae = 0.0        // Average MAE of winning trades
+var float  g_learned_avg_mfe = 0.0        // Average MFE before outcome
+var int    g_learned_avg_bars = 0         // Average bars to outcome
 // Phase 2: Advanced Learning Analytics
-var float  GLOBAL_learnedWrWithDiv = DEFAULT_WIN_RATE    // Win rate when RSI divergence present
-var float  GLOBAL_learnedWrWithoutDiv = 0.5   // Win rate when no RSI divergence
-var float  GLOBAL_learnedWrLong = DEFAULT_WIN_RATE        // Win rate for LONG setups
-var float  GLOBAL_learnedWrShort = DEFAULT_WIN_RATE       // Win rate for SHORT setups
-var float  GLOBAL_learnedLosingMae = 0.0       // Average MAE of losing trades (informative)
-var float  GLOBAL_learnedDivEdge = 0.0         // Edge gained from RSI divergence (wr_with - wr_without)
-var int    GLOBAL_learnedOptimalHold = 0       // Optimal holding period (bars) based on MFE peak
+var float  g_learned_wr_with_div = DEFAULT_WIN_RATE    // Win rate when RSI divergence present
+var float  g_learned_wr_without_div = 0.5   // Win rate when no RSI divergence
+var float  g_learned_wr_long = DEFAULT_WIN_RATE        // Win rate for LONG setups
+var float  g_learned_wr_short = DEFAULT_WIN_RATE       // Win rate for SHORT setups
+var float  g_learned_losing_mae = 0.0       // Average MAE of losing trades (informative)
+var float  g_learned_div_edge = 0.0         // Edge gained from RSI divergence (wr_with - wr_without)
+var int    g_learned_optimal_hold = 0       // Optimal holding period (bars) based on MFE peak
 // Phase 3: Advanced Learned Parameters
-var bool   GLOBAL_learnedTpAggressive = false  // Should we use Aggressive TP mode? (learned)
-var float  GLOBAL_learnedDecayRate = DEFAULT_DECAY_RATE      // Learned decay rate per Fib threshold
-var float  GLOBAL_learnedRsiWeight = 0.0       // Weight for RSI divergence in Kelly (0 = ignore, 1 = full weight)
-var float  GLOBAL_learnedConsWr = 0.0          // Win rate for Conservative TP mode
-var float  GLOBAL_learnedAggrWr = 0.0          // Win rate for Aggressive TP mode
-var float  GLOBAL_learnedConsEv = 0.0          // Expected value for Conservative TP mode
-var float  GLOBAL_learnedAggrEv = 0.0          // Expected value for Aggressive TP mode
+var bool   g_learned_tp_aggressive = false  // Should we use Aggressive TP mode? (learned)
+var float  g_learned_decay_rate = DEFAULT_DECAY_RATE      // Learned decay rate per Fib threshold
+var float  g_learned_rsi_weight = 0.0       // Weight for RSI divergence in Kelly (0 = ignore, 1 = full weight)
+var float  g_learned_cons_wr = 0.0          // Win rate for Conservative TP mode
+var float  g_learned_aggr_wr = 0.0          // Win rate for Aggressive TP mode
+var float  g_learned_cons_ev = 0.0          // Expected value for Conservative TP mode
+var float  g_learned_aggr_ev = 0.0          // Expected value for Aggressive TP mode
 // Phase 4: Confidence Scoring & Performance Metrics
-var float  GLOBAL_learnedConfidence = DEFAULT_CONFIDENCE      // Unified confidence score (0-100)
-var float  GLOBAL_learnedProfitFactor = 1.0    // Total R won / Total R lost
-var float  GLOBAL_learnedExpectancy = 0.0       // Average R per trade (expectancy)
-var int    GLOBAL_learnedWinStreak = 0         // Current/max winning streak
-var int    GLOBAL_learnedLossStreak = 0        // Current/max losing streak
-var float  GLOBAL_learnedWrHighVol = DEFAULT_WIN_RATE    // Win rate in high volatility regime
-var float  GLOBAL_learnedWrLowVol = DEFAULT_WIN_RATE     // Win rate in low volatility regime
-var int    GLOBAL_learnedLastOutcomeBar = 0   // Bar index of last recorded outcome (staleness detection)
-var bool   GLOBAL_learnedIsHealthy = true      // Learning system health status
+var float  g_learned_confidence = DEFAULT_CONFIDENCE      // Unified confidence score (0-100)
+var float  g_learned_profit_factor = 1.0    // Total R won / Total R lost
+var float  g_learned_expectancy = 0.0       // Average R per trade (expectancy)
+var int    g_learned_win_streak = 0         // Current/max winning streak
+var int    g_learned_loss_streak = 0        // Current/max losing streak
+var float  g_learned_wr_high_vol = DEFAULT_WIN_RATE    // Win rate in high volatility regime
+var float  g_learned_wr_low_vol = DEFAULT_WIN_RATE     // Win rate in low volatility regime
+var int    g_learned_last_outcome_bar = 0   // Bar index of last recorded outcome (staleness detection)
+var bool   g_learned_is_healthy = true      // Learning system health status
 
 // AddOn Logic: Volatility & Volume
 float i_weightedATR = ta.atr(INPUT_ATR_LENGTH) * INPUT_ATR_MULT
@@ -913,9 +917,9 @@ float i_vSMA = ta.sma(nz(volume), INPUT_VOL_SMA_LEN)
 // PRE-COMPUTED TA VALUES - Called on every bar for consistency (Pine v6 best practice)
 // These values are used in conditional blocks but must be computed globally for proper internal state
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-float GLOBAL_rawAtr = i_weightedATR / INPUT_ATR_MULT                    // Raw ATR without multiplier
-float GLOBAL_atrPercentile = ta.percentrank(GLOBAL_rawAtr, 100)             // ATR percentile for volatility regime
-float GLOBAL_rsi = ta.rsi(close, INPUT_POS_RSI_LEN)                      // RSI for divergence detection
+float g_raw_atr = i_weightedATR / INPUT_ATR_MULT                    // Raw ATR without multiplier
+float g_atr_percentile = ta.percentrank(g_raw_atr, 100)             // ATR percentile for volatility regime
+float g_rsi = ta.rsi(close, INPUT_POS_RSI_LEN)                      // RSI for divergence detection
 
 float nzVolume = nz(volume)
 bool bullCandle = close > open
@@ -1390,10 +1394,10 @@ method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRed
             if INPUT_LEVELS_POS == "Last Bar" and not na(this.lb) and price > 0
                 label.set_x(this.lb, x2)
         
-        f_updateLevelsLog(GLOBAL_pivotLevelsLogRetracements, this.level, price)
+        f_updateLevelsLog(l_pivotLevelsLog_retracements, this.level, price)
         // Use pre-computed crossing result (computed globally for Pine v6 consistency)
         if this.crossed
-            f_updateLevelsLog(GLOBAL_pivotLevelsLogCrossed, this.level, price)
+            f_updateLevelsLog(l_pivotLevelsLog_crossed_retracements, this.level, price)
 
 f_logToJson(map<float, float> logMap) => 
     result = '{'
@@ -1438,8 +1442,8 @@ f_getAlertMessage(string id) =>
     string log = ''
     if id == ALERT_ID_UPDATE
         log := ('{' + base_json + 
-                ',"retracements":' + f_logToJson(GLOBAL_pivotLevelsLogRetracements) + 
-                ',"crossed_retracements":' + f_logToJson(GLOBAL_pivotLevelsLogCrossed) + '}')
+                ',"retracements":' + f_logToJson(l_pivotLevelsLog_retracements) + 
+                ',"crossed_retracements":' + f_logToJson(l_pivotLevelsLog_crossed_retracements) + '}')
     if id == ALERT_ID_EXHAUSTION
         log := ('{' + base_json + 
                 ',"bull_candle":' + (bullCandle ? 'true' : 'false') + 
@@ -1452,7 +1456,7 @@ f_getAlertMessage(string id) =>
                 ',"high_volatility":' + (highVolatility ? 'true' : 'false') + '}')
     if id == ALERT_ID_CROSSING
         log := ('{' + base_json + 
-                ',"crossed_retracements":' + f_logToJson(GLOBAL_pivotLevelsLogCrossed) + '}')
+                ',"crossed_retracements":' + f_logToJson(l_pivotLevelsLog_crossed_retracements) + '}')
     log
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -1519,8 +1523,8 @@ if not na(lineLast)
 // PRE-COMPUTED RSI DIVERGENCE VALUES (Pine v6 - must be called on every bar)
 // These ta.valuewhen calls capture RSI and price at pivot changes for divergence detection
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-float GLOBAL_rsi_at_pivot = ta.valuewhen(pivotChanged, GLOBAL_rsi, 0)
-float GLOBAL_priceAtPivot = ta.valuewhen(pivotChanged, close, 0)
+float g_rsi_at_pivot = ta.valuewhen(pivotChanged, g_rsi, 0)
+float g_price_at_pivot = ta.valuewhen(pivotChanged, close, 0)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // FIBONACCI LEVEL DRAWING (Pine v6 - all functions called unconditionally)
@@ -1683,10 +1687,10 @@ if not na(current_sim) and not skip_this_bar
             
             if sl_hit and tp_hit
                 // Both TP and SL hit in same HTF bar - need to determine which came first
-                if INPUT_INTRABAR_ENABLED and array.size(GLOBAL_ltfHighs) > 0
+                if INPUT_INTRABAR_ENABLED and array.size(g_ltf_highs) > 0
                     // Use intrabar resolution for chronological determination
                     bool conservative = INPUT_INTRABAR_TIEBREAK == "Conservative"
-                    [ltf_outcome, ltf_resolved, hit_idx] = f_resolveIntrabar(GLOBAL_ltfHighs, GLOBAL_ltfLows, sim_is_long, current_sim.sl_price, current_sim.tp_price, conservative)
+                    [ltf_outcome, ltf_resolved, hit_idx] = f_resolveIntrabar(g_ltf_highs, g_ltf_lows, sim_is_long, current_sim.sl_price, current_sim.tp_price, conservative)
                     
                     if ltf_resolved
                         trade_won := ltf_outcome == 1  // 1 = TP first, -1 = SL first
@@ -1721,7 +1725,7 @@ if not na(current_sim) and not skip_this_bar
             if used_ltf_resolution
                 log.info("BACKTEST CLOSED (LTF): {0} #{1}, Won={2}, LTF_idx={3}/{4}, MAE={5}, MFE={6}", 
                          sim_is_long ? "LONG" : "SHORT", current_sim.id, trade_won,
-                         ltf_hit_idx, array.size(GLOBAL_ltfHighs), current_sim.mae, current_sim.mfe)
+                         ltf_hit_idx, array.size(g_ltf_highs), current_sim.mae, current_sim.mfe)
             else
                 log.info("BACKTEST CLOSED (HTF): {0} #{1}, Entry={2}, Won={3}, MAE={4}, MFE={5}", 
                          sim_is_long ? "LONG" : "SHORT", 
@@ -1797,25 +1801,25 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float price_65  = f_get_level_eff(FIB_GOLDEN_POCKET_H)
     
     // Reuse global ATR calculation (i_weightedATR = ta.atr(INPUT_ATR_LENGTH) * INPUT_ATR_MULT)
-    float current_atr = GLOBAL_rawAtr
+    float current_atr = g_raw_atr
     
     // Dynamic SL: Use ATR percentile to scale SL buffer based on volatility regime
     // Use global pre-computed atr_percentile (C-optimized, called on every bar)
-    float atr_percentile = GLOBAL_atrPercentile  // 0 = lowest vol, 100 = highest vol
+    float atr_percentile = g_atr_percentile  // 0 = lowest vol, 100 = highest vol
     // Scale multiplier: at 50th percentile = base mult, at 0 = -50%, at 100 = +50%
     float dynamic_scale = INPUT_POS_SL_DYNAMIC ? (1 + (atr_percentile - 50) / 100) : 1.0
     
     // Phase 2: Use learned SL multiplier if enabled and sufficient data
-    // GLOBAL_learnedSlMult is computed from: avg MAE of winning trades + SL_BUFFER_ATR buffer
+    // g_learned_sl_mult is computed from: avg MAE of winning trades + SL_BUFFER_ATR buffer
     float base_sl_mult = INPUT_POS_SL_MULT
-    bool use_learned = INPUT_USE_LEARNED_SL and INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= LEARN_MIN_SAMPLES_SL and GLOBAL_learnedSlMult > 0
+    bool use_learned = INPUT_USE_LEARNED_SL and INPUT_LEARNING_ENABLED and g_setup_history.size() >= LEARN_MIN_SAMPLES_SL and g_learned_sl_mult > 0
     if use_learned
-        base_sl_mult := GLOBAL_learnedSlMult
+        base_sl_mult := g_learned_sl_mult
         // Validation: if losing trades had larger MAE, consider widening SL
         // Only if losing MAE is significantly larger than winning MAE (indicating stops too tight)
-        if GLOBAL_learnedLosingMae > 0 and GLOBAL_learnedLosingMae > GLOBAL_learnedAvgMae * SL_LOSING_MAE_FACTOR
+        if g_learned_losing_mae > 0 and g_learned_losing_mae > g_learned_avg_mae * SL_LOSING_MAE_FACTOR
             // Blend: use midpoint between learned SL and losing MAE to reduce premature stops
-            base_sl_mult := (GLOBAL_learnedSlMult + GLOBAL_learnedLosingMae) / 2
+            base_sl_mult := (g_learned_sl_mult + g_learned_losing_mae) / 2
     float effective_sl_mult = base_sl_mult * dynamic_scale
     
     // SL is placed beyond the swing extreme (EndBase) + ATR buffer
@@ -1836,17 +1840,17 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Calculate distances for MFE comparison
     float cons_dist = math.abs(tp_conservative - (price_618 + price_65) / 2)
     float aggr_dist = math.abs(tp_aggressive - (price_618 + price_65) / 2)
-    float mfe_dist = GLOBAL_learnedAvgMfe * current_atr  // MFE converted to price distance
+    float mfe_dist = g_learned_avg_mfe * current_atr  // MFE converted to price distance
     
     // Determine which TP mode to use (Phase 3: can be learned)
     bool use_aggressive_tp = INPUT_POS_TP_MODE == 'Aggressive'
-    bool has_learned_tp = INPUT_LEARN_TP and INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= INPUT_LEARN_MIN_SAMPLES
+    bool has_learned_tp = INPUT_LEARN_TP and INPUT_LEARNING_ENABLED and g_setup_history.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_learned_tp
         // Prefer learned EV-based decision if available
-        if GLOBAL_learnedAggrEv != 0 or GLOBAL_learnedConsEv != 0
-            use_aggressive_tp := GLOBAL_learnedTpAggressive
+        if g_learned_aggr_ev != 0 or g_learned_cons_ev != 0
+            use_aggressive_tp := g_learned_tp_aggressive
         // Fallback: if avg MFE exceeds conservative TP distance, use aggressive
-        else if GLOBAL_learnedAvgMfe > 0 and mfe_dist > cons_dist * 1.2
+        else if g_learned_avg_mfe > 0 and mfe_dist > cons_dist * 1.2
             use_aggressive_tp := true
     float tp_price = use_aggressive_tp ? tp_aggressive : tp_conservative
     
@@ -1861,15 +1865,15 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Calculate adaptive zone buffer based on historical near-misses
     float zone_width = box_top - box_bottom
     // Start with previously learned buffer if available, otherwise base
-    float adaptive_buffer = GLOBAL_learnedZoneBuffer > 0 ? GLOBAL_learnedZoneBuffer : INPUT_ZONE_BUFFER_BASE
+    float adaptive_buffer = g_learned_zone_buffer > 0 ? g_learned_zone_buffer : INPUT_ZONE_BUFFER_BASE
     
-    if INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= LEARN_MIN_SAMPLES_BUFFER
+    if INPUT_LEARNING_ENABLED and g_setup_history.size() >= LEARN_MIN_SAMPLES_BUFFER
         // Count near-misses in recent history
         int near_misses = 0
         int total_valid = 0
-        int max_check = math.min(INPUT_LEARNING_SAMPLES - 1, GLOBAL_setupHistory.size() - 1)
+        int max_check = math.min(INPUT_LEARNING_SAMPLES - 1, g_setup_history.size() - 1)
         for i = 0 to max_check
-            SetupRecord rec = GLOBAL_setupHistory.get(i)
+            SetupRecord rec = g_setup_history.get(i)
             if na(rec)
                 continue
             if rec.closest_approach > 0 and rec.closest_approach < INPUT_NEAR_MISS_THRESH and not f_hasFlag(rec.state_mask, FLAG_ZONE_TOUCHED)
@@ -1888,7 +1892,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             float avg_approach = 0.0
             int approach_count = 0
             for j = 0 to max_check
-                SetupRecord rec2 = GLOBAL_setupHistory.get(j)
+                SetupRecord rec2 = g_setup_history.get(j)
                 if not na(rec2) and rec2.closest_approach > 0 and rec2.closest_approach < INPUT_NEAR_MISS_THRESH and not f_hasFlag(rec2.state_mask, FLAG_ZONE_TOUCHED)
                     avg_approach += rec2.closest_approach
                     approach_count += 1
@@ -1898,9 +1902,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                 if avg_approach < NEAR_MISS_CLOSE_THRESH
                     learned_buffer += (NEAR_MISS_CLOSE_THRESH - avg_approach) * 10  // Up to +3% extra
         adaptive_buffer := math.max(INPUT_ZONE_BUFFER_BASE, learned_buffer)
-        GLOBAL_learnedZoneBuffer := adaptive_buffer
-        GLOBAL_nearMissCount := near_misses
-        GLOBAL_totalSetups := total_valid
+        g_learned_zone_buffer := adaptive_buffer
+        g_near_miss_count := near_misses
+        g_total_setups := total_valid
     
     // Apply adaptive buffer to zone boundaries
     float buffer_amount = zone_width * (adaptive_buffer / 100)
@@ -1909,9 +1913,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // DEBUG: Log learning engine values on bar confirmation
     if barstate.isconfirmed and INPUT_LEARNING_ENABLED
-        int sample_count = GLOBAL_setupHistory.size()
+        int sample_count = g_setup_history.size()
         log.info("LEARNING: samples={0}, zone_buffer={1}%, sl_mult={2}, win_rate={3}%, sl_price={4}, tp_price={5}", 
-                 sample_count, adaptive_buffer, effective_sl_mult, GLOBAL_learnedWinRate * 100, sl_price, tp_price)
+                 sample_count, adaptive_buffer, effective_sl_mult, g_learned_win_rate * 100, sl_price, tp_price)
     
     // Near-miss detection: how close did price get to the zone?
     // Distance is positive when price is OUTSIDE the zone, 0 or negative when INSIDE
@@ -1933,8 +1937,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // CONFIRMED TRADE TRACKING (Learning Engine - NOT for projections)
     // ═══════════════════════════════════════════════════════════════════════════════
     // Track minimum distance for CONFIRMED setup only (not projections)
-    if not na(GLOBAL_activeTrade.setup_bar) and not isProjection
-        GLOBAL_activeTrade.min_distance := math.min(GLOBAL_activeTrade.min_distance, dist_to_zone_pct)
+    if not na(g_active_trade.setup_bar) and not isProjection
+        g_active_trade.min_distance := math.min(g_active_trade.min_distance, dist_to_zone_pct)
     
     // Zone activation: price is inside the (adjusted) Golden Pocket
     // For CONFIRMED trades: use stored zone boundaries for consistent tracking
@@ -1945,109 +1949,109 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Check against CONFIRMED trade boundaries (for learning)
     bool confirmed_in_zone = false
     bool confirmed_zone_entry = false
-    if not na(GLOBAL_activeTrade.setup_bar)
-        confirmed_in_zone := low <= GLOBAL_activeTrade.zone_top and high >= GLOBAL_activeTrade.zone_bottom
-        confirmed_zone_entry := confirmed_in_zone and not f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_ZONE_TOUCHED)
+    if not na(g_active_trade.setup_bar)
+        confirmed_in_zone := low <= g_active_trade.zone_top and high >= g_active_trade.zone_bottom
+        confirmed_zone_entry := confirmed_in_zone and not f_hasFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED)
     
     // Check against CURRENT boundaries (for display)
     in_zone := low <= adjusted_box_top and high >= adjusted_box_bottom
-    zone_entry := in_zone and (na(GLOBAL_activeTrade.setup_bar) or not f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_ZONE_TOUCHED))
+    zone_entry := in_zone and (na(g_active_trade.setup_bar) or not f_hasFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED))
     
     // Track if zone was touched for CONFIRMED setup only (not projections)
-    if confirmed_in_zone and not na(GLOBAL_activeTrade.setup_bar) and not isProjection
-        GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_ZONE_TOUCHED)
+    if confirmed_in_zone and not na(g_active_trade.setup_bar) and not isProjection
+        g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED)
     
     // Track SL/TP hits for CONFIRMED setup only (not projections)
     // CRITICAL: Only track SL/TP AFTER zone is touched (entry occurred)
     // Use STORED sl/tp prices from setup formation for consistent tracking
     // CONSERVATIVE EXECUTION: If bar covers both SL and TP, assume SL hit UNLESS
     //   Open is at least 2x closer to TP than SL (dist_to_tp < dist_to_sl * 0.5)
-    if not na(GLOBAL_activeTrade.setup_bar) and f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_ZONE_TOUCHED) and not isProjection
-        if f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG)
-            bool sl_touched = low <= GLOBAL_activeTrade.sl_price
-            bool tp_touched = high >= GLOBAL_activeTrade.tp_price
+    if not na(g_active_trade.setup_bar) and f_hasFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED) and not isProjection
+        if f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG)
+            bool sl_touched = low <= g_active_trade.sl_price
+            bool tp_touched = high >= g_active_trade.tp_price
             
             // Outcome detection with mutual exclusion (first outcome wins, per FR-4 invariant)
             // Skip if outcome already determined
-            if not f_hasAny(GLOBAL_activeTrade.state_mask, MASK_OUTCOME)
+            if not f_hasAny(g_active_trade.state_mask, MASK_OUTCOME)
                 if sl_touched and tp_touched
                     // Conservative execution: when both hit in same bar, prioritize capital preservation
                     // Check if Open was closer to TP - only then assume TP hit first
-                    float dist_to_sl = math.abs(open - GLOBAL_activeTrade.sl_price)
-                    float dist_to_tp = math.abs(open - GLOBAL_activeTrade.tp_price)
+                    float dist_to_sl = math.abs(open - g_active_trade.sl_price)
+                    float dist_to_tp = math.abs(open - g_active_trade.tp_price)
                     // TP only wins if Open is significantly closer (50%+ closer) to TP
                     if dist_to_tp < dist_to_sl * 0.5
-                        GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_TP_HIT)
-                        GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_WON)
+                        g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
+                        g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_WON)
                     else
-                        GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_SL_HIT)
+                        g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
                 else if sl_touched
-                    GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_SL_HIT)
+                    g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
                 else if tp_touched
-                    GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_TP_HIT)
-                    GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_WON)
+                    g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
+                    g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_WON)
             
             // Phase 3: Track BOTH TP modes independently (for learning comparison)
             // These are analytics flags, not mutually exclusive with SL/TP outcome
-            if high >= GLOBAL_activeTrade.tp_cons
-                GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_CONS_TP_HIT)
-            if high >= GLOBAL_activeTrade.tp_aggr
-                GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_AGGR_TP_HIT)
+            if high >= g_active_trade.tp_cons
+                g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_CONS_TP_HIT)
+            if high >= g_active_trade.tp_aggr
+                g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_AGGR_TP_HIT)
         else
-            bool sl_touched = high >= GLOBAL_activeTrade.sl_price
-            bool tp_touched = low <= GLOBAL_activeTrade.tp_price
+            bool sl_touched = high >= g_active_trade.sl_price
+            bool tp_touched = low <= g_active_trade.tp_price
             
             // Outcome detection with mutual exclusion (first outcome wins, per FR-4 invariant)
             // Skip if outcome already determined
-            if not f_hasAny(GLOBAL_activeTrade.state_mask, MASK_OUTCOME)
+            if not f_hasAny(g_active_trade.state_mask, MASK_OUTCOME)
                 if sl_touched and tp_touched
                     // Conservative execution: when both hit in same bar, prioritize capital preservation
-                    float dist_to_sl = math.abs(open - GLOBAL_activeTrade.sl_price)
-                    float dist_to_tp = math.abs(open - GLOBAL_activeTrade.tp_price)
+                    float dist_to_sl = math.abs(open - g_active_trade.sl_price)
+                    float dist_to_tp = math.abs(open - g_active_trade.tp_price)
                     if dist_to_tp < dist_to_sl * 0.5
-                        GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_TP_HIT)
-                        GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_WON)
+                        g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
+                        g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_WON)
                     else
-                        GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_SL_HIT)
+                        g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
                 else if sl_touched
-                    GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_SL_HIT)
+                    g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_SL_HIT)
                 else if tp_touched
-                    GLOBAL_activeTrade.state_mask := f_setOutcome(GLOBAL_activeTrade.state_mask, FLAG_TP_HIT)
-                    GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_WON)
+                    g_active_trade.state_mask := f_setOutcome(g_active_trade.state_mask, FLAG_TP_HIT)
+                    g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_WON)
             
             // Phase 3: Track BOTH TP modes independently (for learning comparison)
             // These are analytics flags, not mutually exclusive with SL/TP outcome
-            if low <= GLOBAL_activeTrade.tp_cons
-                GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_CONS_TP_HIT)
-            if low <= GLOBAL_activeTrade.tp_aggr
-                GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_AGGR_TP_HIT)
+            if low <= g_active_trade.tp_cons
+                g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_CONS_TP_HIT)
+            if low <= g_active_trade.tp_aggr
+                g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_AGGR_TP_HIT)
     
     // ═══════════════════════════════════════════════════════════════════════════════
     // EXTENDED LEARNING: MAE/MFE Tracking (Phase 1) - CONFIRMED TRADES ONLY
     // ═══════════════════════════════════════════════════════════════════════════════
     // Track entry when zone is first touched (CONFIRMED trades only, not projections)
-    if confirmed_zone_entry and not na(GLOBAL_activeTrade.setup_bar) and not isProjection
-        if na(GLOBAL_activeTrade.entry_bar)  // Only capture first touch
-            GLOBAL_activeTrade.entry_bar := bar_index
-            GLOBAL_activeTrade.entry_price := close
-            GLOBAL_activeTrade.rsi_at_entry := GLOBAL_rsi  // Use global pre-computed RSI
+    if confirmed_zone_entry and not na(g_active_trade.setup_bar) and not isProjection
+        if na(g_active_trade.entry_bar)  // Only capture first touch
+            g_active_trade.entry_bar := bar_index
+            g_active_trade.entry_price := close
+            g_active_trade.rsi_at_entry := g_rsi  // Use global pre-computed RSI
     
     // Track MAE/MFE from entry (only after zone touched, CONFIRMED trades only)
-    if not na(GLOBAL_activeTrade.entry_bar) and not na(GLOBAL_activeTrade.entry_price) and not na(GLOBAL_activeTrade.atr_at_setup) and not isProjection
-        if not f_hasAny(GLOBAL_activeTrade.state_mask, MASK_OUTCOME)
-            if f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG)
+    if not na(g_active_trade.entry_bar) and not na(g_active_trade.entry_price) and not na(g_active_trade.atr_at_setup) and not isProjection
+        if not f_hasAny(g_active_trade.state_mask, MASK_OUTCOME)
+            if f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG)
                 // MAE: How much price moved against us (low - entry, negative is adverse)
-                float adverse = (GLOBAL_activeTrade.entry_price - low) / GLOBAL_activeTrade.atr_at_setup
-                GLOBAL_activeTrade.max_adverse := math.max(GLOBAL_activeTrade.max_adverse, adverse)
+                float adverse = (g_active_trade.entry_price - low) / g_active_trade.atr_at_setup
+                g_active_trade.max_adverse := math.max(g_active_trade.max_adverse, adverse)
                 // MFE: How much price moved in our favor (high - entry)
-                float favorable = (high - GLOBAL_activeTrade.entry_price) / GLOBAL_activeTrade.atr_at_setup
-                GLOBAL_activeTrade.max_favorable := math.max(GLOBAL_activeTrade.max_favorable, favorable)
+                float favorable = (high - g_active_trade.entry_price) / g_active_trade.atr_at_setup
+                g_active_trade.max_favorable := math.max(g_active_trade.max_favorable, favorable)
             else
                 // Short: adverse is when price goes up, favorable is when price goes down
-                float adverse = (high - GLOBAL_activeTrade.entry_price) / GLOBAL_activeTrade.atr_at_setup
-                GLOBAL_activeTrade.max_adverse := math.max(GLOBAL_activeTrade.max_adverse, adverse)
-                float favorable = (GLOBAL_activeTrade.entry_price - low) / GLOBAL_activeTrade.atr_at_setup
-                GLOBAL_activeTrade.max_favorable := math.max(GLOBAL_activeTrade.max_favorable, favorable)
+                float adverse = (high - g_active_trade.entry_price) / g_active_trade.atr_at_setup
+                g_active_trade.max_adverse := math.max(g_active_trade.max_adverse, adverse)
+                float favorable = (g_active_trade.entry_price - low) / g_active_trade.atr_at_setup
+                g_active_trade.max_favorable := math.max(g_active_trade.max_favorable, favorable)
     
     // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
     // TASK 3 FIX: Time Decay Calculation
@@ -2068,19 +2072,19 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     if isProjection
         // Projection mode: decay is always 0 (Fresh) since we're projecting in real-time
         bars_since_creation := 0
-    else if not na(GLOBAL_activeTrade.creation_bar)
+    else if not na(g_active_trade.creation_bar)
         // Confirmed mode: use stored creation_bar for smooth decay progression
-        bars_since_creation := bar_index - GLOBAL_activeTrade.creation_bar
+        bars_since_creation := bar_index - g_active_trade.creation_bar
     else
         // Fallback: use effIMidPivot if no active trade (shouldn't happen often)
         bars_since_creation := bar_index - effIMidPivot
     
     // Dynamic time thresholds: scale Fib sequence by learned avg_bars if available
     float time_scale = 1.0
-    bool has_learned_time = INPUT_LEARN_DECAY and INPUT_LEARNING_ENABLED and GLOBAL_learnedAvgBars > 0
+    bool has_learned_time = INPUT_LEARN_DECAY and INPUT_LEARNING_ENABLED and g_learned_avg_bars > 0
     if has_learned_time
         // Reference: default assumes TIME_DECAY_REFERENCE_BARS is "mid" point (Fib threshold 2)
-        time_scale := math.max(TIME_DECAY_SCALE_MIN, math.min(TIME_DECAY_SCALE_MAX, float(GLOBAL_learnedAvgBars) / TIME_DECAY_REFERENCE_BARS))
+        time_scale := math.max(TIME_DECAY_SCALE_MIN, math.min(TIME_DECAY_SCALE_MAX, float(g_learned_avg_bars) / TIME_DECAY_REFERENCE_BARS))
     
     // Fibonacci time thresholds and decay calculation (scaled by learned timing)
     // Each threshold passed reduces confidence by decay rate
@@ -2100,9 +2104,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // Phase 3: Use learned decay rate if enabled and sufficient data
     float decay_rate = TIME_DECAY_DEFAULT_RATE
-    bool has_learned_decay = INPUT_LEARN_DECAY and INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= INPUT_LEARN_MIN_SAMPLES
-    if has_learned_decay and GLOBAL_learnedDecayRate > 0
-        decay_rate := GLOBAL_learnedDecayRate
+    bool has_learned_decay = INPUT_LEARN_DECAY and INPUT_LEARNING_ENABLED and g_setup_history.size() >= INPUT_LEARN_MIN_SAMPLES
+    if has_learned_decay and g_learned_decay_rate > 0
+        decay_rate := g_learned_decay_rate
     float time_decay = INPUT_POS_TIME_DECAY ? math.pow(decay_rate, time_phase) : 1.0
     bool zone_expired = INPUT_POS_TIME_DECAY and time_phase >= 5  // Expired after t5+ bars
     
@@ -2115,8 +2119,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // SL breach invalidation (also invalidate on zone expiration)
     // Use CONFIRMED trade direction and SL for consistency (not projection)
-    bool sl_check_long = not na(GLOBAL_activeTrade.setup_bar) ? f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG) : is_long_setup
-    float sl_check_price = not na(GLOBAL_activeTrade.setup_bar) ? GLOBAL_activeTrade.sl_price : sl_price
+    bool sl_check_long = not na(g_active_trade.setup_bar) ? f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG) : is_long_setup
+    float sl_check_price = not na(g_active_trade.setup_bar) ? g_active_trade.sl_price : sl_price
     bool sl_breached = sl_check_long ? close < sl_check_price : close > sl_check_price
     bool is_invalid = sl_breached or zone_expired
     
@@ -2124,12 +2128,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool vol_confirm = exhaustVol or crossover_exhaustion
     
     // RSI Divergence Confluence - Use global pre-computed values (Pine v6 best practice)
-    float rsi = GLOBAL_rsi
-    float rsi_at_pivot = GLOBAL_rsi_at_pivot
-    float price_at_pivot = GLOBAL_priceAtPivot
+    float rsi = g_rsi
+    float rsi_at_pivot = g_rsi_at_pivot
+    float price_at_pivot = g_price_at_pivot
     
     // Use CONFIRMED trade direction for divergence check (for learning consistency)
-    bool check_long = not na(GLOBAL_activeTrade.setup_bar) ? f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG) : is_long_setup
+    bool check_long = not na(g_active_trade.setup_bar) ? f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG) : is_long_setup
     // Bullish divergence: price made lower low but RSI made higher low (momentum building)
     bool bullish_div = check_long and close < price_at_pivot and rsi > rsi_at_pivot
     // Bearish divergence: price made higher high but RSI made lower high (momentum fading)
@@ -2137,16 +2141,16 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool rsi_confirm = INPUT_POS_RSI_DIV ? ((check_long and bullish_div) or (not check_long and bearish_div)) : false
     
     // Capture RSI divergence flag for learning (CONFIRMED trades only, not projections)
-    if confirmed_zone_entry and not na(GLOBAL_activeTrade.setup_bar) and not isProjection
+    if confirmed_zone_entry and not na(g_active_trade.setup_bar) and not isProjection
         if bullish_div or bearish_div
-            GLOBAL_activeTrade.state_mask := f_setFlag(GLOBAL_activeTrade.state_mask, FLAG_HAD_RSI_DIV)
+            g_active_trade.state_mask := f_setFlag(g_active_trade.state_mask, FLAG_HAD_RSI_DIV)
     
     // Combined confluence: volume OR RSI divergence
     bool full_confirm = vol_confirm or rsi_confirm
     
     // Determine box color based on state (apply time decay to transparency)
     // Use current calculation for display (projection or confirmed)
-    bool active_is_long = isProjection ? is_long_setup : (not na(GLOBAL_activeTrade.setup_bar) ? f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG) : is_long_setup)
+    bool active_is_long = isProjection ? is_long_setup : (not na(g_active_trade.setup_bar) ? f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG) : is_long_setup)
     color base_color = active_is_long ? COLOR_BLUE : COLOR_RED
     int decay_trans_add = int((1 - time_decay) * 20)  // Add 0-20 transparency based on decay
     int bg_trans = is_invalid ? 90 : (in_zone ? (full_confirm ? 45 : (vol_confirm or rsi_confirm ? 55 : 65)) : 75) + decay_trans_add
@@ -2168,9 +2172,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Calculate empirical win rate from learning history
     // OPTIMIZATION: Only recalculate when new trade was recorded (flag set in should_record block)
     float p_empirical = p_base
-    if INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= LEARN_MIN_SAMPLES_SL and GLOBAL_learningNeedsRecalc
+    if INPUT_LEARNING_ENABLED and g_setup_history.size() >= LEARN_MIN_SAMPLES_SL and g_learning_needs_recalc
         // Reset flag - we're about to recalculate
-        GLOBAL_learningNeedsRecalc := false
+        g_learning_needs_recalc := false
         
         // Phase 1 counters
         int wins = 0
@@ -2215,11 +2219,11 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         bool streak_frozen = false // Once streak is broken, stop updating current streak
         
         // Iterate from NEWEST to OLDEST using CircularBuffer (get(0) = newest)
-        int history_size = GLOBAL_setupHistory.size()
+        int history_size = g_setup_history.size()
         int samples_to_check = math.min(INPUT_LEARNING_SAMPLES, history_size)
         for idx = 0 to samples_to_check - 1
             // CircularBuffer: idx=0 is newest, idx=samples_to_check-1 is oldest in window
-            SetupRecord rec = GLOBAL_setupHistory.get(idx)
+            SetupRecord rec = g_setup_history.get(idx)
             // Skip if na (buffer not yet full at this index)
             if na(rec)
                 continue
@@ -2313,16 +2317,16 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         if total_outcomes >= LEARN_MIN_SAMPLES_WR and total_outcomes > 0
             p_empirical := float(wins) / float(total_outcomes)
             // Clamp win rate to prevent Kelly from returning wild values during streaks
-            GLOBAL_learnedWinRate := math.max(0.30, math.min(0.70, p_empirical))
+            g_learned_win_rate := math.max(0.30, math.min(0.70, p_empirical))
         
         // Extended learning: compute averages from winning trades
         if outcome_count >= LEARN_MIN_SAMPLES_MAE
-            GLOBAL_learnedAvgMae := total_mae / float(outcome_count)
-            GLOBAL_learnedAvgMfe := total_mfe / float(outcome_count)
-            GLOBAL_learnedAvgBars := int(float(total_bars) / float(outcome_count))
+            g_learned_avg_mae := total_mae / float(outcome_count)
+            g_learned_avg_mfe := total_mfe / float(outcome_count)
+            g_learned_avg_bars := int(float(total_bars) / float(outcome_count))
             // Optimal SL = average MAE of winners + SL_BUFFER_ATR ATR buffer
             // This allows for typical drawdowns while avoiding premature stopouts
-            GLOBAL_learnedSlMult := math.max(1.0, GLOBAL_learnedAvgMae + SL_BUFFER_ATR)
+            g_learned_sl_mult := math.max(1.0, g_learned_avg_mae + SL_BUFFER_ATR)
         
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 2: Advanced Learning Analytics
@@ -2332,28 +2336,28 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         int total_with_div = wins_with_div + losses_with_div
         int total_without_div = wins_without_div + losses_without_div
         if total_with_div >= LEARN_MIN_SAMPLES_DIV
-            GLOBAL_learnedWrWithDiv := float(wins_with_div) / float(total_with_div)
+            g_learned_wr_with_div := float(wins_with_div) / float(total_with_div)
         if total_without_div >= LEARN_MIN_SAMPLES_DIV
-            GLOBAL_learnedWrWithoutDiv := float(wins_without_div) / float(total_without_div)
+            g_learned_wr_without_div := float(wins_without_div) / float(total_without_div)
         // Edge from divergence = difference in win rates
         if total_with_div >= LEARN_MIN_SAMPLES_DIV and total_without_div >= LEARN_MIN_SAMPLES_DIV
-            GLOBAL_learnedDivEdge := GLOBAL_learnedWrWithDiv - GLOBAL_learnedWrWithoutDiv
+            g_learned_div_edge := g_learned_wr_with_div - g_learned_wr_without_div
         
         // Direction-Specific Win Rates
         int total_long = wins_long + losses_long
         int total_short = wins_short + losses_short
         if total_long >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learnedWrLong := float(wins_long) / float(total_long)
+            g_learned_wr_long := float(wins_long) / float(total_long)
         if total_short >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learnedWrShort := float(wins_short) / float(total_short)
+            g_learned_wr_short := float(wins_short) / float(total_short)
         
         // Losing Trade MAE Analysis: Where should SL have been?
         if losing_count >= LEARN_MIN_SAMPLES_LOSING
-            GLOBAL_learnedLosingMae := losing_mae_total / float(losing_count)
+            g_learned_losing_mae := losing_mae_total / float(losing_count)
         
         // Optimal Holding Period: Use average bars to outcome
         if outcome_count >= LEARN_MIN_SAMPLES_MAE
-            GLOBAL_learnedOptimalHold := GLOBAL_learnedAvgBars
+            g_learned_optimal_hold := g_learned_avg_bars
         
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 3: Advanced Learning - TP Mode, Decay Rate, RSI Weight
@@ -2361,18 +2365,18 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         
         // TP Mode Comparison: Which mode has better expected value?
         if cons_tp_total >= LEARN_MIN_SAMPLES_TP_COMP and aggr_tp_total >= LEARN_MIN_SAMPLES_TP_COMP
-            GLOBAL_learnedConsWr := float(cons_tp_wins) / float(cons_tp_total)
-            GLOBAL_learnedAggrWr := float(aggr_tp_wins) / float(aggr_tp_total)
+            g_learned_cons_wr := float(cons_tp_wins) / float(cons_tp_total)
+            g_learned_aggr_wr := float(aggr_tp_wins) / float(aggr_tp_total)
             // Calculate R:R for each mode (approximate using zone mid as entry)
             float cons_reward = math.abs(tp_conservative - mid_entry)
             float aggr_reward = math.abs(tp_aggressive - mid_entry)
             float cons_rr = risk > 0 ? cons_reward / risk : 0
             float aggr_rr = risk > 0 ? aggr_reward / risk : 0
             // Expected Value = (WinRate * Reward) - ((1-WinRate) * Risk) per unit risk
-            GLOBAL_learnedConsEv := GLOBAL_learnedConsWr * cons_rr - (1 - GLOBAL_learnedConsWr)
-            GLOBAL_learnedAggrEv := GLOBAL_learnedAggrWr * aggr_rr - (1 - GLOBAL_learnedAggrWr)
+            g_learned_cons_ev := g_learned_cons_wr * cons_rr - (1 - g_learned_cons_wr)
+            g_learned_aggr_ev := g_learned_aggr_wr * aggr_rr - (1 - g_learned_aggr_wr)
             // Choose mode with higher EV
-            GLOBAL_learnedTpAggressive := GLOBAL_learnedAggrEv > GLOBAL_learnedConsEv
+            g_learned_tp_aggressive := g_learned_aggr_ev > g_learned_cons_ev
         
         // Time Decay Rate Learning: Based on when wins happen
         // If most wins are early, accelerate decay. If wins persist late, slow decay.
@@ -2382,16 +2386,16 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             // early_ratio > 0.6 means most wins are early → accelerate decay (lower rate)
             // early_ratio < 0.4 means wins persist late → slow decay (higher rate)
             // Map: early_ratio 0.3-0.7 → decay_rate DECAY_RATE_MAX-DECAY_RATE_MIN
-            GLOBAL_learnedDecayRate := DEFAULT_DECAY_RATE + (0.5 - early_ratio) * DECAY_RATE_ADJUST
+            g_learned_decay_rate := DEFAULT_DECAY_RATE + (0.5 - early_ratio) * DECAY_RATE_ADJUST
             // Clamp to reasonable range [DECAY_RATE_MIN, DECAY_RATE_MAX]
-            GLOBAL_learnedDecayRate := math.max(DECAY_RATE_MIN, math.min(DECAY_RATE_MAX, GLOBAL_learnedDecayRate))
+            g_learned_decay_rate := math.max(DECAY_RATE_MIN, math.min(DECAY_RATE_MAX, g_learned_decay_rate))
         
         // RSI Weight Learning: How much edge does divergence provide?
         // Weight = normalized edge (0 if no edge, 1 if huge edge)
         if total_with_div >= LEARN_MIN_SAMPLES_DIV and total_without_div >= LEARN_MIN_SAMPLES_DIV
-            // GLOBAL_learnedDivEdge is already computed above
+            // g_learned_div_edge is already computed above
             // Convert edge to weight: +20% edge → weight 1.0, 0% edge → weight 0.0
-            GLOBAL_learnedRsiWeight := math.max(0, math.min(1.0, GLOBAL_learnedDivEdge * 5))
+            g_learned_rsi_weight := math.max(0, math.min(1.0, g_learned_div_edge * 5))
         
         // ═══════════════════════════════════════════════════════════════════════════════
         // PHASE 4: Confidence Scoring & Regime-Aware Analytics
@@ -2401,36 +2405,36 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         int total_high_vol = wins_high_vol + losses_high_vol
         int total_low_vol = wins_low_vol + losses_low_vol
         if total_high_vol >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learnedWrHighVol := float(wins_high_vol) / float(total_high_vol)
+            g_learned_wr_high_vol := float(wins_high_vol) / float(total_high_vol)
         if total_low_vol >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learnedWrLowVol := float(wins_low_vol) / float(total_low_vol)
+            g_learned_wr_low_vol := float(wins_low_vol) / float(total_low_vol)
         
         // 4.2 Profit Factor: Total R won / Total R lost (>1 = profitable)
         if total_r_lost > 0
-            GLOBAL_learnedProfitFactor := total_r_won / total_r_lost
+            g_learned_profit_factor := total_r_won / total_r_lost
         else if total_r_won > 0
-            GLOBAL_learnedProfitFactor := 10.0  // Cap at 10 if no losses
+            g_learned_profit_factor := 10.0  // Cap at 10 if no losses
         
         // 4.3 Expectancy: (WR × avg win) - ((1-WR) × avg loss) per trade
         if total_outcomes >= LEARN_MIN_SAMPLES_WR
             float avg_win_r = wins > 0 ? total_r_won / float(wins) : 0
             float avg_loss_r = losses > 0 ? total_r_lost / float(losses) : 0
-            GLOBAL_learnedExpectancy := (p_empirical * avg_win_r) - ((1 - p_empirical) * avg_loss_r)
+            g_learned_expectancy := (p_empirical * avg_win_r) - ((1 - p_empirical) * avg_loss_r)
         
         // 4.4 Streak Recording (consecutive from most recent + max historical)
         max_win_streak := math.max(max_win_streak, consecutive_wins)
         max_loss_streak := math.max(max_loss_streak, consecutive_losses)
-        GLOBAL_learnedWinStreak := consecutive_wins    // Current streak from most recent
-        GLOBAL_learnedLossStreak := consecutive_losses // Current streak from most recent
+        g_learned_win_streak := consecutive_wins    // Current streak from most recent
+        g_learned_loss_streak := consecutive_losses // Current streak from most recent
         
         // 4.5 Learning Health Check: Is system still performing?
         // Staleness: Flag if no outcomes for HEALTH_STALE_BARS+ bars
-        int bars_since_outcome = bar_index - GLOBAL_learnedLastOutcomeBar
-        bool is_stale = bars_since_outcome > HEALTH_STALE_BARS and GLOBAL_learnedLastOutcomeBar > 0
+        int bars_since_outcome = bar_index - g_learned_last_outcome_bar
+        bool is_stale = bars_since_outcome > HEALTH_STALE_BARS and g_learned_last_outcome_bar > 0
         // Sanity check: WR should be HEALTH_WR_MIN-HEALTH_WR_MAX, profit factor > HEALTH_PF_MIN
-        bool sane_wr = GLOBAL_learnedWinRate >= HEALTH_WR_MIN and GLOBAL_learnedWinRate <= HEALTH_WR_MAX
-        bool sane_pf = GLOBAL_learnedProfitFactor >= HEALTH_PF_MIN or GLOBAL_learnedProfitFactor == 0.0
-        GLOBAL_learnedIsHealthy := not is_stale and sane_wr and sane_pf
+        bool sane_wr = g_learned_win_rate >= HEALTH_WR_MIN and g_learned_win_rate <= HEALTH_WR_MAX
+        bool sane_pf = g_learned_profit_factor >= HEALTH_PF_MIN or g_learned_profit_factor == 0.0
+        g_learned_is_healthy := not is_stale and sane_wr and sane_pf
         
         // 4.6 Unified Confidence Score (0-100) - Computed at analysis time
         // NOTE: Direction alignment and time decay will be recalculated in display section
@@ -2438,11 +2442,11 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // Components: WR (35%), RSI Edge (20%), Profit Factor (15%), Streak Status (15%), Health (15%)
         float conf_base = 0.0
         // WR Component: CONF_WR_WEIGHT% weight - map CONF_WR_MIN_MAP-CONF_WR_MAX_MAP → 0-35
-        conf_base += math.max(0, math.min(CONF_WR_WEIGHT, (GLOBAL_learnedWinRate - CONF_WR_MIN_MAP) * 70))
+        conf_base += math.max(0, math.min(CONF_WR_WEIGHT, (g_learned_win_rate - CONF_WR_MIN_MAP) * 70))
         // RSI Edge: CONF_RSI_WEIGHT% weight - map 0-0.2 edge → 0-20
-        conf_base += math.max(0, math.min(CONF_RSI_WEIGHT, GLOBAL_learnedDivEdge * 100))
+        conf_base += math.max(0, math.min(CONF_RSI_WEIGHT, g_learned_div_edge * 100))
         // Profit Factor: CONF_PF_WEIGHT% weight - map CONF_PF_MIN_MAP-CONF_PF_MAX_MAP → 0-15
-        float pf_norm = math.max(0, math.min(CONF_PF_WEIGHT, (GLOBAL_learnedProfitFactor - CONF_PF_MIN_MAP) * 10))
+        float pf_norm = math.max(0, math.min(CONF_PF_WEIGHT, (g_learned_profit_factor - CONF_PF_MIN_MAP) * 10))
         conf_base += pf_norm
         // Streak Penalty: -15% if on losing streak of STREAK_LOSS_PENALTY_THRESH+, bonus for win streak
         float streak_adj = 0.0
@@ -2455,44 +2459,44 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         bool is_healthy = not is_stale and sane_wr and sane_pf
         conf_base += is_healthy ? CONF_HEALTH_WEIGHT : 0
         // Final base confidence clamped to 0-100 (direction/decay adjustments done per-bar)
-        GLOBAL_learnedConfidence := math.max(0, math.min(100, conf_base))
+        g_learned_confidence := math.max(0, math.min(100, conf_base))
     
     // Use empirical win rate if learning enabled and sufficient data, otherwise use input
     // Phase 2: Use direction-specific win rate for more accurate Kelly sizing
-    // NOTE: GLOBAL_learnedWinRate is already clamped to 0.30-0.70 above
+    // NOTE: g_learned_win_rate is already clamped to 0.30-0.70 above
     float p_effective = p_base
-    if INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= LEARN_MIN_SAMPLES_SL
+    if INPUT_LEARNING_ENABLED and g_setup_history.size() >= LEARN_MIN_SAMPLES_SL
         // Use direction-specific win rate if we have enough samples per direction
         // Also clamp direction-specific rates to prevent wild Kelly values
-        bool has_dir_data = (is_long_setup and GLOBAL_learnedWrLong != DEFAULT_WIN_RATE) or (not is_long_setup and GLOBAL_learnedWrShort != DEFAULT_WIN_RATE)
+        bool has_dir_data = (is_long_setup and g_learned_wr_long != DEFAULT_WIN_RATE) or (not is_long_setup and g_learned_wr_short != DEFAULT_WIN_RATE)
         if has_dir_data
-            float raw_dir_wr = is_long_setup ? GLOBAL_learnedWrLong : GLOBAL_learnedWrShort
+            float raw_dir_wr = is_long_setup ? g_learned_wr_long : g_learned_wr_short
             p_effective := math.max(0.30, math.min(0.70, raw_dir_wr))
         else
-            // Use clamped GLOBAL_learnedWinRate (already clamped during calculation)
-            p_effective := na(GLOBAL_learnedWinRate) ? p_base : GLOBAL_learnedWinRate
+            // Use clamped g_learned_win_rate (already clamped during calculation)
+            p_effective := na(g_learned_win_rate) ? p_base : g_learned_win_rate
     
     // Phase 4: Apply regime-specific win rate adjustment based on current volatility
     // If we have enough regime-specific data, blend towards the regime WR
     float p_regime_adjusted = p_effective
-    float current_regime_percentile = GLOBAL_atrPercentile  // Use global pre-computed value (Pine v6)
+    float current_regime_percentile = g_atr_percentile  // Use global pre-computed value (Pine v6)
     bool is_high_vol_regime = current_regime_percentile >= VOL_REGIME_HIGH_THRESH
     bool is_low_vol_regime = current_regime_percentile <= VOL_REGIME_LOW_THRESH
-    bool has_regime_data = INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= INPUT_LEARN_MIN_SAMPLES
+    bool has_regime_data = INPUT_LEARNING_ENABLED and g_setup_history.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_regime_data
-        if is_high_vol_regime and GLOBAL_learnedWrHighVol != DEFAULT_WIN_RATE
+        if is_high_vol_regime and g_learned_wr_high_vol != DEFAULT_WIN_RATE
             // Blend: 70% direction WR + 30% regime WR for stability
-            p_regime_adjusted := p_effective * 0.7 + GLOBAL_learnedWrHighVol * 0.3
-        else if is_low_vol_regime and GLOBAL_learnedWrLowVol != DEFAULT_WIN_RATE
-            p_regime_adjusted := p_effective * 0.7 + GLOBAL_learnedWrLowVol * 0.3
+            p_regime_adjusted := p_effective * 0.7 + g_learned_wr_high_vol * 0.3
+        else if is_low_vol_regime and g_learned_wr_low_vol != DEFAULT_WIN_RATE
+            p_regime_adjusted := p_effective * 0.7 + g_learned_wr_low_vol * 0.3
     
     // Phase 3: Apply learned RSI weight to boost probability when divergence is present
     // This adjusts the effective win rate based on the edge RSI divergence provides
     float p_rsi_adjusted = p_regime_adjusted
-    bool has_learned_rsi_weight = INPUT_LEARN_RSI_WEIGHT and INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= INPUT_LEARN_MIN_SAMPLES
-    if has_learned_rsi_weight and rsi_confirm and GLOBAL_learnedRsiWeight > 0
+    bool has_learned_rsi_weight = INPUT_LEARN_RSI_WEIGHT and INPUT_LEARNING_ENABLED and g_setup_history.size() >= INPUT_LEARN_MIN_SAMPLES
+    if has_learned_rsi_weight and rsi_confirm and g_learned_rsi_weight > 0
         // Boost win rate by learned edge: p + (edge * weight * (1-p)) to stay bounded
-        float boost = GLOBAL_learnedDivEdge * GLOBAL_learnedRsiWeight * (1 - p_regime_adjusted)
+        float boost = g_learned_div_edge * g_learned_rsi_weight * (1 - p_regime_adjusted)
         p_rsi_adjusted := math.min(0.95, p_regime_adjusted + boost)  // Cap at 95%
     
     float p = p_rsi_adjusted * time_decay  // Time-decayed win probability
@@ -2503,10 +2507,10 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Phase 4: Apply confidence-based Kelly scaling
     // High confidence (>70) = full fraction, low confidence (<40) = reduced fraction
     float conf_scale = 1.0
-    bool has_conf_data = INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= INPUT_LEARN_MIN_SAMPLES
+    bool has_conf_data = INPUT_LEARNING_ENABLED and g_setup_history.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_conf_data
         // Map confidence 30-80 → scale 0.5-1.0
-        conf_scale := math.max(0.5, math.min(1.0, (GLOBAL_learnedConfidence - 30) / 50))
+        conf_scale := math.max(0.5, math.min(1.0, (g_learned_confidence - 30) / 50))
     
     float kelly_adj = math.max(0, kelly_full) * INPUT_POS_KELLY_FRAC * conf_scale  // Apply fractional Kelly + confidence
     float kelly_pct = math.min(kelly_adj * 100, 25)  // Cap at 25% max risk per trade
@@ -2546,89 +2550,89 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Learning stats for display
     string learn_text = ""
     if INPUT_LEARNING_ENABLED
-        int sample_count = GLOBAL_setupHistory.size()
+        int sample_count = g_setup_history.size()
         if sample_count >= 10
             learn_text := "\n📊 " + str.tostring(sample_count) + " samples"
-            if GLOBAL_learnedZoneBuffer > 0
-                learn_text += " | Buf:+" + str.tostring(GLOBAL_learnedZoneBuffer, "#.##") + "%"
+            if g_learned_zone_buffer > 0
+                learn_text += " | Buf:+" + str.tostring(g_learned_zone_buffer, "#.##") + "%"
             if sample_count >= 20
-                learn_text += " | WR:" + str.tostring(GLOBAL_learnedWinRate * 100, "#.#") + "%"
+                learn_text += " | WR:" + str.tostring(g_learned_win_rate * 100, "#.#") + "%"
                 // Extended metrics display (Phase 1)
-                if GLOBAL_learnedAvgMae > 0
-                    learn_text += "\n   MAE:" + str.tostring(GLOBAL_learnedAvgMae, "#.#") + "R"
-                    learn_text += " MFE:" + str.tostring(GLOBAL_learnedAvgMfe, "#.#") + "R"
-                    learn_text += " SL*:" + str.tostring(GLOBAL_learnedSlMult, "#.#") + "x"
-                if GLOBAL_learnedAvgBars > 0
-                    learn_text += " τ:" + str.tostring(GLOBAL_learnedAvgBars) + "bars"
+                if g_learned_avg_mae > 0
+                    learn_text += "\n   MAE:" + str.tostring(g_learned_avg_mae, "#.#") + "R"
+                    learn_text += " MFE:" + str.tostring(g_learned_avg_mfe, "#.#") + "R"
+                    learn_text += " SL*:" + str.tostring(g_learned_sl_mult, "#.#") + "x"
+                if g_learned_avg_bars > 0
+                    learn_text += " τ:" + str.tostring(g_learned_avg_bars) + "bars"
                 // Phase 2: Advanced analytics display
                 // RSI Divergence Edge
-                if GLOBAL_learnedDivEdge != 0
-                    string div_sign = GLOBAL_learnedDivEdge > 0 ? "+" : ""
-                    learn_text += "\n   DIV:" + div_sign + str.tostring(GLOBAL_learnedDivEdge * 100, "#.#") + "% edge"
+                if g_learned_div_edge != 0
+                    string div_sign = g_learned_div_edge > 0 ? "+" : ""
+                    learn_text += "\n   DIV:" + div_sign + str.tostring(g_learned_div_edge * 100, "#.#") + "% edge"
                 // Direction-specific win rates (show if significant difference)
-                float dir_diff = math.abs(GLOBAL_learnedWrLong - GLOBAL_learnedWrShort)
+                float dir_diff = math.abs(g_learned_wr_long - g_learned_wr_short)
                 if dir_diff > 0.05  // >5% difference
-                    learn_text += "\n   L:" + str.tostring(GLOBAL_learnedWrLong * 100, "#") + "% S:" + str.tostring(GLOBAL_learnedWrShort * 100, "#") + "%"
+                    learn_text += "\n   L:" + str.tostring(g_learned_wr_long * 100, "#") + "% S:" + str.tostring(g_learned_wr_short * 100, "#") + "%"
                 // Losing MAE (informative: where trades went wrong)
-                if GLOBAL_learnedLosingMae > 0
-                    learn_text += " ✗MAE:" + str.tostring(GLOBAL_learnedLosingMae, "#.#") + "R"
+                if g_learned_losing_mae > 0
+                    learn_text += " ✗MAE:" + str.tostring(g_learned_losing_mae, "#.#") + "R"
                 // Phase 3: Show learned parameters
                 if sample_count >= INPUT_LEARN_MIN_SAMPLES
                     string p3_text = ""
                     // Show learned TP mode recommendation
-                    if INPUT_LEARN_TP and (GLOBAL_learnedConsEv != 0 or GLOBAL_learnedAggrEv != 0)
-                        string tp_rec = GLOBAL_learnedTpAggressive ? "Aggr" : "Cons"
+                    if INPUT_LEARN_TP and (g_learned_cons_ev != 0 or g_learned_aggr_ev != 0)
+                        string tp_rec = g_learned_tp_aggressive ? "Aggr" : "Cons"
                         p3_text += "\n   🧠 TP:" + tp_rec + "✓"
                     // Show learned decay rate if different from default
-                    if INPUT_LEARN_DECAY and math.abs(GLOBAL_learnedDecayRate - DEFAULT_DECAY_RATE) > 0.02
-                        p3_text += " Decay:" + str.tostring(GLOBAL_learnedDecayRate, "#.##")
+                    if INPUT_LEARN_DECAY and math.abs(g_learned_decay_rate - DEFAULT_DECAY_RATE) > 0.02
+                        p3_text += " Decay:" + str.tostring(g_learned_decay_rate, "#.##")
                     // Show learned RSI weight if significant
-                    if INPUT_LEARN_RSI_WEIGHT and GLOBAL_learnedRsiWeight > 0.1
-                        p3_text += " RSIwt:" + str.tostring(GLOBAL_learnedRsiWeight, "#.#")
+                    if INPUT_LEARN_RSI_WEIGHT and g_learned_rsi_weight > 0.1
+                        p3_text += " RSIwt:" + str.tostring(g_learned_rsi_weight, "#.#")
                     if str.length(p3_text) > 0
                         learn_text += p3_text
                     // Phase 4: Confidence scoring and regime analytics
                     string p4_text = ""
                     // Calculate per-bar adjusted confidence (add direction alignment + time decay + regime)
-                    float adjusted_conf = GLOBAL_learnedConfidence
+                    float adjusted_conf = g_learned_confidence
                     // Direction Alignment Adjustment: ±10% based on current direction's relative WR
-                    float dir_wr = is_long_setup ? GLOBAL_learnedWrLong : GLOBAL_learnedWrShort
-                    float opp_wr = is_long_setup ? GLOBAL_learnedWrShort : GLOBAL_learnedWrLong
+                    float dir_wr = is_long_setup ? g_learned_wr_long : g_learned_wr_short
+                    float opp_wr = is_long_setup ? g_learned_wr_short : g_learned_wr_long
                     float dir_edge = dir_wr - opp_wr
                     adjusted_conf += dir_edge * 50  // ±10% edge → ±5 points
                     // Time Decay Adjustment: ±10% (fresh setup = +10, expired = -10)
                     adjusted_conf += (time_decay - 0.5) * 20  // 1.0→+10, 0.5→0, 0→-10
                     // Regime Adjustment: ±5% based on current vol regime performance
-                    float regime_wr = current_regime_percentile >= VOL_REGIME_HIGH_THRESH ? GLOBAL_learnedWrHighVol : 
-                                      current_regime_percentile <= VOL_REGIME_LOW_THRESH ? GLOBAL_learnedWrLowVol : GLOBAL_learnedWinRate
+                    float regime_wr = current_regime_percentile >= VOL_REGIME_HIGH_THRESH ? g_learned_wr_high_vol : 
+                                      current_regime_percentile <= VOL_REGIME_LOW_THRESH ? g_learned_wr_low_vol : g_learned_win_rate
                     if regime_wr != DEFAULT_WIN_RATE  // Only if we have regime data
-                        float regime_edge = regime_wr - GLOBAL_learnedWinRate
+                        float regime_edge = regime_wr - g_learned_win_rate
                         adjusted_conf += regime_edge * 50  // ±10% edge → ±5 points
                     adjusted_conf := math.max(0, math.min(100, adjusted_conf))
                     // Unified Confidence Score with grade
                     string conf_grade = adjusted_conf < CONF_GRADE_D_THRESH ? "D" : adjusted_conf < CONF_GRADE_C_THRESH ? "C" : adjusted_conf < CONF_GRADE_B_THRESH ? "B" : adjusted_conf < CONF_GRADE_A_THRESH ? "A" : "A+"
-                    string health_icon = GLOBAL_learnedIsHealthy ? "✓" : "⚠"
+                    string health_icon = g_learned_is_healthy ? "✓" : "⚠"
                     p4_text += "\n   🎯 Conf:" + str.tostring(adjusted_conf, "#") + "% " + conf_grade + " " + health_icon
                     // Profit Factor (only show if meaningful)
-                    if GLOBAL_learnedProfitFactor > 0
-                        string pf_rating = GLOBAL_learnedProfitFactor < 1.0 ? "−" : GLOBAL_learnedProfitFactor < 1.5 ? "○" : GLOBAL_learnedProfitFactor < 2.0 ? "+" : "++"
-                        p4_text += "\n   PF:" + str.tostring(GLOBAL_learnedProfitFactor, "#.##") + pf_rating
+                    if g_learned_profit_factor > 0
+                        string pf_rating = g_learned_profit_factor < 1.0 ? "−" : g_learned_profit_factor < 1.5 ? "○" : g_learned_profit_factor < 2.0 ? "+" : "++"
+                        p4_text += "\n   PF:" + str.tostring(g_learned_profit_factor, "#.##") + pf_rating
                     // Expectancy per trade
-                    if GLOBAL_learnedExpectancy != 0
-                        string exp_sign = GLOBAL_learnedExpectancy > 0 ? "+" : ""
-                        p4_text += " Exp:" + exp_sign + str.tostring(GLOBAL_learnedExpectancy, "#.##") + "R"
+                    if g_learned_expectancy != 0
+                        string exp_sign = g_learned_expectancy > 0 ? "+" : ""
+                        p4_text += " Exp:" + exp_sign + str.tostring(g_learned_expectancy, "#.##") + "R"
                     // Regime indicator: Show if we're in favorable/unfavorable vol regime (use real-time percentile)
-                    if current_regime_percentile >= VOL_REGIME_HIGH_THRESH and GLOBAL_learnedWrHighVol != DEFAULT_WIN_RATE
-                        string vol_edge = GLOBAL_learnedWrHighVol > GLOBAL_learnedWinRate ? "▲" : GLOBAL_learnedWrHighVol < GLOBAL_learnedWinRate ? "▼" : "="
-                        p4_text += "\n   ⚡HighVol" + vol_edge + " " + str.tostring(GLOBAL_learnedWrHighVol * 100, "#") + "%"
-                    else if current_regime_percentile <= VOL_REGIME_LOW_THRESH and GLOBAL_learnedWrLowVol != DEFAULT_WIN_RATE
-                        string vol_edge = GLOBAL_learnedWrLowVol > GLOBAL_learnedWinRate ? "▲" : GLOBAL_learnedWrLowVol < GLOBAL_learnedWinRate ? "▼" : "="
-                        p4_text += "\n   🌊 LowVol" + vol_edge + " " + str.tostring(GLOBAL_learnedWrLowVol * 100, "#") + "%"
+                    if current_regime_percentile >= VOL_REGIME_HIGH_THRESH and g_learned_wr_high_vol != DEFAULT_WIN_RATE
+                        string vol_edge = g_learned_wr_high_vol > g_learned_win_rate ? "▲" : g_learned_wr_high_vol < g_learned_win_rate ? "▼" : "="
+                        p4_text += "\n   ⚡HighVol" + vol_edge + " " + str.tostring(g_learned_wr_high_vol * 100, "#") + "%"
+                    else if current_regime_percentile <= VOL_REGIME_LOW_THRESH and g_learned_wr_low_vol != DEFAULT_WIN_RATE
+                        string vol_edge = g_learned_wr_low_vol > g_learned_win_rate ? "▲" : g_learned_wr_low_vol < g_learned_win_rate ? "▼" : "="
+                        p4_text += "\n   🌊 LowVol" + vol_edge + " " + str.tostring(g_learned_wr_low_vol * 100, "#") + "%"
                     // Streak warning (show win streak as positive indicator too)
-                    if GLOBAL_learnedLossStreak >= STREAK_LOSS_PENALTY_THRESH
-                        p4_text += "\n   ⚠ " + str.tostring(GLOBAL_learnedLossStreak) + "L streak"
-                    else if GLOBAL_learnedWinStreak >= STREAK_WIN_BONUS_THRESH
-                        p4_text += "\n   🔥 " + str.tostring(GLOBAL_learnedWinStreak) + "W streak"
+                    if g_learned_loss_streak >= STREAK_LOSS_PENALTY_THRESH
+                        p4_text += "\n   ⚠ " + str.tostring(g_learned_loss_streak) + "L streak"
+                    else if g_learned_win_streak >= STREAK_WIN_BONUS_THRESH
+                        p4_text += "\n   🔥 " + str.tostring(g_learned_win_streak) + "W streak"
                     if str.length(p4_text) > 0
                         learn_text += p4_text
         else
@@ -2642,12 +2646,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float display_tp_text = tp_price  // Always show current calculation with learning
     float display_sl_text = sl_price  // Always show current calculation with learning
     // Use current calculation for display (projection shows current direction)
-    bool display_is_long = isProjection ? is_long_setup : (not na(GLOBAL_activeTrade.setup_bar) ? f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG) : is_long_setup)
+    bool display_is_long = isProjection ? is_long_setup : (not na(g_active_trade.setup_bar) ? f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG) : is_long_setup)
     
     // Status prefix: clearly distinguish between Confirmed Active and Projected trades
     // ⚡PROJ = Projection (tentative, not recorded to learning)
     // ✓ACTIVE = Confirmed Active (tracked, will be recorded)
-    string trade_state_indicator = isProjection ? " ⚡PROJ" : (not na(GLOBAL_activeTrade.setup_bar) ? " ✓ACTIVE" : "")
+    string trade_state_indicator = isProjection ? " ⚡PROJ" : (not na(g_active_trade.setup_bar) ? " ✓ACTIVE" : "")
     
     // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
     // BACKTEST STATS DISPLAY - Show optimization results on the dashboard
@@ -2671,93 +2675,93 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
     
     // Record previous CONFIRMED setup BEFORE resetting state (order matters!)
-    // CRITICAL: Only record from GLOBAL_activeTrade - NEVER from projection data
-    bool should_record = INPUT_LEARNING_ENABLED and pivotChanged and not na(GLOBAL_activeTrade.setup_bar)
+    // CRITICAL: Only record from g_active_trade - NEVER from projection data
+    bool should_record = INPUT_LEARNING_ENABLED and pivotChanged and not na(g_active_trade.setup_bar)
     if should_record
         // Calculate bars to outcome (0 if neither SL nor TP hit)
-        int bars_to_out = f_hasAny(GLOBAL_activeTrade.state_mask, MASK_OUTCOME) and not na(GLOBAL_activeTrade.entry_bar) ? 
-                          (bar_index - GLOBAL_activeTrade.entry_bar) : 0
+        int bars_to_out = f_hasAny(g_active_trade.state_mask, MASK_OUTCOME) and not na(g_active_trade.entry_bar) ? 
+                          (bar_index - g_active_trade.entry_bar) : 0
         
         // Record the previous CONFIRMED setup's outcome before it changes
-        // Copy state_mask directly from GLOBAL_activeTrade (contains is_long, zone_touched, sl_hit, tp_hit, had_rsi_div, etc.)
+        // Copy state_mask directly from g_active_trade (contains is_long, zone_touched, sl_hit, tp_hit, had_rsi_div, etc.)
         SetupRecord completed_setup = SetupRecord.new(
-            GLOBAL_activeTrade.setup_bar,           // setup_bar
-            GLOBAL_activeTrade.state_mask,          // state_mask (copy all flags directly)
-            GLOBAL_activeTrade.zone_top,            // zone_top
-            GLOBAL_activeTrade.zone_bottom,         // zone_bottom
-            GLOBAL_activeTrade.sl_price,            // sl_level
-            GLOBAL_activeTrade.tp_price,            // tp_level
-            GLOBAL_activeTrade.min_distance,        // closest_approach
+            g_active_trade.setup_bar,           // setup_bar
+            g_active_trade.state_mask,          // state_mask (copy all flags directly)
+            g_active_trade.zone_top,            // zone_top
+            g_active_trade.zone_bottom,         // zone_bottom
+            g_active_trade.sl_price,            // sl_level
+            g_active_trade.tp_price,            // tp_level
+            g_active_trade.min_distance,        // closest_approach
             bars_to_out,                        // bars_to_outcome
-            GLOBAL_activeTrade.max_adverse,         // max_adverse (ATR units)
-            GLOBAL_activeTrade.max_favorable,       // max_favorable (ATR units)
-            nz(GLOBAL_activeTrade.entry_price, (GLOBAL_activeTrade.zone_top + GLOBAL_activeTrade.zone_bottom) / 2),  // entry_price
-            nz(GLOBAL_activeTrade.atr_at_setup, 1.0),        // atr_at_setup
-            nz(GLOBAL_activeTrade.rsi_at_entry, 50.0),       // rsi_at_entry
-            GLOBAL_activeTrade.tp_cons,             // tp_conservative
-            GLOBAL_activeTrade.tp_aggr,             // tp_aggressive
-            GLOBAL_activeTrade.vol_percentile       // vol_percentile
+            g_active_trade.max_adverse,         // max_adverse (ATR units)
+            g_active_trade.max_favorable,       // max_favorable (ATR units)
+            nz(g_active_trade.entry_price, (g_active_trade.zone_top + g_active_trade.zone_bottom) / 2),  // entry_price
+            nz(g_active_trade.atr_at_setup, 1.0),        // atr_at_setup
+            nz(g_active_trade.rsi_at_entry, 50.0),       // rsi_at_entry
+            g_active_trade.tp_cons,             // tp_conservative
+            g_active_trade.tp_aggr,             // tp_aggressive
+            g_active_trade.vol_percentile       // vol_percentile
         )
         
         // Phase 4: Record last outcome bar for staleness detection
-        GLOBAL_learnedLastOutcomeBar := bar_index
+        g_learned_last_outcome_bar := bar_index
         
         // Add to circular buffer (O(1) operation, auto-overwrites oldest when full)
-        GLOBAL_setupHistory.push(completed_setup)
+        g_setup_history.push(completed_setup)
         
         // OPTIMIZATION: Set flag to trigger learning recalculation (only on new trade)
-        GLOBAL_learningNeedsRecalc := true
+        g_learning_needs_recalc := true
         
         // DEBUG: Log when setup is recorded (using state_mask flags)
         log.info("RECORDED: bar={0}, mask={1}, samples={2}, long={3}, touched={4}, sl={5}, tp={6}, won={7}", 
-                 GLOBAL_activeTrade.setup_bar, GLOBAL_activeTrade.state_mask, GLOBAL_setupHistory.size(),
-                 f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_IS_LONG),
-                 f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_ZONE_TOUCHED),
-                 f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_SL_HIT),
-                 f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_TP_HIT),
-                 f_hasFlag(GLOBAL_activeTrade.state_mask, FLAG_WON))
+                 g_active_trade.setup_bar, g_active_trade.state_mask, g_setup_history.size(),
+                 f_hasFlag(g_active_trade.state_mask, FLAG_IS_LONG),
+                 f_hasFlag(g_active_trade.state_mask, FLAG_ZONE_TOUCHED),
+                 f_hasFlag(g_active_trade.state_mask, FLAG_SL_HIT),
+                 f_hasFlag(g_active_trade.state_mask, FLAG_TP_HIT),
+                 f_hasFlag(g_active_trade.state_mask, FLAG_WON))
     
     // Initialize CONFIRMED trade tracking - ONLY reset on pivotChanged (never for projections)
     // This ensures Learning Engine data is ONLY from confirmed ZigZag pivots
     if pivotChanged
         // Use CONFIRMED pivot (cachedIMidPivot), NOT effective pivot (which includes projections)
-        GLOBAL_activeTrade.setup_bar := cachedIMidPivot
+        g_active_trade.setup_bar := cachedIMidPivot
         // TASK 3 FIX: Store creation_bar = current bar_index for proper time decay
         // Confirmed pivots are detected pivotLength bars AFTER they occur
         // So cachedIMidPivot is typically bar_index - pivotLength
         // creation_bar tracks when WE created the setup, not when the pivot occurred
-        GLOBAL_activeTrade.creation_bar := bar_index
+        g_active_trade.creation_bar := bar_index
         // Build initial state_mask: direction + TP mode (all event flags start cleared)
         int new_state = is_long_setup ? FLAG_IS_LONG : 0
         new_state := use_aggressive_tp ? f_setFlag(new_state, FLAG_TP_AGGRESSIVE) : new_state
-        GLOBAL_activeTrade.state_mask := new_state
-        GLOBAL_activeTrade.zone_top := adjusted_box_top
-        GLOBAL_activeTrade.zone_bottom := adjusted_box_bottom
-        GLOBAL_activeTrade.sl_price := sl_price
-        GLOBAL_activeTrade.tp_price := tp_price
-        GLOBAL_activeTrade.tp_cons := tp_conservative
-        GLOBAL_activeTrade.tp_aggr := tp_aggressive
-        GLOBAL_activeTrade.min_distance := DEFAULT_MIN_DISTANCE
+        g_active_trade.state_mask := new_state
+        g_active_trade.zone_top := adjusted_box_top
+        g_active_trade.zone_bottom := adjusted_box_bottom
+        g_active_trade.sl_price := sl_price
+        g_active_trade.tp_price := tp_price
+        g_active_trade.tp_cons := tp_conservative
+        g_active_trade.tp_aggr := tp_aggressive
+        g_active_trade.min_distance := DEFAULT_MIN_DISTANCE
         // Extended tracking reset (Phase 1)
-        GLOBAL_activeTrade.entry_bar := na
-        GLOBAL_activeTrade.entry_price := na
-        GLOBAL_activeTrade.max_adverse := 0.0
-        GLOBAL_activeTrade.max_favorable := 0.0
-        GLOBAL_activeTrade.atr_at_setup := nz(GLOBAL_rawAtr, 1.0)  // Use global pre-computed ATR (Pine v6)
-        GLOBAL_activeTrade.rsi_at_entry := na
+        g_active_trade.entry_bar := na
+        g_active_trade.entry_price := na
+        g_active_trade.max_adverse := 0.0
+        g_active_trade.max_favorable := 0.0
+        g_active_trade.atr_at_setup := nz(g_raw_atr, 1.0)  // Use global pre-computed ATR (Pine v6)
+        g_active_trade.rsi_at_entry := na
         // Phase 4: Regime tracking reset
-        GLOBAL_activeTrade.vol_percentile := atr_percentile  // Capture current volatility regime
+        g_active_trade.vol_percentile := atr_percentile  // Capture current volatility regime
 
     // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
     // TASK 4: Visual Styling - Confirmed vs Projection
     // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
-    // CONFIRMED (GLOBAL_activeTrade valid): Solid/dotted lines with full opacity
+    // CONFIRMED (g_active_trade valid): Solid/dotted lines with full opacity
     // PROJECTION (tentative preview):    Dashed lines with higher transparency
     // This provides clear visual distinction between actionable vs tentative setups
     // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
     
     // Determine which state we're displaying
-    bool hasConfirmedTrade = not na(GLOBAL_activeTrade.setup_bar)
+    bool hasConfirmedTrade = not na(g_active_trade.setup_bar)
     bool showingProjection = isProjection
     
     // Visual style settings based on state
@@ -2776,8 +2780,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Zone boundaries: for projection mode, use current calculated; otherwise use confirmed trade values
     float display_sl = sl_price  // Show learning-adjusted SL
     float display_tp = tp_price  // Show learning-adjusted TP
-    float display_zone_top = isProjection ? adjusted_box_top : (not na(GLOBAL_activeTrade.setup_bar) ? GLOBAL_activeTrade.zone_top : adjusted_box_top)
-    float display_zone_bottom = isProjection ? adjusted_box_bottom : (not na(GLOBAL_activeTrade.setup_bar) ? GLOBAL_activeTrade.zone_bottom : adjusted_box_bottom)
+    float display_zone_top = isProjection ? adjusted_box_top : (not na(g_active_trade.setup_bar) ? g_active_trade.zone_top : adjusted_box_top)
+    float display_zone_bottom = isProjection ? adjusted_box_bottom : (not na(g_active_trade.setup_bar) ? g_active_trade.zone_bottom : adjusted_box_bottom)
     
     // Calculate Smart SL price based on backtest optimization
     float smart_sl_price = na
@@ -2883,5 +2887,5 @@ if INPUT_ALERT_ENABLED and INPUT_ALERT_MODE == 'calculateAlertUpdates'
         alert(f_getAlertMessage(ALERT_ID_UPDATE), alert.freq_once_per_bar) 
     
     if barstate.ishistory
-        f_setLog(GLOBAL_pivotLevelsLogRetracements)
-        f_setLog(GLOBAL_pivotLevelsLogCrossed)
+        f_setLog(l_pivotLevelsLog_retracements)
+        f_setLog(l_pivotLevelsLog_crossed_retracements)
