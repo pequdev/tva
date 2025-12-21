@@ -1,5 +1,5 @@
 //@version=6
-indicator("TurboRSI [PQ_MOD]", "TRSI [v0.1.8]")
+indicator("TurboRSI [PQ_MOD]", "TRSI0.1.9")
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * 
 // Inputs

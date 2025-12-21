@@ -1,5 +1,5 @@
 //@version=6
-indicator("Autocorrelation Periodogram [PQ_MOD]", shorttitle = "ACPG [v0.1.0]", overlay = false, precision = 2)
+indicator("Rainbow Autocorrelation Periodogram [PQ_MOD]", shorttitle = "ACPG0.1.1", overlay = false, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Autocorrelation Periodogram - Spectral Analysis for Trend/Cycle Detection

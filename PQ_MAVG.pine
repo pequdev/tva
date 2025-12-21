@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Fancy as Fuck Moving Averages [PQ_MOD] [v0.1.4]', shorttitle = 'MAVG [v0.1.4]', overlay=true, format=format.price, max_labels_count=500, max_lines_count=200, max_polylines_count=100, max_bars_back=500)
+indicator(title = 'Fancy as Fuck Moving Averages [PQ_MOD] [v0.1.4]', shorttitle = 'MAVG0.1.4', overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 import TradingView/ta/8
 

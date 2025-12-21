@@ -54,7 +54,7 @@ Follow these steps to create and load your own custom indicator in the Pine Edit
 ## PQ_ACPG
 
 **TL;DR**  
-Autocorrelation Periodogram (v0.1.0) using Ehlers Roofing Filter and Pearson correlation analysis to detect dominant market cycles with precision heatmap visualization.
+**Rainbow Autocorrelation Periodogram **: using Ehlers Roofing Filter and Pearson correlation analysis to detect dominant market cycles with precision heatmap visualization.
 
 **Description**  
 - **Ehlers Roofing Filter**: Two-stage cascade—High-Pass Filter (cutoff period 48 default) removes trend, Super Smoother (period 10) removes noise, isolates pure cyclical component.  
@@ -70,7 +70,7 @@ Autocorrelation Periodogram (v0.1.0) using Ehlers Roofing Filter and Pearson cor
 ## PQ_FIBS
 
 **TL;DR**  
-Self-optimizing Fibonacci system with ZigZag pivot detection, Golden Pocket entry zones, walk-forward backtesting engine, adaptive learning, and configurable projection sensitivity for early signal detection with reduced phase lag.
+**Shox Fibonacci Pivots**: Self-optimizing Fibonacci system with ZigZag pivot detection, Golden Pocket entry zones, walk-forward backtesting engine, adaptive learning, and configurable projection sensitivity for early signal detection with reduced phase lag.
 
 **Description**  
 - **Dual-Mode Pivot Detection**: Confirmed ZigZag pivots (immutable, feed learning engine) + Projection Mode (real-time tentative pivots with configurable sensitivity 0.1-1.0 for early warnings).  
@@ -86,7 +86,7 @@ Self-optimizing Fibonacci system with ZigZag pivot detection, Golden Pocket entr
 ## PQ_FTL
 
 **TL;DR**  
-Draws dynamic trendlines and channels based on recent highs/lows, highlights breakouts, and plots short-term forecasts to preview possible price paths.
+**Predictive Trend Swags**: Draws dynamic trendlines and channels based on recent highs/lows, highlights breakouts, and plots short-term forecasts to preview possible price paths.
 
 **Description**  
 - Detects swing highs/lows over a user-defined lookback.  
@@ -102,7 +102,7 @@ Draws dynamic trendlines and channels based on recent highs/lows, highlights bre
 ## PQ_HTMP
 
 **TL;DR**  
-Heatmap Speed Scalper (v0.9.6) with UDT-based Adaptive Kalman Filter, Z-score deviation analysis, and 6-stop turbo gradient coloring for visual momentum tracking.
+**Horny Heatmap Scalper**: with UDT-based Adaptive Kalman Filter, Z-score deviation analysis, and 6-stop turbo gradient coloring for visual momentum tracking.
 
 **Description**  
 - **Triple Baseline Options**: Choose between Adaptive Kalman Filter (AKF with volatility-ratio adjustment), Linear Regression (ta.linreg on hl2), or standard Kalman Filter for dynamic centerline.  
@@ -119,7 +119,7 @@ Heatmap Speed Scalper (v0.9.6) with UDT-based Adaptive Kalman Filter, Z-score de
 ## PQ_MAVG
 
 **TL;DR**  
-Fancy as Fuck Moving Averages (v0.1.4)—overlays up to 18 customizable MAs across 4 timeframes (Intraday/Daily/Weekly/Monthly) with optional cloud fills, ATR-based SuperTrend signals, and 14 MA algorithm choices per plot.
+**Fancy as Fuck Moving Averages**:overlays up to 18 customizable MAs across 4 timeframes (Intraday/Daily/Weekly/Monthly) with optional cloud fills, ATR-based SuperTrend signals, and 14 MA algorithm choices per plot.
 
 **Description**  
 - **18 Moving Average Slots**: 5 Intraday + 5 Daily + 4 Weekly + 4 Monthly—each with independent visibility toggle, length (1-5000), source, and color.  
@@ -138,7 +138,7 @@ Fancy as Fuck Moving Averages (v0.1.4)—overlays up to 18 customizable MAs acro
 ## PQ_QUANT
 
 **TL;DR**  
-Quantitative analysis library (exported functions) implementing matrix-based Hurst Exponent R/S analysis, Shannon Entropy, and Weighted Least Squares regression for advanced statistical modeling.
+**WünderQuant**: Quantitative analysis library (exported functions) implementing matrix-based Hurst Exponent R/S analysis, Shannon Entropy, and Weighted Least Squares regression for advanced statistical modeling.
 
 **Description**  
 - **Hurst Exponent R/S Analysis**: `get_hurst_exponent(src, length)` measures fractal dimension and long-term memory in time series using Rescaled Range method.  
@@ -165,7 +165,7 @@ Quantitative analysis library (exported functions) implementing matrix-based Hur
 ## PQ_RNG
 
 **TL;DR**  
-Range Detector (v0.1.9) with comprehensive Smart Money Concepts—identifies consolidation zones, tracks internal/swing structure (BOS/CHoCH), plots order blocks with volatility filtering, detects equal highs/lows, fair value gaps, premium/discount zones, and MTF pivot levels.
+**Swoosh Range Detector**: with comprehensive Smart Money Concepts—identifies consolidation zones, tracks internal/swing structure (BOS/CHoCH), plots order blocks with volatility filtering, detects equal highs/lows, fair value gaps, premium/discount zones, and MTF pivot levels.
 
 **Description**  
 - **Range Detection**: Computes minimum range length (10 bars) and width threshold (0.8 × ATR) to identify consolidation zones—draws unbroken/broken range boxes with color coding.  
@@ -190,7 +190,7 @@ Range Detector (v0.1.9) with comprehensive Smart Money Concepts—identifies con
 ## PQ_RSI
 
 **TL;DR**  
-Blends a fast True Strength Index (TSI) oscillator, a multi-length RSI ensemble with stochastic smoothing, a candle heatmap based on regression deviation, plus overbought/oversold bands, signal lines, and an optional stats table.
+**TurboRSI**: Blends a fast True Strength Index (TSI) oscillator, a multi-length RSI ensemble with stochastic smoothing, a candle heatmap based on regression deviation, plus overbought/oversold bands, signal lines, and an optional stats table.
 
 **Description**  
 - Computes TSI with user-defined short/long periods + signal EMA; scales linearly and logarithmically to highlight extremes.  
@@ -217,7 +217,7 @@ A straightforward True Strength Index (TSI) + EMA signal plot with the TSI–sig
 ## PQ_VWAP
 
 **TL;DR**  
-Responsive VWAP Bands (v0.5.0) with UDT-based regime detection (Hurst exponent + volatility), asset-specific multiplier maps, per-timeframe manual parameters (1m/5m optimized), and optional signal filtering based on market regime.
+**Milfed VWAP Bands**: UDT-based regime detection (Hurst exponent + volatility), asset-specific multiplier maps, per-timeframe manual parameters (1m/5m optimized), and optional signal filtering based on market regime.
 
 **Description**  
 - **Dual-Mode Operation**: Auto Mode scales length/multiplier from Daily base values using timeframe factors, Manual Mode uses per-timeframe presets (1m: 50/2.5, 5m: 30/2.2, 15m: 20/2.0, 1H: 14/2.0, 4H: 10/1.8, D: 8/1.5, W+: 5/1.2).  

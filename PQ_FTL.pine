@@ -1,5 +1,5 @@
 //@version=6
-indicator("Predictive Trend and Breaks [PQ_MOD]", "FTL [v0.1.9]", format=format.price, overlay=true, max_labels_count=500, max_lines_count=200, max_polylines_count=100, max_bars_back=750)
+indicator("Predictive Trend Swags [PQ_MOD]", "FTL0.1.9", format=format.price, overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 import Steversteves/SPTS_StatsPakLib/1 as spts 
 

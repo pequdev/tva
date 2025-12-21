@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = "Range Detector [PQ_MOD]", shorttitle = "RNG0.1.9", overlay = true, max_boxes_count = 100, max_labels_count=100, max_lines_count=100, max_polylines_count=100, max_bars_back=500)
+indicator(title = "Swoosh Range Detector [PQ_MOD]", shorttitle = "RNG0.1.9", overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 //------------------------------------------------------------------------------
 //Settings Range

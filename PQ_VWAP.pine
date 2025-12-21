@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = "Responsive VWAP Bands [PQ_MOD]", shorttitle = "VWAP [v0.5.0]", overlay=true, format = format.price)
+indicator(title = "Milfed VWAP Bands [PQ_MOD]", shorttitle = "VWAP0.5.1", overlay=true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // VWAP - Hybrid Mode (Auto + Manual Per-Timeframe)

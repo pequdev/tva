@@ -2,7 +2,7 @@
 // @description QuantLib - Advanced Quantitative Analysis Library
 // Implements statistical functions using Pine Script v6 matrix.* capabilities
 // for optimal performance and numerical accuracy.
-library("QuantLib", overlay = false)
+library("WünderQuant", overlay = false)
 
 // ════════════════════════════════════════════════════════════════════════════════════════════════
 // HURST EXPONENT - R/S Analysis with Matrix-Based Log-Log Regression
