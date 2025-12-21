@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.2.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.4.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -369,6 +369,43 @@ method meanStdev(array<float> buf) =>
         float variance = (sq_sum / float(n)) - (mean_val * mean_val)
         stdev_val := variance > 0 ? math.sqrt(variance) : 0.0
     [mean_val, stdev_val]
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// LAZY EVALUATION GUARDS - Execution Flow Optimization (Pine v6 patterns)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: Pine v6 enforces strict bool (true|false only, never na) and lazy and/or evaluation.
+//       Guard helpers order conditions cheapest → most expensive to exploit short-circuit.
+//       Side-effect calls must NOT be in and/or operands (evaluation may be skipped).
+//       All booleans initialized deterministically (false unless documented otherwise).
+
+// @function Check if bar index exceeds warm-up period for regime calculations
+// @param window_bars Warm-up window size (e.g., entropy window, Hurst window)
+// @returns True if bar_index >= window_bars (safe to compute)
+f_readyForRegime(int window_bars) =>
+    bar_index >= window_bars
+
+// @function Check if learning engine can run heavy calculations (last-bar only)
+// @param enabled Feature toggle
+// @param min_samples Minimum samples required
+// @param history_size Current history size
+// @returns True if enabled, on last bar, and sufficient samples
+f_canRunLearning(bool enabled, int min_samples, int history_size) =>
+    enabled and barstate.islast and history_size >= min_samples
+
+// @function Check if heavy regime stats should execute (confirmed bar + warm-up)
+// @param enabled Feature toggle
+// @param window_bars Warm-up window size
+// @returns True if enabled, bar confirmed, and warm-up complete
+f_canComputeRegime(bool enabled, int window_bars) =>
+    enabled and barstate.isconfirmed and bar_index >= window_bars
+
+// @function Check if setup spawn conditions are met (cheap guards first)
+// @param changed ZigZag changed flag (cheap bool check)
+// @param no_active No current trade active (cheap na check)
+// @param has_pivots Valid cached pivot data exists
+// @returns True if all spawn preconditions met
+f_canSpawnSetup(bool changed, bool no_active, bool has_pivots) =>
+    changed and no_active and has_pivots
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // SHANNON ENTROPY - Regime Filter for Price Action Structure
@@ -1144,6 +1181,8 @@ INPUT_EXT_MAX_SYMBOLS   = input.int(EXT_DEFAULT_SYMBOLS, '   ↳ Max Symbols', m
 INPUT_EXT_FIELDS        = input.string(EXT_FIELDS_CLOSE, '   ↳ Fields', options=[EXT_FIELDS_CLOSE, EXT_FIELDS_OHLCV], group=GROUP_EXT_CTX, tooltip="CLOSE_ONLY: Requests only close price.\nOHLCV: Requests open/high/low/close/volume tuple.")
 INPUT_EXT_GATE_MODE     = input.string(EXT_GATE_ALWAYS, '   ↳ Gating Mode', options=[EXT_GATE_ALWAYS, EXT_GATE_ENTROPY, EXT_GATE_HURST, EXT_GATE_CUSTOM], group=GROUP_EXT_CTX, tooltip="Controls when external requests execute:\nALWAYS: Every bar when enabled.\nON_ENTROPY_DISORDER: Only during disordered entropy regime.\nON_LOW_HURST: Only when Hurst < mean-revert threshold.\nCUSTOM: Placeholder for custom logic.")
 INPUT_EXT_DEBUG         = input.bool(false, '   ↳ Debug Overlay', group=GROUP_EXT_CTX, tooltip="Shows debug info on last bar:\nGating state, used contexts, fetched values.\nNo per-bar labels (performance safe).")
+// --- DEBUG EXECUTION FLOW (Internal) ---
+INPUT_DEBUG_FLOW        = input.bool(false, '🔍 Debug Execution Flow', group=GROUP_EXT_CTX, tooltip="Shows execution flow diagnostics on last bar:\nGuard pass counts, heavy function executions.\nNo per-bar labels (performance safe).")
 // ------------------------------------------
 
 // Fibonacci Levels
@@ -2627,6 +2666,19 @@ SetupState GLOBAL_projectionPreview = f_new_setup_state()
 // Learning engine state
 var LearningMetrics GLOBAL_learning = LearningMetrics.new()
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// EXECUTION FLOW COUNTERS - Debug Diagnostics (Pine v6 lazy evaluation tracking)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: Counters track heavy function executions per session for performance analysis.
+//       Only displayed on barstate.islast when INPUT_DEBUG_FLOW enabled.
+//       No per-bar overhead when disabled.
+var int COUNTER_entropy_runs = 0
+var int COUNTER_hurst_runs = 0
+var int COUNTER_zscore_runs = 0
+var int COUNTER_learning_runs = 0
+var int COUNTER_spawn_attempts = 0
+var int COUNTER_spawn_blocked = 0
+
 // AddOn Logic: Volatility & Volume
 float i_weightedATR = ta.atr(INPUT_ATR_LENGTH) * INPUT_ATR_MULT
 float i_vSMA = ta.sma(nz(volume), INPUT_VOL_SMA_LEN)
@@ -2642,20 +2694,22 @@ GLOBAL_regime.logReturnStdev := ta.stdev(GLOBAL_regime.logReturn, LOG_VOL_WINDOW
 GLOBAL_regime.periodsPerYear := f_getPeriodsPerYear()
 GLOBAL_regime.annualizedVol := f_annualizedVol(GLOBAL_regime.logReturnStdev, GLOBAL_regime.periodsPerYear)
 
-// Populate entropy state
+// Populate entropy state (always runs - internal ta.* functions need full history)
 [_ent, _entNorm, _entReg] = f_rollingEntropy(GLOBAL_regime.logReturn, INPUT_ENTROPY_WINDOW, INPUT_ENTROPY_BINS, INPUT_ENTROPY_THRESH, INPUT_ENTROPY_TRANSITION)
 GLOBAL_regime.entropy := _ent
 GLOBAL_regime.entropyNorm := _entNorm
 GLOBAL_regime.entropyRegime := _entReg
 GLOBAL_regime.entropyOk := not INPUT_ENTROPY_ENABLED or _entReg != ENTROPY_REGIME_DISORDERED
+COUNTER_entropy_runs += 1
 
-// Populate Hurst state
+// Populate Hurst state (always runs - internal ta.* functions need full history)
 [_hurst, _hurstReg] = f_rollingHurst(GLOBAL_regime.logReturn, INPUT_HURST_WINDOW, HURST_MIN_WINDOW, INPUT_HURST_TREND, INPUT_HURST_MEANREV)
 GLOBAL_regime.hurst := _hurst
 GLOBAL_regime.hurstRegime := _hurstReg
 GLOBAL_regime.hurstOk := not INPUT_HURST_ENABLED or not INPUT_HURST_BLOCK_RANDOM or _hurstReg != HURST_REGIME_RANDOM
+COUNTER_hurst_runs += 1
 
-// Populate Z-score momentum state
+// Populate Z-score momentum state (always runs - internal ta.* functions need full history)
 GLOBAL_regime.zscoreAtr := ta.atr(INPUT_ZSCORE_ATR_LEN)
 GLOBAL_regime.linregSlope := f_linregSlope(close, INPUT_ZSCORE_LR_LEN)
 GLOBAL_regime.normSlope := GLOBAL_regime.zscoreAtr > 0 ? GLOBAL_regime.linregSlope / GLOBAL_regime.zscoreAtr : 0.0
@@ -2663,6 +2717,7 @@ GLOBAL_regime.normSlope := GLOBAL_regime.zscoreAtr > 0 ? GLOBAL_regime.linregSlo
 GLOBAL_regime.zscore := _zscore
 GLOBAL_regime.strongMomentum := _strongMom
 GLOBAL_regime.momentumOk := not INPUT_ZSCORE_ENABLED or _strongMom
+COUNTER_zscore_runs += 1
 
 // Populate volatility state
 GLOBAL_regime.rawAtr := i_weightedATR / INPUT_ATR_MULT
@@ -3521,7 +3576,16 @@ float raw_tp_price = raw_tp_target
 // 5. Hurst regime allows trading (if blocking random is enabled)
 // 6. Momentum is statistically significant (if Z-score filter enabled)
 // 7. External context valid (if enabled) - non-breaking: extOk=true when disabled
-if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cachedPivots.iMidPivot) and not na(GLOBAL_cachedPivots.pEndBase) and GLOBAL_regime.entropyOk and GLOBAL_regime.hurstOk and GLOBAL_regime.momentumOk and GLOBAL_extContext.extOk
+// NOTE: Condition ordering follows lazy evaluation pattern (cheap → expensive):
+//       1. GLOBAL_zigzag.changed (cheap bool)
+//       2. na(GLOBAL_backtest.current) (cheap na check)
+//       3. not na(pivots) (cheap na checks)
+//       4. Regime gates (pre-computed bools, no function calls)
+bool _spawnGatesPassed = GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cachedPivots.iMidPivot) and not na(GLOBAL_cachedPivots.pEndBase)
+bool _regimeGatesPassed = GLOBAL_regime.entropyOk and GLOBAL_regime.hurstOk and GLOBAL_regime.momentumOk and GLOBAL_extContext.extOk
+if GLOBAL_zigzag.changed
+    COUNTER_spawn_attempts += 1
+if _spawnGatesPassed and _regimeGatesPassed
     // Build initial state_mask: PENDING + direction flag (using arithmetic for raw int)
     int init_state = FLAG_PENDING + (raw_is_long ? FLAG_IS_LONG : 0)
     
@@ -3539,6 +3603,8 @@ if GLOBAL_zigzag.changed and na(GLOBAL_backtest.current) and not na(GLOBAL_cache
         na,                    // entry_bar: not yet entered
         na                     // exit_bar: not yet exited
     )
+else if GLOBAL_zigzag.changed and not _regimeGatesPassed
+    COUNTER_spawn_blocked += 1
     
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // PART B: Managing the Current Simulation (runs every bar AFTER spawn)
@@ -4064,10 +4130,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // Calculate empirical win rate from learning history
     // OPTIMIZATION: Only recalculate when new trade was recorded (flag set in should_record block)
+    // NOTE: Condition order follows lazy evaluation (cheap → expensive): input toggle, size check, flag
     float p_empirical = p_base
     if INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= LEARN_MIN_SAMPLES_SL and GLOBAL_learning.needsRecalc
         // Reset flag - we're about to recalculate
         GLOBAL_learning.needsRecalc := false
+        COUNTER_learning_runs += 1
         
         // Phase 1 counters
         int wins = 0
@@ -5072,3 +5140,36 @@ if INPUT_EXT_DEBUG and barstate.islast
         _symInfo := _firstSym + ": " + (na(_firstClose) ? "na" : str.tostring(_firstClose, "#.##"))
     table.cell(extDebugTable, 0, 7, "Symbol[0]", text_color = color.gray, text_size = size.tiny)
     table.cell(extDebugTable, 1, 7, _symInfo, text_color = color.white, text_size = size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// EXECUTION FLOW DEBUG OVERLAY - Last Bar Only (FUNC-6)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: Displays execution counters for heavy functions to identify performance hotspots.
+//       Only renders on barstate.islast to avoid per-bar label spam.
+if INPUT_DEBUG_FLOW and barstate.islast
+    var table flowDebugTable = table.new(position.top_left, 2, 8, bgcolor = color.new(color.black, 80), border_width = 1)
+    
+    table.cell(flowDebugTable, 0, 0, "Execution Flow", text_color = color.white, text_size = size.small)
+    table.cell(flowDebugTable, 1, 0, "", text_color = color.white, text_size = size.small)
+    
+    table.cell(flowDebugTable, 0, 1, "Entropy runs", text_color = color.gray, text_size = size.tiny)
+    table.cell(flowDebugTable, 1, 1, str.tostring(COUNTER_entropy_runs), text_color = color.yellow, text_size = size.tiny)
+    
+    table.cell(flowDebugTable, 0, 2, "Hurst runs", text_color = color.gray, text_size = size.tiny)
+    table.cell(flowDebugTable, 1, 2, str.tostring(COUNTER_hurst_runs), text_color = color.yellow, text_size = size.tiny)
+    
+    table.cell(flowDebugTable, 0, 3, "Z-score runs", text_color = color.gray, text_size = size.tiny)
+    table.cell(flowDebugTable, 1, 3, str.tostring(COUNTER_zscore_runs), text_color = color.yellow, text_size = size.tiny)
+    
+    table.cell(flowDebugTable, 0, 4, "Learning runs", text_color = color.gray, text_size = size.tiny)
+    table.cell(flowDebugTable, 1, 4, str.tostring(COUNTER_learning_runs), text_color = color.yellow, text_size = size.tiny)
+    
+    table.cell(flowDebugTable, 0, 5, "Spawn attempts", text_color = color.gray, text_size = size.tiny)
+    table.cell(flowDebugTable, 1, 5, str.tostring(COUNTER_spawn_attempts), text_color = color.green, text_size = size.tiny)
+    
+    table.cell(flowDebugTable, 0, 6, "Spawn blocked", text_color = color.gray, text_size = size.tiny)
+    table.cell(flowDebugTable, 1, 6, str.tostring(COUNTER_spawn_blocked), text_color = color.orange, text_size = size.tiny)
+    
+    float _blockRate = COUNTER_spawn_attempts > 0 ? float(COUNTER_spawn_blocked) / float(COUNTER_spawn_attempts) * 100 : 0.0
+    table.cell(flowDebugTable, 0, 7, "Block rate", text_color = color.gray, text_size = size.tiny)
+    table.cell(flowDebugTable, 1, 7, str.tostring(_blockRate, "#.#") + "%", text_color = _blockRate > 50 ? color.red : color.green, text_size = size.tiny)
