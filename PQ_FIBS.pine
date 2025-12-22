@@ -858,11 +858,11 @@ INPUT_ALERT_SEPARATOR   = input.string('|', 'Alert data separator', group = UI_G
 
 // Volatility & Volume AddOns
 INPUT_SHOW_HIGH_ATR     = input.bool(false, '⚡', inline='ATR', group=UI_GROUP_volVol, tooltip=UI_TOOLTIP_highVol)
-INPUT_ATR_LENGTH        = input.int(7, 'ATR : Length', inline='ATR', group=UI_GROUP_volVol)
+INPUT_ATR_LENGTH        = input.int(7, 'ATR : Length', minval=1, inline='ATR', group=UI_GROUP_volVol)
 INPUT_ATR_MULT          = input.float(2.0, 'Mult', minval=.1, step=.1, inline='ATR', group=UI_GROUP_volVol)
-INPUT_VOL_SMA_LEN       = input.int(89, 'Volume Moving Average Length', group=UI_GROUP_volVol)
+INPUT_VOL_SMA_LEN       = input.int(89, 'Volume Moving Average Length', minval=1, group=UI_GROUP_volVol)
 INPUT_SHOW_VOL_SPIKE    = input.bool(false, '🚦', inline='SRS1', group=UI_GROUP_volVol, tooltip=UI_TOOLTIP_volExhaust)
-INPUT_VOL_SPIKE_THRESH  = input.float(2.5, 'Volume Spike Theshold           ', minval=.1, step=.1, inline='SRS1', group=UI_GROUP_volVol)
+INPUT_VOL_SPIKE_THRESH  = input.float(2.5, 'Volume Spike Threshold           ', minval=.1, step=.1, inline='SRS1', group=UI_GROUP_volVol)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATE FLAGS - Bitwise Trade/Setup State Representation
