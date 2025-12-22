@@ -304,7 +304,7 @@ Action: budgetExceeded := true
 Result: No external requests executed
 ```
 
-**Note:** This scenario cannot occur with current constraints (`maxSymbolsCap = 20`).
+**Note:** This is a purely hypothetical scenario that assumes `STATIC_EXT_maxSymbolsCap = 50` for illustration; under the actual current constraint (`STATIC_EXT_maxSymbolsCap = 20`), this situation cannot occur.
 
 ---
 
