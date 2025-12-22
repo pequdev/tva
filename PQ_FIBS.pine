@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.7.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.11.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -354,10 +354,10 @@ method pushBounded(array<int> buf, int v, int window) =>
 method isFull(array<float> buf, int window) =>
     buf.size() >= window
 
-// @function Get last element using Pine v6 negative indexing
+// @function Get last element safely (renamed to avoid shadowing built-in array.last)
 // @param buf Array buffer
 // @returns Last element or na if empty
-method last(array<float> buf) =>
+method lastVal(array<float> buf) =>
     buf.size() > 0 ? buf.get(-1) : na
 
 // @function Get second-to-last element using Pine v6 negative indexing
@@ -1088,7 +1088,7 @@ f_rollingZScore(float norm_slope, int z_len, int min_samples, float z_thresh) =>
         [mean_val, stdev] = slope_buffer.meanStdev()
         
         // Compute Z-score using last value via negative indexing
-        float last_slope = slope_buffer.last()
+        float last_slope = slope_buffer.lastVal()
         z_score := stdev > 1e-10 ? (last_slope - mean_val) / stdev : 0.0
         strong_momentum := math.abs(z_score) >= z_thresh
     
@@ -2572,6 +2572,7 @@ var ProjectionState GLOBAL_projection = ProjectionState.new()
 // @field level The Fibonacci ratio (e.g., 0.618)
 // @field col Color for the level line/label
 // @field show Whether to display this level
+// @field key Pre-computed JSON key (e.g., "0_618") - avoids per-loop str.replace
 // @field ln The line object for this level
 // @field lb The label object for this level
 // @field crossed Pre-computed crossing flag (Pine v6 best practice)
@@ -2579,52 +2580,63 @@ type FibLevel
     float level
     color col
     bool show
+    string key = ''
     line ln = na
     label lb = na
     bool crossed = false
 
+// @function Compute JSON-safe key from fib level (replace '.' with '_', prefix '-' with 'neg')
+// @param level Fibonacci level value
+// @returns JSON-safe key string
+f_fibLevelKey(float level) =>
+    string raw = str.tostring(level)
+    string noDecimal = str.replace(raw, '.', '_')
+    str.replace(noDecimal, '-', 'neg')
+
 var array<FibLevel> fibLevels = array.new<FibLevel>()
 if barstate.isfirst
-    fibLevels.push(FibLevel.new(INPUT_VAL_0, INPUT_COL_0, INPUT_SHOW_0))
-    fibLevels.push(FibLevel.new(INPUT_VAL_0_236, INPUT_COL_0_236, INPUT_SHOW_0_236))
-    fibLevels.push(FibLevel.new(INPUT_VAL_0_382, INPUT_COL_0_382, INPUT_SHOW_0_382))
-    fibLevels.push(FibLevel.new(INPUT_VAL_0_5, INPUT_COL_0_5, INPUT_SHOW_0_5))
-    fibLevels.push(FibLevel.new(INPUT_VAL_0_618, INPUT_COL_0_618, INPUT_SHOW_0_618))
-    fibLevels.push(FibLevel.new(INPUT_VAL_0_65, INPUT_COL_0_65, INPUT_SHOW_0_65))
-    fibLevels.push(FibLevel.new(INPUT_VAL_0_786, INPUT_COL_0_786, INPUT_SHOW_0_786))
-    fibLevels.push(FibLevel.new(INPUT_VAL_1, INPUT_COL_1, INPUT_SHOW_1))
-    fibLevels.push(FibLevel.new(INPUT_VAL_1_272, INPUT_COL_1_272, INPUT_SHOW_1_272))
-    fibLevels.push(FibLevel.new(INPUT_VAL_1_414, INPUT_COL_1_414, INPUT_SHOW_1_414))
-    fibLevels.push(FibLevel.new(INPUT_VAL_1_618, INPUT_COL_1_618, INPUT_SHOW_1_618))
-    fibLevels.push(FibLevel.new(INPUT_VAL_1_65, INPUT_COL_1_65, INPUT_SHOW_1_65))
-    fibLevels.push(FibLevel.new(INPUT_VAL_2_618, INPUT_COL_2_618, INPUT_SHOW_2_618))
-    fibLevels.push(FibLevel.new(INPUT_VAL_2_65, INPUT_COL_2_65, INPUT_SHOW_2_65))
-    fibLevels.push(FibLevel.new(INPUT_VAL_3_618, INPUT_COL_3_618, INPUT_SHOW_3_618))
-    fibLevels.push(FibLevel.new(INPUT_VAL_3_65, INPUT_COL_3_65, INPUT_SHOW_3_65))
-    fibLevels.push(FibLevel.new(INPUT_VAL_4_236, INPUT_COL_4_236, INPUT_SHOW_4_236))
-    fibLevels.push(FibLevel.new(INPUT_VAL_4_618, INPUT_COL_4_618, INPUT_SHOW_4_618))
-    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_236, INPUT_COL_NEG_0_236, INPUT_SHOW_NEG_0_236))
-    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_382, INPUT_COL_NEG_0_382, INPUT_SHOW_NEG_0_382))
-    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_618, INPUT_COL_NEG_0_618, INPUT_SHOW_NEG_0_618))
-    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_65, INPUT_COL_NEG_0_65, INPUT_SHOW_NEG_0_65))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0, INPUT_COL_0, INPUT_SHOW_0, f_fibLevelKey(INPUT_VAL_0)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_236, INPUT_COL_0_236, INPUT_SHOW_0_236, f_fibLevelKey(INPUT_VAL_0_236)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_382, INPUT_COL_0_382, INPUT_SHOW_0_382, f_fibLevelKey(INPUT_VAL_0_382)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_5, INPUT_COL_0_5, INPUT_SHOW_0_5, f_fibLevelKey(INPUT_VAL_0_5)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_618, INPUT_COL_0_618, INPUT_SHOW_0_618, f_fibLevelKey(INPUT_VAL_0_618)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_65, INPUT_COL_0_65, INPUT_SHOW_0_65, f_fibLevelKey(INPUT_VAL_0_65)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_0_786, INPUT_COL_0_786, INPUT_SHOW_0_786, f_fibLevelKey(INPUT_VAL_0_786)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_1, INPUT_COL_1, INPUT_SHOW_1, f_fibLevelKey(INPUT_VAL_1)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_1_272, INPUT_COL_1_272, INPUT_SHOW_1_272, f_fibLevelKey(INPUT_VAL_1_272)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_1_414, INPUT_COL_1_414, INPUT_SHOW_1_414, f_fibLevelKey(INPUT_VAL_1_414)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_1_618, INPUT_COL_1_618, INPUT_SHOW_1_618, f_fibLevelKey(INPUT_VAL_1_618)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_1_65, INPUT_COL_1_65, INPUT_SHOW_1_65, f_fibLevelKey(INPUT_VAL_1_65)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_2_618, INPUT_COL_2_618, INPUT_SHOW_2_618, f_fibLevelKey(INPUT_VAL_2_618)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_2_65, INPUT_COL_2_65, INPUT_SHOW_2_65, f_fibLevelKey(INPUT_VAL_2_65)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_3_618, INPUT_COL_3_618, INPUT_SHOW_3_618, f_fibLevelKey(INPUT_VAL_3_618)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_3_65, INPUT_COL_3_65, INPUT_SHOW_3_65, f_fibLevelKey(INPUT_VAL_3_65)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_4_236, INPUT_COL_4_236, INPUT_SHOW_4_236, f_fibLevelKey(INPUT_VAL_4_236)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_4_618, INPUT_COL_4_618, INPUT_SHOW_4_618, f_fibLevelKey(INPUT_VAL_4_618)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_236, INPUT_COL_NEG_0_236, INPUT_SHOW_NEG_0_236, f_fibLevelKey(INPUT_VAL_NEG_0_236)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_382, INPUT_COL_NEG_0_382, INPUT_SHOW_NEG_0_382, f_fibLevelKey(INPUT_VAL_NEG_0_382)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_618, INPUT_COL_NEG_0_618, INPUT_SHOW_NEG_0_618, f_fibLevelKey(INPUT_VAL_NEG_0_618)))
+    fibLevels.push(FibLevel.new(INPUT_VAL_NEG_0_65, INPUT_COL_NEG_0_65, INPUT_SHOW_NEG_0_65, f_fibLevelKey(INPUT_VAL_NEG_0_65)))
 
-// @function Convert LevelLog to JSON string (uses fibLevels for key names)
+// @function Convert LevelLog to JSON string using StringBuilder pattern
 // @param this LevelLog instance
 // @returns JSON string representation of the log
+// Doc: Uses array.join() to avoid repeated string concatenation in loop (TradingView Pine v6 best practice)
 method toJson(LevelLog this) =>
-    string result = '{'
+    array<string> parts = array.new<string>(0)
+    array.push(parts, '{')
     int levelCount = array.size(fibLevels)
     for i = 0 to levelCount - 1
         FibLevel lvl = array.get(fibLevels, i)
         float val = this.data.get(lvl.level)
-        string levelKey = str.replace(str.tostring(lvl.level), '.', '_')
-        if na(val)
-            result := result + '"' + levelKey + '":null'
-        else
-            result := result + '"' + levelKey + '":' + str.tostring(val)
+        array.push(parts, '"')
+        array.push(parts, lvl.key)  // Use pre-computed key instead of per-loop str.replace
+        array.push(parts, '":')
+        array.push(parts, na(val) ? 'null' : str.tostring(val))
         if i < levelCount - 1
-            result := result + ','
-    result + '}'
+            array.push(parts, ',')
+    array.push(parts, '}')
+    array.join(parts, '')
 
 // Create LevelLog instances wrapping the raw maps
 var LevelLog GLOBAL_pivotLevelsLogRetracements = LevelLog.new(GLOBAL_pivotLevelsLogRetracementsMap)
@@ -3865,12 +3877,13 @@ float effPEndBase = GLOBAL_projection.isActive() ? GLOBAL_projection.pEndBase : 
 // PivotContext for effective pivots (includes projection if active)
 PivotContext GLOBAL_effectivePivot = PivotContext.new(effPMidPivot, effPEndBase, INPUT_REVERSE)
 
-// @function Check if price crossed a level
-// @param _curret Current price
+// @function Check if price crossed a level (no history reference - caller provides prev price)
+// @param _current Current price
+// @param _prev Previous bar price
 // @param _level Level price to check against
 // @returns True if price crossed the level
-f_crossingLevel(float _curret, float _level) =>
-    _level > _curret and _level < _curret[1] or _level < _curret and _level > _curret[1]
+f_crossingLevel(float _current, float _prev, float _level) =>
+    (_level > _current and _level < _prev) or (_level < _current and _level > _prev)
 
 if ta.change(time) != 0 and array.size(ln) > 0
     for i = 1 to array.size(ln) by 1
@@ -3972,7 +3985,10 @@ method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRed
                 bar_pos = INPUT_LEVELS_POS == "Last Bar" ? x2 : x1
                 style_lbl = INPUT_LEVELS_POS == "Last Bar" ? label.style_label_left : label.style_label_right
                 size_lbl = INPUT_LEVELS_SIZE == 'Small' ? size.small : size.normal
-                text_str = (INPUT_LEVELS_LABEL == 'Prices' ? '' : 'RET ' + str.tostring(this.level)) + (INPUT_LEVELS_LABEL == 'Levels + Prices' or INPUT_LEVELS_LABEL == 'Prices' ? ' (' + str.tostring(price, format.mintick) + ')' : '')
+                // Build label text using array.join for >3 parts
+                string lvlPart = INPUT_LEVELS_LABEL == 'Prices' ? '' : 'RET ' + str.tostring(this.level)
+                string pricePart = (INPUT_LEVELS_LABEL == 'Levels + Prices' or INPUT_LEVELS_LABEL == 'Prices') ? ' (' + str.tostring(price, format.mintick) + ')' : ''
+                text_str = lvlPart + pricePart
                 tooltip_str = str.tostring(price, format.mintick)
                 this.lb := label.new(bar_pos, price, INPUT_EXTEND_PVT or INPUT_EXTEND_ER or INPUT_LEVELS_POS == 'Last Bar' ? text_str + '\n\n' : text_str, xloc.bar_index, yloc.price, color.new(COLOR_FG_MAIN, 100), style_lbl, color.new(COLOR_FG_MAIN, 0), size_lbl, text.align_right, tooltip_str)
         else
@@ -4014,15 +4030,49 @@ f_jsonBool(bool v) =>
 f_jsonStr(string v) =>
     na(v) ? 'null' : '"' + v + '"'
 
-// @function Build common envelope JSON for all events
+// @function Build common envelope JSON for all events using StringBuilder pattern
 // @param id Event ID
 // @param eventType Event type string
 // @returns JSON string with common fields
+// Doc: Uses array.join() for efficient string assembly (TradingView Pine v6 best practice)
 f_jsonEnvelope(string id, string eventType) =>
-    string barstate_json = '{"is_new":' + f_jsonBool(barstate.isnew) + ',"is_first":' + f_jsonBool(barstate.isfirst) + ',"is_last":' + f_jsonBool(barstate.islast) + ',"is_confirmed":' + f_jsonBool(barstate.isconfirmed) + ',"is_history":' + f_jsonBool(barstate.ishistory) + '}'
-    string ohlcv_json = '{"open":' + f_jsonFloat(open) + ',"high":' + f_jsonFloat(high) + ',"low":' + f_jsonFloat(low) + ',"close":' + f_jsonFloat(close) + ',"volume":' + f_jsonFloat(volume) + '}'
-    string result = '"schema_version":"' + ALERT_SCHEMA_VERSION + '","event_id":"' + id + '","event_type":"' + eventType + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","bar_index":' + str.tostring(bar_index) + ',"last_bar_index":' + str.tostring(last_bar_index) + ',"time":' + str.tostring(time) + ',"time_close":' + str.tostring(time_close) + ',"time_tradingday":' + str.tostring(time_tradingday) + ',"barstate":' + barstate_json + ',"ohlcv":' + ohlcv_json
-    result
+    // Pre-compute values to avoid multiple str.tostring calls
+    string barIdx = str.tostring(bar_index)
+    string lastBarIdx = str.tostring(last_bar_index)
+    string timeStr = str.tostring(time)
+    string timeCloseStr = str.tostring(time_close)
+    string timeTradingdayStr = str.tostring(time_tradingday)
+    
+    // Build barstate JSON using array.from + join for many parts
+    string barstate_json = array.join(array.from(
+        '{"is_new":', f_jsonBool(barstate.isnew),
+        ',"is_first":', f_jsonBool(barstate.isfirst),
+        ',"is_last":', f_jsonBool(barstate.islast),
+        ',"is_confirmed":', f_jsonBool(barstate.isconfirmed),
+        ',"is_history":', f_jsonBool(barstate.ishistory), '}'), '')
+    
+    // Build ohlcv JSON
+    string ohlcv_json = array.join(array.from(
+        '{"open":', f_jsonFloat(open),
+        ',"high":', f_jsonFloat(high),
+        ',"low":', f_jsonFloat(low),
+        ',"close":', f_jsonFloat(close),
+        ',"volume":', f_jsonFloat(volume), '}'), '')
+    
+    // Build envelope using array.from + join
+    array.join(array.from(
+        '"schema_version":"', ALERT_SCHEMA_VERSION,
+        '","event_id":"', id,
+        '","event_type":"', eventType,
+        '","symbol":"', syminfo.tickerid,
+        '","timeframe":"', timeframe.period,
+        '","bar_index":', barIdx,
+        ',"last_bar_index":', lastBarIdx,
+        ',"time":', timeStr,
+        ',"time_close":', timeCloseStr,
+        ',"time_tradingday":', timeTradingdayStr,
+        ',"barstate":', barstate_json,
+        ',"ohlcv":', ohlcv_json), '')
 
 // @function Serialize pivots context to JSON
 // @param confirmedMidBar Confirmed mid pivot bar
@@ -4179,27 +4229,89 @@ f_getAlertMessageFull(string id, string eventType, bool isProj, bool isLong, boo
     string learning_json = f_jsonLearning(GLOBAL_learning, GLOBAL_setupHistory.size())
     string backtest_json = f_jsonBacktest(GLOBAL_backtest.stats)
     string mc_json = f_jsonMonteCarlo(GLOBAL_learning)
+    string retracements_json = GLOBAL_pivotLevelsLogRetracements.toJson()
+    string crossed_json = GLOBAL_pivotLevelsLogCrossed.toJson()
     
-    // Assemble full JSON
-    string result = '{' + envelope + ',"pivots":' + pivots_json + ',"setup":' + setup_json + ',"zone":' + zone_json + ',"position":' + position_json + ',"time_decay":' + time_decay_json + ',"regime":' + regime_json + ',"learning":' + learning_json + ',"backtest":' + backtest_json + ',"monte_carlo":' + mc_json + ',"retracements":' + GLOBAL_pivotLevelsLogRetracements.toJson() + ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() + ',"confluence":{"exhaust_vol":' + f_jsonBool(exhaustVol) + ',"high_volatility":' + f_jsonBool(highVolatility) + '}}'
-    result
+    // Assemble full JSON using array.join for efficient concatenation
+    array.join(array.from(
+        '{', envelope,
+        ',"pivots":', pivots_json,
+        ',"setup":', setup_json,
+        ',"zone":', zone_json,
+        ',"position":', position_json,
+        ',"time_decay":', time_decay_json,
+        ',"regime":', regime_json,
+        ',"learning":', learning_json,
+        ',"backtest":', backtest_json,
+        ',"monte_carlo":', mc_json,
+        ',"retracements":', retracements_json,
+        ',"crossed_retracements":', crossed_json,
+        ',"confluence":{"exhaust_vol":', f_jsonBool(exhaustVol),
+        ',"high_volatility":', f_jsonBool(highVolatility), '}}'), '')
 
 // @function Construct legacy JSON alert message (backward compatible)
 // @param id Alert ID string
 // @returns JSON formatted string with alert details
+// Doc: Uses array.join for efficient string assembly (TradingView Pine v6 best practice)
 f_getAlertMessage(string id) =>
-    string barstate_json = '{"is_new":' + (barstate.isnew ? 'true' : 'false') + ',"is_first":' + (barstate.isfirst ? 'true' : 'false') + ',"is_last":' + (barstate.islast ? 'true' : 'false') + ',"is_confirmed":' + (barstate.isconfirmed ? 'true' : 'false') + ',"is_history":' + (barstate.ishistory ? 'true' : 'false') + '}'
-    string ohlcv_json = '{"open":' + str.tostring(open) + ',"high":' + str.tostring(high) + ',"low":' + str.tostring(low) + ',"close":' + str.tostring(close) + ',"hl2":' + str.tostring(hl2) + ',"hlc3":' + str.tostring(hlc3) + ',"hlcc4":' + str.tostring(hlcc4) + ',"ohlc4":' + str.tostring(ohlc4) + ',"volume":' + str.tostring(volume) + '}'
-    string base_json = '"schema_version":"' + ALERT_SCHEMA_VERSION + '","event_id":"' + id + '","symbol":"' + syminfo.tickerid + '","timeframe":"' + timeframe.period + '","bar_index":' + str.tostring(bar_index) + ',"last_bar_index":' + str.tostring(last_bar_index) + ',"time_tradingday":' + str.tostring(time_tradingday) + ',"time_close":' + str.tostring(time_close) + ',"session_is_first_bar":' + (session.isfirstbar ? 'true' : 'false') + ',"barstate":' + barstate_json + ',"ohlcv":' + ohlcv_json
+    // Pre-compute numeric conversions once
+    string barIdxStr = str.tostring(bar_index)
+    string lastBarIdxStr = str.tostring(last_bar_index)
+    string timeTradingdayStr = str.tostring(time_tradingday)
+    string timeCloseStr = str.tostring(time_close)
+    string openStr = str.tostring(open)
+    string highStr = str.tostring(high)
+    string lowStr = str.tostring(low)
+    string closeStr = str.tostring(close)
+    string hl2Str = str.tostring(hl2)
+    string hlc3Str = str.tostring(hlc3)
+    string hlcc4Str = str.tostring(hlcc4)
+    string ohlc4Str = str.tostring(ohlc4)
+    string volumeStr = str.tostring(volume)
+    
+    // Build barstate JSON using array.join
+    string barstate_json = array.join(array.from(
+        '{"is_new":', f_jsonBool(barstate.isnew),
+        ',"is_first":', f_jsonBool(barstate.isfirst),
+        ',"is_last":', f_jsonBool(barstate.islast),
+        ',"is_confirmed":', f_jsonBool(barstate.isconfirmed),
+        ',"is_history":', f_jsonBool(barstate.ishistory), '}'), '')
+    
+    // Build ohlcv JSON using array.join
+    string ohlcv_json = array.join(array.from(
+        '{"open":', openStr,
+        ',"high":', highStr,
+        ',"low":', lowStr,
+        ',"close":', closeStr,
+        ',"hl2":', hl2Str,
+        ',"hlc3":', hlc3Str,
+        ',"hlcc4":', hlcc4Str,
+        ',"ohlc4":', ohlc4Str,
+        ',"volume":', volumeStr, '}'), '')
+    
+    // Build base JSON using array.join
+    string base_json = array.join(array.from(
+        '"schema_version":"', ALERT_SCHEMA_VERSION,
+        '","event_id":"', id,
+        '","symbol":"', syminfo.tickerid,
+        '","timeframe":"', timeframe.period,
+        '","bar_index":', barIdxStr,
+        ',"last_bar_index":', lastBarIdxStr,
+        ',"time_tradingday":', timeTradingdayStr,
+        ',"time_close":', timeCloseStr,
+        ',"session_is_first_bar":', f_jsonBool(session.isfirstbar),
+        ',"barstate":', barstate_json,
+        ',"ohlcv":', ohlcv_json), '')
+    
     string log = ''
     if id == ALERT_ID_UPDATE
-        log := '{' + base_json + ',"retracements":' + GLOBAL_pivotLevelsLogRetracements.toJson() + ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() + '}'
+        log := array.join(array.from('{', base_json, ',"retracements":', GLOBAL_pivotLevelsLogRetracements.toJson(), ',"crossed_retracements":', GLOBAL_pivotLevelsLogCrossed.toJson(), '}'), '')
     if id == ALERT_ID_EXHAUSTION
-        log := '{' + base_json + ',"bull_candle":' + (bullCandle ? 'true' : 'false') + ',"bear_candle":' + (bearCandle ? 'true' : 'false') + ',"exhaust_vol":' + (exhaustVol ? 'true' : 'false') + '}'
+        log := array.join(array.from('{', base_json, ',"bull_candle":', f_jsonBool(bullCandle), ',"bear_candle":', f_jsonBool(bearCandle), ',"exhaust_vol":', f_jsonBool(exhaustVol), '}'), '')
     if id == ALERT_ID_VOLATILITY
-        log := '{' + base_json + ',"bull_candle":' + (bullCandle ? 'true' : 'false') + ',"bear_candle":' + (bearCandle ? 'true' : 'false') + ',"high_volatility":' + (highVolatility ? 'true' : 'false') + '}'
+        log := array.join(array.from('{', base_json, ',"bull_candle":', f_jsonBool(bullCandle), ',"bear_candle":', f_jsonBool(bearCandle), ',"high_volatility":', f_jsonBool(highVolatility), '}'), '')
     if id == ALERT_ID_CROSSING
-        log := '{' + base_json + ',"crossed_retracements":' + GLOBAL_pivotLevelsLogCrossed.toJson() + '}'
+        log := array.join(array.from('{', base_json, ',"crossed_retracements":', GLOBAL_pivotLevelsLogCrossed.toJson(), '}'), '')
     log
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -4274,7 +4386,8 @@ float GLOBAL_priceAtPivot = ta.valuewhen(GLOBAL_zigzag.changed, close, 0)
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 // Pre-compute crossing detection for all fib levels (Pine v6 - must call on every bar)
-// f_crossingLevel uses history reference, so we compute it unconditionally for ALL levels
+// Compute previous close ONCE outside loop to avoid history reference inside loop
+float prev_close = close[1]
 for lvl in fibLevels
     // Always compute the price for this level (even if not shown)
     float pPivotDiff = math.abs(nz(GLOBAL_cachedPivots.pMidPivot) - nz(GLOBAL_cachedPivots.pEndBase))
@@ -4282,8 +4395,8 @@ for lvl in fibLevels
          (INPUT_REVERSE ? nz(GLOBAL_cachedPivots.pEndBase) : nz(GLOBAL_cachedPivots.pMidPivot)) - (INPUT_REVERSE ? -1 : 1) * pPivotDiff * lvl.level : 
          (INPUT_REVERSE ? nz(GLOBAL_cachedPivots.pEndBase) : nz(GLOBAL_cachedPivots.pMidPivot)) + (INPUT_REVERSE ? -1 : 1) * pPivotDiff * lvl.level
     lvl_price := math.round_to_mintick(lvl_price)
-    // Always call f_crossingLevel (uses history reference - must be called on every bar)
-    lvl.crossed := f_crossingLevel(close, lvl_price)
+    // Call f_crossingLevel with pre-computed prev_close (no history reference in loop)
+    lvl.crossed := f_crossingLevel(close, prev_close, lvl_price)
 
 // Determine redraw need unconditionally
 bool needsFullRedraw = GLOBAL_zigzag.changed or (fibLevels.size() > 0 ? na(array.get(fibLevels, 0).ln) : false)
