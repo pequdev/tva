@@ -367,7 +367,7 @@ Entry signals in PQ_FIBS are determined by:
 | Global scope requirement | LTF requests must be at global scope |
 | Repainting definition | "Behavior differs between historical and realtime bars" |
 
-### 11.2 Context7 Pine v6 Doc References Used
+### 11.2 Pine v6 Doc References Used
 
 - "Managing Future Data Access with lookahead in request.security()"
 - "request.security_lower_tf function signature"
