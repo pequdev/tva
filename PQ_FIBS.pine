@@ -2014,29 +2014,29 @@ type LearningMetrics
     // Core metrics
     float zoneBuffer = 0.0
     float winRate = 0.55
-    float slMult = 1.5
-    float avgMae = 0.0
-    float avgMfe = 0.0
-    int   avgBars = 0
+    float stopLossMultiplier = 1.5
+    float averageMaxAdverseExcursion = 0.0
+    float averageMaxFavorableExcursion = 0.0
+    int   averageBarsHeld = 0
     // RSI divergence analytics
-    float wrWithDiv = 0.55
-    float wrWithoutDiv = 0.5
-    float divEdge = 0.0
+    float winRateWithDivergence = 0.55
+    float winRateWithoutDivergence = 0.5
+    float divergenceEdge = 0.0
     float rsiWeight = 0.0
     // Direction-specific win rates
-    float wrLong = 0.55
-    float wrShort = 0.55
+    float winRateLong = 0.55
+    float winRateShort = 0.55
     // Loss analysis
-    float losingMae = 0.0
+    float losingMaxAdverseExcursion = 0.0
     // Time-based
-    int   optimalHold = 0
+    int   optimalHoldBars = 0
     float decayRate = 0.03
     // TP mode comparison
-    bool  tpAggressive = false
-    float consWr = 0.0
-    float aggrWr = 0.0
-    float consEv = 0.0
-    float aggrEv = 0.0
+    bool  useTakeProfitAggressive = false
+    float conservativeWinRate = 0.0
+    float aggressiveWinRate = 0.0
+    float conservativeExpectedValue = 0.0
+    float aggressiveExpectedValue = 0.0
     // Performance metrics
     float confidence = 50.0
     float profitFactor = 1.0
@@ -2044,57 +2044,57 @@ type LearningMetrics
     int   winStreak = 0
     int   lossStreak = 0
     // Volatility regime
-    float wrHighVol = 0.55
-    float wrLowVol = 0.55
+    float winRateHighVolatility = 0.55
+    float winRateLowVolatility = 0.55
     // Entropy regime analytics
-    float wrOrdered = 0.55
-    float wrDisordered = 0.55
+    float winRateOrdered = 0.55
+    float winRateDisordered = 0.55
     float entropyEdge = 0.0
     // Hurst regime analytics
-    float wrTrend = 0.55
-    float wrMeanRev = 0.55
-    float wrRandom = 0.55
+    float winRateTrend = 0.55
+    float winRateMeanRevert = 0.55
+    float winRateRandom = 0.55
     float hurstEdge = 0.0
     // Z-score momentum analytics
-    float wrStrongMom = 0.55
-    float wrWeakMom = 0.55
+    float winRateStrongMomentum = 0.55
+    float winRateWeakMomentum = 0.55
     float momentumEdge = 0.0
     // Log-return performance metrics
-    float cumLogReturn = 0.0
-    float avgLogReturn = 0.0
-    float logReturnStdev = 0.0
+    float cumulativeLogReturn = 0.0
+    float averageLogReturn = 0.0
+    float logReturnStandardDeviation = 0.0
     float sharpeRatio = 0.0
     // Bayesian win-rate estimation (Beta-Binomial model)
-    float bayesAlpha = 1.0         // Posterior alpha (prior + wins)
-    float bayesBeta = 1.0          // Posterior beta (prior + losses)
-    float bayesMean = 0.5          // Posterior mean E[θ] = α / (α + β)
-    float bayesLowerBound = 0.0    // Conservative lower credible bound
+    float bayesianAlpha = 1.0         // Posterior alpha (prior + wins)
+    float bayesianBeta = 1.0          // Posterior beta (prior + losses)
+    float bayesianMean = 0.5          // Posterior mean E[θ] = α / (α + β)
+    float bayesianLowerBound = 0.0    // Conservative lower credible bound
     // Sortino ratio (downside-risk adjusted)
     float sortinoRatio = 0.0       // (Rp - Rf) / σ_down
-    float downsideDev = 0.0        // Downside deviation (σ_down)
+    float downsideDeviation = 0.0        // Downside deviation (σ_down)
     float meanTradeReturn = 0.0    // Mean trade log return
     // Monte Carlo permutation test
-    float mcOriginalDD = 0.0       // Original max drawdown
-    float mcMeanShuffledDD = 0.0   // Mean of shuffled max drawdowns
-    float mcPValue = 1.0           // p-value (fraction of shuffles with lower DD)
-    int   mcSimsRun = 0            // Number of simulations completed
-    bool  mcSignificant = false    // True if timing edge is statistically significant
+    float monteCarloOriginalDrawdown = 0.0       // Original max drawdown
+    float monteCarloMeanShuffledDrawdown = 0.0   // Mean of shuffled max drawdowns
+    float monteCarloPValue = 1.0           // p-value (fraction of shuffles with lower DD)
+    int   monteCarloSimulationsRun = 0            // Number of simulations completed
+    bool  isMonteCarloSignificant = false    // True if timing edge is statistically significant
     // Health tracking
     int   lastOutcomeBar = 0
     bool  isHealthy = true
     // State tracking (consolidated from orphan var primitives)
     int   nearMissCount = 0
     int   totalSetups = 0
-    bool  needsRecalc = false
+    bool  needsRecalculation = false
 
 method getWinRate(LearningMetrics this, bool isLong) =>
-    isLong ? this.wrLong : this.wrShort
+    isLong ? this.winRateLong : this.winRateShort
 
 method getRegimeWinRate(LearningMetrics this, bool isHighVol) =>
-    isHighVol ? this.wrHighVol : this.wrLowVol
+    isHighVol ? this.winRateHighVolatility : this.winRateLowVolatility
 
-method getSlMult(LearningMetrics this) =>
-    this.slMult
+method getStopLossMultiplier(LearningMetrics this) =>
+    this.stopLossMultiplier
 
 method getDecayRate(LearningMetrics this) =>
     this.decayRate
@@ -2106,7 +2106,7 @@ method checkHealth(LearningMetrics this) =>
     this.isHealthy
 
 method hasDivergenceEdge(LearningMetrics this) =>
-    this.divEdge > 0
+    this.divergenceEdge > 0
 
 //              Handles create/update/delete lifecycle and projection vs confirmed styling.
 type PositionVisual
@@ -3373,25 +3373,25 @@ f_jsonPivots(int confirmedMidBar, float confirmedMidPrice, int confirmedEndBar, 
     string result = '{"confirmed":{"mid_bar":' + f_jsonInt(confirmedMidBar) + ',"mid_price":' + f_jsonFloat(confirmedMidPrice) + ',"end_bar":' + f_jsonInt(confirmedEndBar) + ',"end_price":' + f_jsonFloat(confirmedEndPrice) + '},"effective":{"mid_bar":' + f_jsonInt(effMidBar) + ',"mid_price":' + f_jsonFloat(effMidPrice) + ',"end_bar":' + f_jsonInt(effEndBar) + ',"end_price":' + f_jsonFloat(effEndPrice) + ',"projection_active":' + f_jsonBool(projActive) + '}}'
     result
 
-f_jsonSetup(bool isProjection, bool isLong, bool zoneTouched, bool slHit, bool tpHit) =>
+f_jsonSetup(bool isProjection, bool isLong, bool zoneTouched, bool stopLossHit, bool takeProfitHit) =>
     string state = isProjection ? 'projection' : 'confirmed'
     string labelPrefix = isProjection ? '⚡PROJ' : '✓ACTIVE'
     bool isRecordable = not isProjection and zoneTouched
-    string result = '{"state":"' + state + '","is_long":' + f_jsonBool(isLong) + ',"label_prefix":"' + labelPrefix + '","is_recordable":' + f_jsonBool(isRecordable) + ',"zone_touched":' + f_jsonBool(zoneTouched) + ',"sl_hit":' + f_jsonBool(slHit) + ',"tp_hit":' + f_jsonBool(tpHit) + '}'
+    string result = '{"state":"' + state + '","is_long":' + f_jsonBool(isLong) + ',"label_prefix":"' + labelPrefix + '","is_recordable":' + f_jsonBool(isRecordable) + ',"zone_touched":' + f_jsonBool(zoneTouched) + ',"sl_hit":' + f_jsonBool(stopLossHit) + ',"tp_hit":' + f_jsonBool(takeProfitHit) + '}'
     result
 
-f_jsonZone(float rawTop, float rawBottom, float adjTop, float adjBottom, float bufferPct, bool inZone, bool zoneEntry, float minDistPct) =>
+f_jsonZone(float rawTop, float rawBottom, float adjustedTop, float adjustedBottom, float bufferPercent, bool isInZone, bool isZoneEntry, float minimumDistancePercent) =>
     float rawMid = (rawTop + rawBottom) / 2
-    float adjMid = (adjTop + adjBottom) / 2
-    string result = '{"raw":{"top":' + f_jsonFloat(rawTop) + ',"bottom":' + f_jsonFloat(rawBottom) + ',"mid":' + f_jsonFloat(rawMid) + '},"adjusted":{"top":' + f_jsonFloat(adjTop) + ',"bottom":' + f_jsonFloat(adjBottom) + ',"mid":' + f_jsonFloat(adjMid) + ',"buffer_pct":' + f_jsonFloat(bufferPct) + '},"status":{"in_zone":' + f_jsonBool(inZone) + ',"zone_entry":' + f_jsonBool(zoneEntry) + ',"min_distance_pct":' + f_jsonFloat(minDistPct) + '}}'
+    float adjustedMid = (adjustedTop + adjustedBottom) / 2
+    string result = '{"raw":{"top":' + f_jsonFloat(rawTop) + ',"bottom":' + f_jsonFloat(rawBottom) + ',"mid":' + f_jsonFloat(rawMid) + '},"adjusted":{"top":' + f_jsonFloat(adjustedTop) + ',"bottom":' + f_jsonFloat(adjustedBottom) + ',"mid":' + f_jsonFloat(adjustedMid) + ',"buffer_pct":' + f_jsonFloat(bufferPercent) + '},"status":{"in_zone":' + f_jsonBool(isInZone) + ',"zone_entry":' + f_jsonBool(isZoneEntry) + ',"min_distance_pct":' + f_jsonFloat(minimumDistancePercent) + '}}'
     result
 
-f_jsonPosition(float entryMid, float slPrice, float tpPrice, float tpCons, float tpAggr, bool useAggr, float slMult, float atr, float smartSlPrice) =>
-    string tpMode = useAggr ? 'aggressive' : 'conservative'
-    float risk = math.abs(entryMid - slPrice)
-    float reward = math.abs(tpPrice - entryMid)
-    float rr = risk > 0 ? reward / risk : 0.0
-    string result = '{"entry_mid":' + f_jsonFloat(entryMid) + ',"sl_price":' + f_jsonFloat(slPrice) + ',"tp_price":' + f_jsonFloat(tpPrice) + ',"tp_mode":"' + tpMode + '","tp_cons":' + f_jsonFloat(tpCons) + ',"tp_aggr":' + f_jsonFloat(tpAggr) + ',"sl_mult":' + f_jsonFloat(slMult) + ',"atr":' + f_jsonFloat(atr) + ',"risk_abs":' + f_jsonFloat(risk) + ',"reward_abs":' + f_jsonFloat(reward) + ',"rr":' + f_jsonFloat(rr) + ',"smart_sl":' + f_jsonFloat(smartSlPrice) + '}'
+f_jsonPosition(float entryMidPrice, float stopLossPrice, float takeProfitPrice, float takeProfitConservative, float takeProfitAggressive, bool useAggressiveTarget, float stopLossMultiplier, float averageTrueRange, float smartStopLossPrice) =>
+    string takeProfitMode = useAggressiveTarget ? 'aggressive' : 'conservative'
+    float risk = math.abs(entryMidPrice - stopLossPrice)
+    float reward = math.abs(takeProfitPrice - entryMidPrice)
+    float riskRewardRatio = risk > 0 ? reward / risk : 0.0
+    string result = '{"entry_mid":' + f_jsonFloat(entryMidPrice) + ',"sl_price":' + f_jsonFloat(stopLossPrice) + ',"tp_price":' + f_jsonFloat(takeProfitPrice) + ',"tp_mode":"' + takeProfitMode + '","tp_cons":' + f_jsonFloat(takeProfitConservative) + ',"tp_aggr":' + f_jsonFloat(takeProfitAggressive) + ',"sl_mult":' + f_jsonFloat(stopLossMultiplier) + ',"atr":' + f_jsonFloat(averageTrueRange) + ',"risk_abs":' + f_jsonFloat(risk) + ',"reward_abs":' + f_jsonFloat(reward) + ',"rr":' + f_jsonFloat(riskRewardRatio) + ',"smart_sl":' + f_jsonFloat(smartStopLossPrice) + '}'
     result
 
 f_jsonTimeDecay(bool enabled, int creationBar, int barsSince, int phase, float decayRate, bool expired) =>
@@ -3406,7 +3406,7 @@ f_jsonRegime(RegimeState rs) =>
     result
 
 f_jsonLearning(LearningMetrics lm, int samples) =>
-    string result = '{"enabled":true,"samples":' + f_jsonInt(samples) + ',"needs_recalc":' + f_jsonBool(lm.needsRecalc) + ',"near_miss_count":' + f_jsonInt(lm.nearMissCount) + ',"total_setups":' + f_jsonInt(lm.totalSetups) + ',"win_rate":' + f_jsonFloat(lm.winRate) + ',"zone_buffer_pct":' + f_jsonFloat(lm.zoneBuffer) + ',"avg_mae":' + f_jsonFloat(lm.avgMae) + ',"avg_mfe":' + f_jsonFloat(lm.avgMfe) + ',"avg_bars":' + f_jsonInt(lm.avgBars) + ',"sl_mult":' + f_jsonFloat(lm.slMult) + ',"confidence":' + f_jsonFloat(lm.confidence) + ',"profit_factor":' + f_jsonFloat(lm.profitFactor) + ',"expectancy":' + f_jsonFloat(lm.expectancy) + ',"wr_long":' + f_jsonFloat(lm.wrLong) + ',"wr_short":' + f_jsonFloat(lm.wrShort) + ',"wr_high_vol":' + f_jsonFloat(lm.wrHighVol) + ',"wr_low_vol":' + f_jsonFloat(lm.wrLowVol) + ',"div_edge":' + f_jsonFloat(lm.divEdge) + ',"rsi_weight":' + f_jsonFloat(lm.rsiWeight) + ',"decay_rate":' + f_jsonFloat(lm.decayRate) + ',"bayes_mean":' + f_jsonFloat(lm.bayesMean) + ',"bayes_lower":' + f_jsonFloat(lm.bayesLowerBound) + ',"sortino":' + f_jsonFloat(lm.sortinoRatio) + ',"is_healthy":' + f_jsonBool(lm.isHealthy) + ',"win_streak":' + f_jsonInt(lm.winStreak) + ',"loss_streak":' + f_jsonInt(lm.lossStreak) + '}'
+    string result = '{"enabled":true,"samples":' + f_jsonInt(samples) + ',"needs_recalc":' + f_jsonBool(lm.needsRecalculation) + ',"near_miss_count":' + f_jsonInt(lm.nearMissCount) + ',"total_setups":' + f_jsonInt(lm.totalSetups) + ',"win_rate":' + f_jsonFloat(lm.winRate) + ',"zone_buffer_pct":' + f_jsonFloat(lm.zoneBuffer) + ',"avg_mae":' + f_jsonFloat(lm.averageMaxAdverseExcursion) + ',"avg_mfe":' + f_jsonFloat(lm.averageMaxFavorableExcursion) + ',"avg_bars":' + f_jsonInt(lm.averageBarsHeld) + ',"sl_mult":' + f_jsonFloat(lm.stopLossMultiplier) + ',"confidence":' + f_jsonFloat(lm.confidence) + ',"profit_factor":' + f_jsonFloat(lm.profitFactor) + ',"expectancy":' + f_jsonFloat(lm.expectancy) + ',"wr_long":' + f_jsonFloat(lm.winRateLong) + ',"wr_short":' + f_jsonFloat(lm.winRateShort) + ',"wr_high_vol":' + f_jsonFloat(lm.winRateHighVolatility) + ',"wr_low_vol":' + f_jsonFloat(lm.winRateLowVolatility) + ',"div_edge":' + f_jsonFloat(lm.divergenceEdge) + ',"rsi_weight":' + f_jsonFloat(lm.rsiWeight) + ',"decay_rate":' + f_jsonFloat(lm.decayRate) + ',"bayes_mean":' + f_jsonFloat(lm.bayesianMean) + ',"bayes_lower":' + f_jsonFloat(lm.bayesianLowerBound) + ',"sortino":' + f_jsonFloat(lm.sortinoRatio) + ',"is_healthy":' + f_jsonBool(lm.isHealthy) + ',"win_streak":' + f_jsonInt(lm.winStreak) + ',"loss_streak":' + f_jsonInt(lm.lossStreak) + '}'
     result
 
 f_jsonBacktest(BacktestStats bs) =>
@@ -3414,19 +3414,19 @@ f_jsonBacktest(BacktestStats bs) =>
     result
 
 f_jsonMonteCarlo(LearningMetrics lm) =>
-    string result = '{"original_dd":' + f_jsonFloat(lm.mcOriginalDD) + ',"mean_shuffled_dd":' + f_jsonFloat(lm.mcMeanShuffledDD) + ',"p_value":' + f_jsonFloat(lm.mcPValue) + ',"sims_run":' + f_jsonInt(lm.mcSimsRun) + ',"significant":' + f_jsonBool(lm.mcSignificant) + '}'
+    string result = '{"original_dd":' + f_jsonFloat(lm.monteCarloOriginalDrawdown) + ',"mean_shuffled_dd":' + f_jsonFloat(lm.monteCarloMeanShuffledDrawdown) + ',"p_value":' + f_jsonFloat(lm.monteCarloPValue) + ',"sims_run":' + f_jsonInt(lm.monteCarloSimulationsRun) + ',"significant":' + f_jsonBool(lm.isMonteCarloSignificant) + '}'
     result
 
-f_getAlertMessageFull(string id, string eventType, bool isProj, bool isLong, bool zoneTouched, bool slHit, bool tpHit, float rawZoneTop, float rawZoneBottom, float zoneTop, float zoneBottom, float bufferPct, bool inZone, bool zoneEntry, float minDist, float slPrice, float tpPrice, float tpCons, float tpAggr, bool useAggr, float slMult, float atr, float smartSl, int creationBar, int barsSince, int timePhase, float decayRate, bool expired) =>
+f_getAlertMessageFull(string alertId, string eventType, bool isProjection, bool isLong, bool zoneTouched, bool stopLossHit, bool takeProfitHit, float rawZoneTop, float rawZoneBottom, float adjustedZoneTop, float adjustedZoneBottom, float bufferPercent, bool isInZone, bool isZoneEntry, float minimumDistance, float stopLossPrice, float takeProfitPrice, float takeProfitConservative, float takeProfitAggressive, bool useAggressiveTarget, float stopLossMultiplier, float averageTrueRange, float smartStopLoss, int creationBar, int barsSinceCreation, int timePhase, float decayRate, bool isExpired) =>
     // PerfController: Fast preset can skip full JSON serialization for performance
     if perf_skipAlertJson()
         // Minimal JSON payload - just ID and event type for alert routing
-        '{"id":"' + id + '","event":"' + eventType + '","minimal":true}'
+        '{"id":"' + alertId + '","event":"' + eventType + '","minimal":true}'
     else
-        float entryMid = (zoneTop + zoneBottom) / 2
+        float entryMidPrice = (adjustedZoneTop + adjustedZoneBottom) / 2
         
         // Build envelope
-        string envelope = f_jsonEnvelope(id, eventType)
+        string envelope = f_jsonEnvelope(alertId, eventType)
         
         // Build component JSONs
         string pivots_json = f_jsonPivots(
@@ -3437,10 +3437,10 @@ f_getAlertMessageFull(string id, string eventType, bool isProj, bool isLong, boo
             GLOBAL_projection.isActive() ? bar_index : GLOBAL_cachedPivots.iEndBase,
             GLOBAL_projection.isActive() ? GLOBAL_projection.pEndBase : GLOBAL_cachedPivots.pEndBase,
             GLOBAL_projection.isActive())
-        string setup_json = f_jsonSetup(isProj, isLong, zoneTouched, slHit, tpHit)
-        string zone_json = f_jsonZone(rawZoneTop, rawZoneBottom, zoneTop, zoneBottom, bufferPct, inZone, zoneEntry, minDist)
-        string position_json = f_jsonPosition(entryMid, slPrice, tpPrice, tpCons, tpAggr, useAggr, slMult, atr, smartSl)
-        string time_decay_json = f_jsonTimeDecay(INPUT_POS_TIME_DECAY, creationBar, barsSince, timePhase, decayRate, expired)
+        string setup_json = f_jsonSetup(isProjection, isLong, zoneTouched, stopLossHit, takeProfitHit)
+        string zone_json = f_jsonZone(rawZoneTop, rawZoneBottom, adjustedZoneTop, adjustedZoneBottom, bufferPercent, isInZone, isZoneEntry, minimumDistance)
+        string position_json = f_jsonPosition(entryMidPrice, stopLossPrice, takeProfitPrice, takeProfitConservative, takeProfitAggressive, useAggressiveTarget, stopLossMultiplier, averageTrueRange, smartStopLoss)
+        string time_decay_json = f_jsonTimeDecay(INPUT_POS_TIME_DECAY, creationBar, barsSinceCreation, timePhase, decayRate, isExpired)
         string regime_json = f_jsonRegime(GLOBAL_regime)
         string learning_json = f_jsonLearning(GLOBAL_learning, GLOBAL_setupHistory.size())
         string backtest_json = f_jsonBacktest(GLOBAL_backtest.stats)
@@ -3862,16 +3862,16 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float dynamic_scale = INPUT_POS_SL_DYNAMIC ? (1 + (atr_percentile - 50) / 100) : 1.0
     
     // Use learned SL multiplier if enabled and sufficient data
-    // GLOBAL_learning.slMult is computed from: avg MAE of winning trades + STATIC_SL_BUFFER_ATR buffer
+    // GLOBAL_learning.stopLossMultiplier is computed from: avg MAE of winning trades + STATIC_SL_BUFFER_ATR buffer
     float base_sl_mult = INPUT_POS_SL_MULT
-    bool use_learned = INPUT_USE_LEARNED_SL and INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= LEARN_MIN_SAMPLES_SL and GLOBAL_learning.slMult > 0
+    bool use_learned = INPUT_USE_LEARNED_SL and INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= LEARN_MIN_SAMPLES_SL and GLOBAL_learning.stopLossMultiplier > 0
     if use_learned
-        base_sl_mult := GLOBAL_learning.slMult
+        base_sl_mult := GLOBAL_learning.stopLossMultiplier
         // Validation: if losing trades had larger MAE, consider widening SL
         // Only if losing MAE is significantly larger than winning MAE (indicating stops too tight)
-        if GLOBAL_learning.losingMae > 0 and GLOBAL_learning.losingMae > GLOBAL_learning.avgMae * STATIC_SL_LOSING_MAE_FACTOR
+        if GLOBAL_learning.losingMaxAdverseExcursion > 0 and GLOBAL_learning.losingMaxAdverseExcursion > GLOBAL_learning.averageMaxAdverseExcursion * STATIC_SL_LOSING_MAE_FACTOR
             // Blend: use midpoint between learned SL and losing MAE to reduce premature stops
-            base_sl_mult := (GLOBAL_learning.slMult + GLOBAL_learning.losingMae) / 2
+            base_sl_mult := (GLOBAL_learning.stopLossMultiplier + GLOBAL_learning.losingMaxAdverseExcursion) / 2
     float effective_sl_mult = base_sl_mult * dynamic_scale
     
     // SL is placed beyond the swing extreme (EndBase) + ATR buffer
@@ -3892,17 +3892,17 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Calculate distances for MFE comparison
     float conservativeDistance = math.abs(tp_conservative - (price_618 + price_65) / 2)
     float aggressiveDistance = math.abs(tp_aggressive - (price_618 + price_65) / 2)
-    float mfeDistance = GLOBAL_learning.avgMfe * current_atr  // MFE converted to price distance
+    float mfeDistance = GLOBAL_learning.averageMaxFavorableExcursion * current_atr  // MFE converted to price distance
     
     // Determine which TP mode to use (can be learned)
     bool use_aggressive_tp = INPUT_POS_TP_MODE == 'Aggressive'
     bool has_learned_tp = INPUT_LEARN_TP and INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_learned_tp
         // Prefer learned EV-based decision if available
-        if GLOBAL_learning.aggrEv != 0 or GLOBAL_learning.consEv != 0
-            use_aggressive_tp := GLOBAL_learning.tpAggressive
+        if GLOBAL_learning.aggressiveExpectedValue != 0 or GLOBAL_learning.conservativeExpectedValue != 0
+            use_aggressive_tp := GLOBAL_learning.useTakeProfitAggressive
         // Fallback: if avg MFE exceeds conservative TP distance, use aggressive
-        else if GLOBAL_learning.avgMfe > 0 and mfeDistance > conservativeDistance * 1.2
+        else if GLOBAL_learning.averageMaxFavorableExcursion > 0 and mfeDistance > conservativeDistance * 1.2
             use_aggressive_tp := true
     float tp_price = use_aggressive_tp ? tp_aggressive : tp_conservative
     
@@ -4124,10 +4124,10 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // Dynamic time thresholds: scale Fib sequence by learned avg_bars if available
     float time_scale = 1.0
-    bool has_learned_time = INPUT_LEARN_DECAY and INPUT_LEARNING_ENABLED and GLOBAL_learning.avgBars > 0
+    bool has_learned_time = INPUT_LEARN_DECAY and INPUT_LEARNING_ENABLED and GLOBAL_learning.averageBarsHeld > 0
     if has_learned_time
         // Reference: default assumes TIME_DECAY_REFERENCE_BARS is "mid" point (Fib threshold 2)
-        time_scale := math.max(STATIC_TIME_DECAY_SCALE_MIN, math.min(STATIC_TIME_DECAY_SCALE_MAX, float(GLOBAL_learning.avgBars) / TIME_DECAY_REFERENCE_BARS))
+        time_scale := math.max(STATIC_TIME_DECAY_SCALE_MIN, math.min(STATIC_TIME_DECAY_SCALE_MAX, float(GLOBAL_learning.averageBarsHeld) / TIME_DECAY_REFERENCE_BARS))
     
     // Fibonacci time thresholds and decay calculation (scaled by learned timing)
     // Each threshold passed reduces confidence by decay rate
@@ -4416,12 +4416,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         
         // Extended learning: compute averages from winning trades
         if outcome_count >= LEARN_MIN_SAMPLES_MAE
-            GLOBAL_learning.avgMae := total_mae / float(outcome_count)
-            GLOBAL_learning.avgMfe := total_mfe / float(outcome_count)
-            GLOBAL_learning.avgBars := int(float(total_bars) / float(outcome_count))
+            GLOBAL_learning.averageMaxAdverseExcursion := total_mae / float(outcome_count)
+            GLOBAL_learning.averageMaxFavorableExcursion := total_mfe / float(outcome_count)
+            GLOBAL_learning.averageBarsHeld := int(float(total_bars) / float(outcome_count))
             // Optimal SL = average MAE of winners + STATIC_SL_BUFFER_ATR ATR buffer
             // This allows for typical drawdowns while avoiding premature stopouts
-            GLOBAL_learning.slMult := math.max(1.0, GLOBAL_learning.avgMae + STATIC_SL_BUFFER_ATR)
+            GLOBAL_learning.stopLossMultiplier := math.max(1.0, GLOBAL_learning.averageMaxAdverseExcursion + STATIC_SL_BUFFER_ATR)
         
         // ═══════════════════════════════════════════════════════════════════════════════
         // ── Advanced learning analytics
@@ -4431,28 +4431,28 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         int total_with_div = wins_with_div + losses_with_div
         int total_without_div = wins_without_div + losses_without_div
         if total_with_div >= LEARN_MIN_SAMPLES_DIV
-            GLOBAL_learning.wrWithDiv := float(wins_with_div) / float(total_with_div)
+            GLOBAL_learning.winRateWithDivergence := float(wins_with_div) / float(total_with_div)
         if total_without_div >= LEARN_MIN_SAMPLES_DIV
-            GLOBAL_learning.wrWithoutDiv := float(wins_without_div) / float(total_without_div)
+            GLOBAL_learning.winRateWithoutDivergence := float(wins_without_div) / float(total_without_div)
         // Edge from divergence = difference in win rates
         if total_with_div >= LEARN_MIN_SAMPLES_DIV and total_without_div >= LEARN_MIN_SAMPLES_DIV
-            GLOBAL_learning.divEdge := GLOBAL_learning.wrWithDiv - GLOBAL_learning.wrWithoutDiv
+            GLOBAL_learning.divergenceEdge := GLOBAL_learning.winRateWithDivergence - GLOBAL_learning.winRateWithoutDivergence
         
         // Direction-Specific Win Rates
         int total_long = wins_long + losses_long
         int total_short = wins_short + losses_short
         if total_long >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrLong := float(wins_long) / float(total_long)
+            GLOBAL_learning.winRateLong := float(wins_long) / float(total_long)
         if total_short >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrShort := float(wins_short) / float(total_short)
+            GLOBAL_learning.winRateShort := float(wins_short) / float(total_short)
         
         // Losing Trade MAE Analysis: Where should SL have been?
         if losing_count >= LEARN_MIN_SAMPLES_LOSING
-            GLOBAL_learning.losingMae := losing_mae_total / float(losing_count)
+            GLOBAL_learning.losingMaxAdverseExcursion := losing_mae_total / float(losing_count)
         
         // Optimal Holding Period: Use average bars to outcome
         if outcome_count >= LEARN_MIN_SAMPLES_MAE
-            GLOBAL_learning.optimalHold := GLOBAL_learning.avgBars
+            GLOBAL_learning.optimalHoldBars := GLOBAL_learning.averageBarsHeld
         
         // ═══════════════════════════════════════════════════════════════════════════════
         // ── TP mode, decay rate, RSI weight learning
@@ -4460,18 +4460,18 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         
         // TP Mode Comparison: Which mode has better expected value?
         if conservativeTpTotal >= LEARN_MIN_SAMPLES_TP_COMP and aggressiveTpTotal >= LEARN_MIN_SAMPLES_TP_COMP
-            GLOBAL_learning.consWr := float(conservativeTpWins) / float(conservativeTpTotal)
-            GLOBAL_learning.aggrWr := float(aggressiveTpWins) / float(aggressiveTpTotal)
+            GLOBAL_learning.conservativeWinRate := float(conservativeTpWins) / float(conservativeTpTotal)
+            GLOBAL_learning.aggressiveWinRate := float(aggressiveTpWins) / float(aggressiveTpTotal)
             // Calculate R:R for each mode (approximate using zone mid as entry)
             float conservativeReward = math.abs(tp_conservative - mid_entry)
             float aggressiveReward = math.abs(tp_aggressive - mid_entry)
             float conservativeRiskReward = risk > 0 ? conservativeReward / risk : 0
             float aggressiveRiskReward = risk > 0 ? aggressiveReward / risk : 0
             // Expected Value = (WinRate * Reward) - ((1-WinRate) * Risk) per unit risk
-            GLOBAL_learning.consEv := GLOBAL_learning.consWr * conservativeRiskReward - (1 - GLOBAL_learning.consWr)
-            GLOBAL_learning.aggrEv := GLOBAL_learning.aggrWr * aggressiveRiskReward - (1 - GLOBAL_learning.aggrWr)
+            GLOBAL_learning.conservativeExpectedValue := GLOBAL_learning.conservativeWinRate * conservativeRiskReward - (1 - GLOBAL_learning.conservativeWinRate)
+            GLOBAL_learning.aggressiveExpectedValue := GLOBAL_learning.aggressiveWinRate * aggressiveRiskReward - (1 - GLOBAL_learning.aggressiveWinRate)
             // Choose mode with higher EV
-            GLOBAL_learning.tpAggressive := GLOBAL_learning.aggrEv > GLOBAL_learning.consEv
+            GLOBAL_learning.useTakeProfitAggressive := GLOBAL_learning.aggressiveExpectedValue > GLOBAL_learning.conservativeExpectedValue
         
         // Time Decay Rate Learning: Based on when wins happen
         // If most wins are early, accelerate decay. If wins persist late, slow decay.
@@ -4488,9 +4488,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // RSI Weight Learning: How much edge does divergence provide?
         // Weight = normalized edge (0 if no edge, 1 if huge edge)
         if total_with_div >= LEARN_MIN_SAMPLES_DIV and total_without_div >= LEARN_MIN_SAMPLES_DIV
-            // GLOBAL_learning.divEdge is already computed above
+            // GLOBAL_learning.divergenceEdge is already computed above
             // Convert edge to weight: +20% edge → weight 1.0, 0% edge → weight 0.0
-            GLOBAL_learning.rsiWeight := math.max(0, math.min(1.0, GLOBAL_learning.divEdge * 5))
+            GLOBAL_learning.rsiWeight := math.max(0, math.min(1.0, GLOBAL_learning.divergenceEdge * 5))
         
         // ═══════════════════════════════════════════════════════════════════════════════
         // Already cleaned up above
@@ -4500,45 +4500,45 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         int total_high_vol = wins_high_vol + losses_high_vol
         int total_low_vol = wins_low_vol + losses_low_vol
         if total_high_vol >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrHighVol := float(wins_high_vol) / float(total_high_vol)
+            GLOBAL_learning.winRateHighVolatility := float(wins_high_vol) / float(total_high_vol)
         if total_low_vol >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrLowVol := float(wins_low_vol) / float(total_low_vol)
+            GLOBAL_learning.winRateLowVolatility := float(wins_low_vol) / float(total_low_vol)
         
         // Entropy regime win rates
         int total_ordered = wins_ordered + losses_ordered
         int total_disordered = wins_disordered + losses_disordered
         if total_ordered >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrOrdered := float(wins_ordered) / float(total_ordered)
+            GLOBAL_learning.winRateOrdered := float(wins_ordered) / float(total_ordered)
         if total_disordered >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrDisordered := float(wins_disordered) / float(total_disordered)
+            GLOBAL_learning.winRateDisordered := float(wins_disordered) / float(total_disordered)
         // Entropy edge: ordered WR - disordered WR
         if total_ordered >= LEARN_MIN_SAMPLES_DIR and total_disordered >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.entropyEdge := GLOBAL_learning.wrOrdered - GLOBAL_learning.wrDisordered
+            GLOBAL_learning.entropyEdge := GLOBAL_learning.winRateOrdered - GLOBAL_learning.winRateDisordered
         
         // Hurst regime win rates
         int total_trend = wins_trend + losses_trend
         int total_meanrev = wins_meanrev + losses_meanrev
         int total_random = wins_random + losses_random
         if total_trend >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrTrend := float(wins_trend) / float(total_trend)
+            GLOBAL_learning.winRateTrend := float(wins_trend) / float(total_trend)
         if total_meanrev >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrMeanRev := float(wins_meanrev) / float(total_meanrev)
+            GLOBAL_learning.winRateMeanRevert := float(wins_meanrev) / float(total_meanrev)
         if total_random >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrRandom := float(wins_random) / float(total_random)
+            GLOBAL_learning.winRateRandom := float(wins_random) / float(total_random)
         // Hurst edge: trend WR - meanrev WR
         if total_trend >= LEARN_MIN_SAMPLES_DIR and total_meanrev >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.hurstEdge := GLOBAL_learning.wrTrend - GLOBAL_learning.wrMeanRev
+            GLOBAL_learning.hurstEdge := GLOBAL_learning.winRateTrend - GLOBAL_learning.winRateMeanRevert
         
         // Z-Score momentum win rates
         int total_strong_mom = wins_strong_mom + losses_strong_mom
         int total_weak_mom = wins_weak_mom + losses_weak_mom
         if total_strong_mom >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrStrongMom := float(wins_strong_mom) / float(total_strong_mom)
+            GLOBAL_learning.winRateStrongMomentum := float(wins_strong_mom) / float(total_strong_mom)
         if total_weak_mom >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.wrWeakMom := float(wins_weak_mom) / float(total_weak_mom)
+            GLOBAL_learning.winRateWeakMomentum := float(wins_weak_mom) / float(total_weak_mom)
         // Momentum edge: strong WR - weak WR
         if total_strong_mom >= LEARN_MIN_SAMPLES_DIR and total_weak_mom >= LEARN_MIN_SAMPLES_DIR
-            GLOBAL_learning.momentumEdge := GLOBAL_learning.wrStrongMom - GLOBAL_learning.wrWeakMom
+            GLOBAL_learning.momentumEdge := GLOBAL_learning.winRateStrongMomentum - GLOBAL_learning.winRateWeakMomentum
         
         // Profit factor: Total R won / R lost
         if total_r_lost > 0
@@ -4571,12 +4571,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     float log_r = f_logReturn(1.0 + trade_r, 1.0)
                     sum_log_returns += log_r
                     sum_log_sq += log_r * log_r
-            GLOBAL_learning.cumLogReturn := sum_log_returns
-            GLOBAL_learning.avgLogReturn := sum_log_returns / float(total_outcomes)
-            float variance = (sum_log_sq / float(total_outcomes)) - (GLOBAL_learning.avgLogReturn * GLOBAL_learning.avgLogReturn)
-            GLOBAL_learning.logReturnStdev := math.sqrt(math.max(0, variance))
-            if GLOBAL_learning.logReturnStdev > 0
-                GLOBAL_learning.sharpeRatio := GLOBAL_learning.avgLogReturn / GLOBAL_learning.logReturnStdev
+            GLOBAL_learning.cumulativeLogReturn := sum_log_returns
+            GLOBAL_learning.averageLogReturn := sum_log_returns / float(total_outcomes)
+            float variance = (sum_log_sq / float(total_outcomes)) - (GLOBAL_learning.averageLogReturn * GLOBAL_learning.averageLogReturn)
+            GLOBAL_learning.logReturnStandardDeviation := math.sqrt(math.max(0, variance))
+            if GLOBAL_learning.logReturnStandardDeviation > 0
+                GLOBAL_learning.sharpeRatio := GLOBAL_learning.averageLogReturn / GLOBAL_learning.logReturnStandardDeviation
         
         // ═══════════════════════════════════════════════════════════════════════════════
         // Already cleaned up above
@@ -4585,13 +4585,13 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // 5.1 Bayesian Win-Rate (Beta-Binomial Model)
         if INPUT_BAYES_ENABLED
             // Update posterior: α = prior + wins, β = prior + losses
-            GLOBAL_learning.bayesAlpha := INPUT_STATIC_BAYES_ALPHA_PRIOR + float(wins)
-            GLOBAL_learning.bayesBeta := INPUT_STATIC_BAYES_BETA_PRIOR + float(losses)
+            GLOBAL_learning.bayesianAlpha := INPUT_STATIC_BAYES_ALPHA_PRIOR + float(wins)
+            GLOBAL_learning.bayesianBeta := INPUT_STATIC_BAYES_BETA_PRIOR + float(losses)
             // Posterior mean: E[θ] = α / (α + β)
-            GLOBAL_learning.bayesMean := f_betaMean(GLOBAL_learning.bayesAlpha, GLOBAL_learning.bayesBeta)
+            GLOBAL_learning.bayesianMean := f_betaMean(GLOBAL_learning.bayesianAlpha, GLOBAL_learning.bayesianBeta)
             // Lower credible bound (sample-size penalized)
             float percentile = 1.0 - INPUT_BAYES_CONFIDENCE
-            GLOBAL_learning.bayesLowerBound := f_betaLowerBound(GLOBAL_learning.bayesAlpha, GLOBAL_learning.bayesBeta, percentile)
+            GLOBAL_learning.bayesianLowerBound := f_betaLowerBound(GLOBAL_learning.bayesianAlpha, GLOBAL_learning.bayesianBeta, percentile)
         
         // 5.2 Sortino Ratio (Downside-Risk Adjusted)
         if INPUT_SORTINO_ENABLED and total_outcomes >= LEARN_MIN_SAMPLES_WR
@@ -4617,10 +4617,10 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             if n_returns >= 2
                 GLOBAL_learning.meanTradeReturn := sum_returns / float(n_returns)
                 // Downside deviation = sqrt(mean of squared downside deviations over ALL trades)
-                GLOBAL_learning.downsideDev := math.sqrt(sum_sq_downside / float(n_returns))
+                GLOBAL_learning.downsideDeviation := math.sqrt(sum_sq_downside / float(n_returns))
                 // Sortino = (mean - rf) / downside_dev
-                if GLOBAL_learning.downsideDev > 1e-10
-                    GLOBAL_learning.sortinoRatio := GLOBAL_learning.meanTradeReturn / GLOBAL_learning.downsideDev
+                if GLOBAL_learning.downsideDeviation > 1e-10
+                    GLOBAL_learning.sortinoRatio := GLOBAL_learning.meanTradeReturn / GLOBAL_learning.downsideDeviation
                 else
                     // No downside: cap at max if profitable, 0 otherwise
                     GLOBAL_learning.sortinoRatio := GLOBAL_learning.meanTradeReturn > 0 ? STATIC_SORTINO_MAX_CAP : 0.0
@@ -4639,11 +4639,11 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
             
             if array.size(mc_returns) >= MC_MIN_TRADES
                 [orig_dd, mean_shuf_dd, p_val, sims] = f_monteCarloDD(mc_returns, INPUT_MC_SIMS, MC_SEED_BASE)
-                GLOBAL_learning.mcOriginalDD := orig_dd
-                GLOBAL_learning.mcMeanShuffledDD := mean_shuf_dd
-                GLOBAL_learning.mcPValue := p_val
-                GLOBAL_learning.mcSimsRun := sims
-                GLOBAL_learning.mcSignificant := p_val < INPUT_MC_PVALUE
+                GLOBAL_learning.monteCarloOriginalDrawdown := orig_dd
+                GLOBAL_learning.monteCarloMeanShuffledDrawdown := mean_shuf_dd
+                GLOBAL_learning.monteCarloPValue := p_val
+                GLOBAL_learning.monteCarloSimulationsRun := sims
+                GLOBAL_learning.isMonteCarloSignificant := p_val < INPUT_MC_PVALUE
         
         // 4.6 Learning Health Check
         int bars_since_outcome = bar_index - GLOBAL_learning.lastOutcomeBar
@@ -5057,14 +5057,14 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     if zone_entry and INPUT_ALERT_ENABLED
         string entry_msg = f_getAlertMessageFull(STATIC_ALERT_ID_ENTRY, "zone_entry",
             GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
-            GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+            GLOBAL_alertState.stopLossHit, GLOBAL_alertState.takeProfitHit, GLOBAL_alertState.rawZoneTop,
             GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
-            GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
-            GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
-            GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
-            GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+            GLOBAL_alertState.bufferPercent, GLOBAL_alertState.isInZone, GLOBAL_alertState.isZoneEntry,
+            GLOBAL_alertState.minimumDistance, GLOBAL_alertState.stopLossPrice, GLOBAL_alertState.takeProfitPrice,
+            GLOBAL_alertState.takeProfitConservative, GLOBAL_alertState.takeProfitAggressive, GLOBAL_alertState.useAggressiveTakeProfit,
+            GLOBAL_alertState.stopLossMultiplier, GLOBAL_alertState.averageTrueRange, GLOBAL_alertState.smartStopLoss,
             GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
-            GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+            GLOBAL_alertState.decayRate, GLOBAL_alertState.isExpired)
         alert(entry_msg, alert.freq_once_per_bar)
 
 // AddOns
