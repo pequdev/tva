@@ -62,7 +62,7 @@
 // NOTE: calc_bars_count must be a compile-time literal (cannot use input()).
 // Set to 0 (all bars) for maximum compatibility. For profiling heavy scripts,
 // temporarily change to a lower value like 10000 and recompile.
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS/1.13.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true, calc_bars_count=0)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS/1.15', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true, calc_bars_count=0)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -526,29 +526,25 @@ perf_shouldShowDashboard() =>
 // @param user_window User-configured window from input
 // @returns Adjusted window (reduced in Fast mode)
 perf_getEntropyWindow(int user_window) =>
-    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_ENTROPY ? 
-        math.min(user_window, PERF_ENTROPY_WINDOW_FAST) : user_window
+    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_ENTROPY ? math.min(user_window, PERF_ENTROPY_WINDOW_FAST) : user_window
 
 // @function Get effective Hurst window based on preset
 // @param user_window User-configured window from input
 // @returns Adjusted window (reduced in Fast mode)
 perf_getHurstWindow(int user_window) =>
-    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_HURST ? 
-        math.min(user_window, PERF_HURST_WINDOW_FAST) : user_window
+    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_HURST ? math.min(user_window, PERF_HURST_WINDOW_FAST) : user_window
 
 // @function Get effective Hurst mode based on preset
 // @param user_mode User-configured mode from input
 // @returns Adjusted mode (forced to Dyadic Fast in Fast preset)
 perf_getHurstMode(string user_mode) =>
-    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_HURST ? 
-        HURST_MODE_DYADIC_FAST : user_mode
+    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_HURST ? HURST_MODE_DYADIC_FAST : user_mode
 
 // @function Get effective Entropy mode based on preset
 // @param user_mode User-configured mode from input
 // @returns Adjusted mode (forced to K-gram in Fast preset)
 perf_getEntropyMode(string user_mode) =>
-    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_ENTROPY ? 
-        ENTROPY_MODE_KGRAM : user_mode
+    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_ENTROPY ? ENTROPY_MODE_KGRAM : user_mode
 
 // @function Get max visual objects to keep based on preset
 // @returns Object limit for GC purposes
@@ -1604,6 +1600,123 @@ string ICON_WAVE        = "🌊"
 string ICON_CHECK       = "✓"
 string ICON_WARNING     = "⚠"
 string ICON_HOURGLASS   = "⏳"
+string ICON_STOP        = "🛑"
+string ICON_SCALE       = "⚖️"
+
+// Position Display
+string TEXT_TP_PREFIX   = "\n" + ICON_TARGET + " TP: "
+string TEXT_SL_PREFIX   = "\n" + ICON_STOP + " SL: "
+string TEXT_RR_PREFIX   = "\n" + ICON_SCALE + " R:R "
+string TEXT_PROJ_TAG    = " " + ICON_LIGHTNING + "PROJ"
+string TEXT_ACTIVE_TAG  = " " + ICON_CHECK + "ACTIVE"
+string TEXT_SMART_SL    = "\n   " + ICON_TARGET + " Smart SL: "
+
+// Learning Display
+string TEXT_L_BUF       = " | Buf:+"
+string TEXT_L_WR        = " | WR:"
+string TEXT_L_MAE       = "\n   MAE:"
+string TEXT_L_MFE       = " MFE:"
+string TEXT_L_SL_MULT   = " SL*:"
+string TEXT_L_TAU       = " τ:"
+string TEXT_L_DIV       = "\n   DIV:"
+string TEXT_L_EDGE      = "% edge"
+string TEXT_L_LONG      = "\n   L:"
+string TEXT_L_SHORT     = " S:"
+string TEXT_L_XMAE      = " ✗MAE:"
+string TEXT_L_TP        = "\n   " + ICON_BRAIN + " TP:"
+string TEXT_L_DECAY     = " Decay:"
+string TEXT_L_RSIWT     = " RSIwt:"
+string TEXT_L_CONF      = "\n   " + ICON_TARGET + " Conf:"
+string TEXT_L_PF        = "\n   PF:"
+string TEXT_L_EXP       = " Exp:"
+string TEXT_L_HIGHVOL   = "\n   " + ICON_LIGHTNING + "HighVol"
+string TEXT_L_LOWVOL    = "\n   " + ICON_WAVE + " LowVol"
+string TEXT_L_SR        = "\n   SR:"
+string TEXT_L_WARN      = "\n   " + ICON_WARNING + " "
+string TEXT_L_FIRE      = "\n   " + ICON_FIRE + " "
+string TEXT_L_STREAK_L  = "L streak"
+string TEXT_L_STREAK_W  = "W streak"
+
+// Backtest Display
+string TEXT_BT_PREFIX   = "\n" + ICON_CHART + " Backtested "
+string TEXT_BT_TRADES   = " Trades: "
+string TEXT_BT_WR       = "% WR"
+string TEXT_BT_LOW      = " " + ICON_WARNING + "LOW"
+string TEXT_BT_EMPTY    = "\n" + ICON_CHART + " Backtesting... (0 trades)"
+
+// Rating Symbols
+string SYM_UP           = "▲"
+string SYM_DOWN         = "▼"
+string SYM_EQUAL        = "="
+string SYM_MINUS        = "−"
+string SYM_CIRCLE       = "○"
+string SYM_PLUS         = "+"
+string SYM_PLUSPLUS     = "++"
+string SYM_CROSS        = "✗"
+
+// Grade Labels
+string GRADE_D          = "D"
+string GRADE_C          = "C"
+string GRADE_B          = "B"
+string GRADE_A          = "A"
+string GRADE_APLUS      = "A+"
+
+// TP Mode Labels
+string TEXT_TP_AGGR     = "Aggr"
+string TEXT_TP_CONS     = "Cons"
+
+// Misc Text
+string TEXT_R_SUFFIX    = "R"
+string TEXT_BARS        = "bars"
+string TEXT_PCT_SUFFIX  = "%"
+string TEXT_SPACE       = " "
+string TEXT_DASH        = "—"
+
+// Plotchar Labels
+string LABEL_EXHAUST    = "Exhaustion Bar"
+string LABEL_HIGH_VOL   = "High Volatile Bar"
+string ICON_TRAFFIC     = "🚦"
+
+// Table Headers
+string TBL_ENTROPY      = "Entropy Debug"
+string TBL_HURST        = "Hurst Debug"
+string TBL_EXT          = "External Context"
+string TBL_PERF         = "⚡ Perf Dashboard"
+
+// Table Fields
+string FLD_MODE         = "Mode"
+string FLD_COMPLEXITY   = "Complexity"
+string FLD_STATES       = "States"
+string FLD_K_GRAM       = "K (k-gram)"
+string FLD_WINDOW       = "Window"
+string FLD_H_RAW        = "H_raw"
+string FLD_H_NORM       = "H_norm"
+string FLD_REGIME       = "Regime"
+string FLD_ENTROPY_OK   = "entropyOk"
+string FLD_BUFFER       = "Buffer"
+string FLD_BUFFER_OK    = "Buffer ✓"
+string FLD_SCALES       = "Scales"
+string FLD_H_VALUE      = "H Value"
+string FLD_HURST_OK     = "hurstOk"
+string FLD_CHUNKS       = "Chunks"
+string FLD_ENABLED      = "Enabled"
+string FLD_GATED        = "Gated"
+string FLD_BUDGET_OK    = "Budget OK"
+
+// EV Grade Labels
+string TEXT_EV_NEG      = "−EV"
+string TEXT_EV_MARGINAL = "marginal"
+string TEXT_EV_DECENT   = "decent"
+string TEXT_EV_STRONG   = "strong"
+string TEXT_EV_EXCEPT   = "exceptional"
+string TEXT_EV_CONF_YES = ICON_CHECK
+string TEXT_EV_CONF_NO  = "?"
+
+// Status Labels
+string TEXT_ON          = ICON_CHECK + " ON"
+string TEXT_OFF         = SYM_CROSS + " OFF"
+string TEXT_EXCEEDED    = ICON_WARNING + " EXCEEDED"
+string TEXT_DEGRADE_PFX = ICON_LIGHTNING + " "
 
 // Tooltips
 string TOOLTIP_THRESHOLD   = 'Deviation is a multiplier that affects how much the price should deviate from the previous pivot in order for the bar to become a new pivot\n\nDepth affects the minimum number of bars that will be taken into account when building'
@@ -5724,8 +5837,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool ev_significant = ev_lower_95 > 0  // True if 95% confident EV is positive
     
     // EV quality indicator
-    string ev_grade = ev_percent <= 0 ? "−EV" : ev_percent < 10 ? "marginal" : ev_percent < 25 ? "decent" : ev_percent < 50 ? "strong" : "exceptional"
-    string ev_conf = ev_significant ? "✓" : "?"
+    string ev_grade = ev_percent <= 0 ? TEXT_EV_NEG : ev_percent < 10 ? TEXT_EV_MARGINAL : ev_percent < 25 ? TEXT_EV_DECENT : ev_percent < 50 ? TEXT_EV_STRONG : TEXT_EV_EXCEPT
+    string ev_conf = ev_significant ? TEXT_EV_CONF_YES : TEXT_EV_CONF_NO
     
     // Kelly edge quality indicator
     string kelly_grade = kelly_pct <= 0 ? "NO EDGE" : kelly_pct < 5 ? "weak" : kelly_pct < 10 ? "decent" : kelly_pct < 15 ? "strong" : "excellent"
@@ -5745,43 +5858,43 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     if INPUT_LEARNING_ENABLED
         int sample_count = GLOBAL_setupHistory.size()
         if sample_count >= 10
-            learn_text := "\n📊 " + str.tostring(sample_count) + " samples"
+            learn_text := "\n" + ICON_CHART + " " + str.tostring(sample_count) + TEXT_SAMPLES
             if GLOBAL_learning.zoneBuffer > 0
-                learn_text += " | Buf:+" + str.tostring(GLOBAL_learning.zoneBuffer, "#.##") + "%"
+                learn_text += TEXT_L_BUF + str.tostring(GLOBAL_learning.zoneBuffer, "#.##") + "%"
             if sample_count >= 20
-                learn_text += " | WR:" + str.tostring(GLOBAL_learning.winRate * 100, "#.#") + "%"
+                learn_text += TEXT_L_WR + str.tostring(GLOBAL_learning.winRate * 100, "#.#") + "%"
                 // Extended metrics display (Phase 1)
                 if GLOBAL_learning.avgMae > 0
-                    learn_text += "\n   MAE:" + str.tostring(GLOBAL_learning.avgMae, "#.#") + "R"
-                    learn_text += " MFE:" + str.tostring(GLOBAL_learning.avgMfe, "#.#") + "R"
-                    learn_text += " SL*:" + str.tostring(GLOBAL_learning.slMult, "#.#") + "x"
+                    learn_text += TEXT_L_MAE + str.tostring(GLOBAL_learning.avgMae, "#.#") + "R"
+                    learn_text += TEXT_L_MFE + str.tostring(GLOBAL_learning.avgMfe, "#.#") + "R"
+                    learn_text += TEXT_L_SL_MULT + str.tostring(GLOBAL_learning.slMult, "#.#") + "x"
                 if GLOBAL_learning.avgBars > 0
-                    learn_text += " τ:" + str.tostring(GLOBAL_learning.avgBars) + "bars"
+                    learn_text += TEXT_L_TAU + str.tostring(GLOBAL_learning.avgBars) + TEXT_BARS
                 // Phase 2: Advanced analytics display
                 // RSI Divergence Edge
                 if GLOBAL_learning.divEdge != 0
                     string div_sign = GLOBAL_learning.divEdge > 0 ? "+" : ""
-                    learn_text += "\n   DIV:" + div_sign + str.tostring(GLOBAL_learning.divEdge * 100, "#.#") + "% edge"
+                    learn_text += TEXT_L_DIV + div_sign + str.tostring(GLOBAL_learning.divEdge * 100, "#.#") + TEXT_L_EDGE
                 // Direction-specific win rates (show if significant difference)
                 float dir_diff = math.abs(GLOBAL_learning.wrLong - GLOBAL_learning.wrShort)
                 if dir_diff > 0.05  // >5% difference
-                    learn_text += "\n   L:" + str.tostring(GLOBAL_learning.wrLong * 100, "#") + "% S:" + str.tostring(GLOBAL_learning.wrShort * 100, "#") + "%"
+                    learn_text += TEXT_L_LONG + str.tostring(GLOBAL_learning.wrLong * 100, "#") + "%" + TEXT_L_SHORT + str.tostring(GLOBAL_learning.wrShort * 100, "#") + "%"
                 // Losing MAE (informative: where trades went wrong)
                 if GLOBAL_learning.losingMae > 0
-                    learn_text += " ✗MAE:" + str.tostring(GLOBAL_learning.losingMae, "#.#") + "R"
+                    learn_text += TEXT_L_XMAE + str.tostring(GLOBAL_learning.losingMae, "#.#") + TEXT_R_SUFFIX
                 // Phase 3: Show learned parameters
                 if sample_count >= INPUT_LEARN_MIN_SAMPLES
                     string p3_text = ""
                     // Show learned TP mode recommendation
                     if INPUT_LEARN_TP and (GLOBAL_learning.consEv != 0 or GLOBAL_learning.aggrEv != 0)
-                        string tp_rec = GLOBAL_learning.tpAggressive ? "Aggr" : "Cons"
-                        p3_text += "\n   🧠 TP:" + tp_rec + "✓"
+                        string tp_rec = GLOBAL_learning.tpAggressive ? TEXT_TP_AGGR : TEXT_TP_CONS
+                        p3_text += TEXT_L_TP + tp_rec + ICON_CHECK
                     // Show learned decay rate if different from default
                     if INPUT_LEARN_DECAY and math.abs(GLOBAL_learning.decayRate - DEFAULT_DECAY_RATE) > 0.02
-                        p3_text += " Decay:" + str.tostring(GLOBAL_learning.decayRate, "#.##")
+                        p3_text += TEXT_L_DECAY + str.tostring(GLOBAL_learning.decayRate, "#.##")
                     // Show learned RSI weight if significant
                     if INPUT_LEARN_RSI_WEIGHT and GLOBAL_learning.rsiWeight > 0.1
-                        p3_text += " RSIwt:" + str.tostring(GLOBAL_learning.rsiWeight, "#.#")
+                        p3_text += TEXT_L_RSIWT + str.tostring(GLOBAL_learning.rsiWeight, "#.#")
                     if str.length(p3_text) > 0
                         learn_text += p3_text
                     // Phase 4: Confidence scoring and regime analytics
@@ -5803,37 +5916,37 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                         adjusted_conf += regime_edge * 50  // ±10% edge → ±5 points
                     adjusted_conf := math.max(0, math.min(100, adjusted_conf))
                     // Unified Confidence Score with grade
-                    string conf_grade = adjusted_conf < CONF_GRADE_D_THRESH ? "D" : adjusted_conf < CONF_GRADE_C_THRESH ? "C" : adjusted_conf < CONF_GRADE_B_THRESH ? "B" : adjusted_conf < CONF_GRADE_A_THRESH ? "A" : "A+"
-                    string health_icon = GLOBAL_learning.isHealthy ? "✓" : "⚠"
-                    p4_text += "\n   🎯 Conf:" + str.tostring(adjusted_conf, "#") + "% " + conf_grade + " " + health_icon
+                    string conf_grade = adjusted_conf < CONF_GRADE_D_THRESH ? GRADE_D : adjusted_conf < CONF_GRADE_C_THRESH ? GRADE_C : adjusted_conf < CONF_GRADE_B_THRESH ? GRADE_B : adjusted_conf < CONF_GRADE_A_THRESH ? GRADE_A : GRADE_APLUS
+                    string health_icon = GLOBAL_learning.isHealthy ? ICON_CHECK : ICON_WARNING
+                    p4_text += TEXT_L_CONF + str.tostring(adjusted_conf, "#") + TEXT_PCT_SUFFIX + TEXT_SPACE + conf_grade + TEXT_SPACE + health_icon
                     // Profit Factor (only show if meaningful)
                     if GLOBAL_learning.profitFactor > 0
-                        string pf_rating = GLOBAL_learning.profitFactor < 1.0 ? "−" : GLOBAL_learning.profitFactor < 1.5 ? "○" : GLOBAL_learning.profitFactor < 2.0 ? "+" : "++"
-                        p4_text += "\n   PF:" + str.tostring(GLOBAL_learning.profitFactor, "#.##") + pf_rating
+                        string pf_rating = GLOBAL_learning.profitFactor < 1.0 ? SYM_MINUS : GLOBAL_learning.profitFactor < 1.5 ? SYM_CIRCLE : GLOBAL_learning.profitFactor < 2.0 ? SYM_PLUS : SYM_PLUSPLUS
+                        p4_text += TEXT_L_PF + str.tostring(GLOBAL_learning.profitFactor, "#.##") + pf_rating
                     // Expectancy per trade
                     if GLOBAL_learning.expectancy != 0
-                        string exp_sign = GLOBAL_learning.expectancy > 0 ? "+" : ""
-                        p4_text += " Exp:" + exp_sign + str.tostring(GLOBAL_learning.expectancy, "#.##") + "R"
+                        string exp_sign = GLOBAL_learning.expectancy > 0 ? SYM_PLUS : ""
+                        p4_text += TEXT_L_EXP + exp_sign + str.tostring(GLOBAL_learning.expectancy, "#.##") + TEXT_R_SUFFIX
                     // Regime indicator: Show if we're in favorable/unfavorable vol regime (use real-time percentile)
                     if current_regime_percentile >= VOL_REGIME_HIGH_THRESH and GLOBAL_learning.wrHighVol != DEFAULT_WIN_RATE
-                        string vol_edge = GLOBAL_learning.wrHighVol > GLOBAL_learning.winRate ? "▲" : GLOBAL_learning.wrHighVol < GLOBAL_learning.winRate ? "▼" : "="
-                        p4_text += "\n   ⚡HighVol" + vol_edge + " " + str.tostring(GLOBAL_learning.wrHighVol * 100, "#") + "%"
+                        string vol_edge = GLOBAL_learning.wrHighVol > GLOBAL_learning.winRate ? SYM_UP : GLOBAL_learning.wrHighVol < GLOBAL_learning.winRate ? SYM_DOWN : SYM_EQUAL
+                        p4_text += TEXT_L_HIGHVOL + vol_edge + TEXT_SPACE + str.tostring(GLOBAL_learning.wrHighVol * 100, "#") + TEXT_PCT_SUFFIX
                     else if current_regime_percentile <= VOL_REGIME_LOW_THRESH and GLOBAL_learning.wrLowVol != DEFAULT_WIN_RATE
-                        string vol_edge = GLOBAL_learning.wrLowVol > GLOBAL_learning.winRate ? "▲" : GLOBAL_learning.wrLowVol < GLOBAL_learning.winRate ? "▼" : "="
-                        p4_text += "\n   🌊 LowVol" + vol_edge + " " + str.tostring(GLOBAL_learning.wrLowVol * 100, "#") + "%"
+                        string vol_edge = GLOBAL_learning.wrLowVol > GLOBAL_learning.winRate ? SYM_UP : GLOBAL_learning.wrLowVol < GLOBAL_learning.winRate ? SYM_DOWN : SYM_EQUAL
+                        p4_text += TEXT_L_LOWVOL + vol_edge + TEXT_SPACE + str.tostring(GLOBAL_learning.wrLowVol * 100, "#") + TEXT_PCT_SUFFIX
                     // Sharpe Ratio (risk-adjusted return)
                     if GLOBAL_learning.sharpeRatio != 0
-                        string sr_rating = GLOBAL_learning.sharpeRatio < 0 ? "−" : GLOBAL_learning.sharpeRatio < 1 ? "○" : GLOBAL_learning.sharpeRatio < 2 ? "+" : "++"
-                        p4_text += "\n   SR:" + str.tostring(GLOBAL_learning.sharpeRatio, "#.##") + sr_rating
+                        string sr_rating = GLOBAL_learning.sharpeRatio < 0 ? SYM_MINUS : GLOBAL_learning.sharpeRatio < 1 ? SYM_CIRCLE : GLOBAL_learning.sharpeRatio < 2 ? SYM_PLUS : SYM_PLUSPLUS
+                        p4_text += TEXT_L_SR + str.tostring(GLOBAL_learning.sharpeRatio, "#.##") + sr_rating
                     // Streak warning (show win streak as positive indicator too)
                     if GLOBAL_learning.lossStreak >= STREAK_LOSS_PENALTY_THRESH
-                        p4_text += "\n   ⚠ " + str.tostring(GLOBAL_learning.lossStreak) + "L streak"
+                        p4_text += TEXT_L_WARN + str.tostring(GLOBAL_learning.lossStreak) + TEXT_L_STREAK_L
                     else if GLOBAL_learning.winStreak >= STREAK_WIN_BONUS_THRESH
-                        p4_text += "\n   🔥 " + str.tostring(GLOBAL_learning.winStreak) + "W streak"
+                        p4_text += TEXT_L_FIRE + str.tostring(GLOBAL_learning.winStreak) + TEXT_L_STREAK_W
                     if str.length(p4_text) > 0
                         learn_text += p4_text
         else
-            learn_text := "\n📊 Learning... (" + str.tostring(sample_count) + "/" + str.tostring(INPUT_LEARNING_SAMPLES) + ")"
+            learn_text := "\n" + TEXT_LEARNING + " (" + str.tostring(sample_count) + "/" + str.tostring(INPUT_LEARNING_SAMPLES) + ")"
     
     // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
     // TASK 4: Status Label - Distinguish Confirmed vs Projected
@@ -5848,7 +5961,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Status prefix: clearly distinguish between Confirmed Active and Projected trades
     // ⚡PROJ = Projection (tentative, not recorded to learning)
     // ✓ACTIVE = Confirmed Active (tracked, will be recorded)
-    string trade_state_indicator = isProjection ? " ⚡PROJ" : (not na(GLOBAL_activeTrade.setup_bar) ? " ✓ACTIVE" : "")
+    string trade_state_indicator = isProjection ? TEXT_PROJ_TAG : (not na(GLOBAL_activeTrade.setup_bar) ? TEXT_ACTIVE_TAG : "")
     
     // ═════════════════════════════════════════════════════════════════════════════════════════════════════════════
     // BACKTEST STATS DISPLAY - Show optimization results on the dashboard
@@ -5856,16 +5969,16 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     string backtest_text = ""
     if GLOBAL_backtest.stats.statsReady and GLOBAL_backtest.stats.totalTrades > 0
         // Low confidence warning
-        string conf_warning = GLOBAL_backtest.stats.lowConfidence ? " ⚠️LOW" : ""
-        backtest_text := "\n📈 Backtested " + str.tostring(GLOBAL_backtest.stats.totalTrades) + " Trades: " + str.tostring(math.round(GLOBAL_backtest.stats.winRate * 100)) + "% WR" + conf_warning
+        string conf_warning = GLOBAL_backtest.stats.lowConfidence ? TEXT_BT_LOW : ""
+        backtest_text := TEXT_BT_PREFIX + str.tostring(GLOBAL_backtest.stats.totalTrades) + TEXT_BT_TRADES + str.tostring(math.round(GLOBAL_backtest.stats.winRate * 100)) + TEXT_BT_WR + conf_warning
         // Show Smart SL if available
         if GLOBAL_backtest.stats.smartSlOffset > 0
             float smart_sl_price = display_is_long ? mid_entry - GLOBAL_backtest.stats.smartSlOffset : mid_entry + GLOBAL_backtest.stats.smartSlOffset
-            backtest_text += "\n   🎯 Smart SL: " + str.tostring(smart_sl_price, format.mintick)
+            backtest_text += TEXT_SMART_SL + str.tostring(smart_sl_price, format.mintick)
     else if GLOBAL_backtest.stats.totalTrades == 0
-        backtest_text := "\n📈 Backtesting... (0 trades)"
+        backtest_text := TEXT_BT_EMPTY
     
-    string pos_text = (display_is_long ? TEXT_LONG : TEXT_SHORT) + TEXT_SETUP + trade_state_indicator + status + "\n🎯 TP: " + str.tostring(display_tp_text, format.mintick) + "\n🛑 SL: " + str.tostring(display_sl_text, format.mintick) + "\n⚖️ R:R " + str.tostring(rr_ratio, "#.##") + ev_text + kelly_text + learn_text + backtest_text
+    string pos_text = (display_is_long ? TEXT_LONG : TEXT_SHORT) + TEXT_SETUP + trade_state_indicator + status + TEXT_TP_PREFIX + str.tostring(display_tp_text, format.mintick) + TEXT_SL_PREFIX + str.tostring(display_sl_text, format.mintick) + TEXT_RR_PREFIX + str.tostring(rr_ratio, "#.##") + ev_text + kelly_text + learn_text + backtest_text
     
     // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
     // LEARNING ENGINE: Record CONFIRMED setup outcome on pivot change (NEVER projections)
@@ -6050,8 +6163,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         alert(entry_msg, alert.freq_once_per_bar)
 
 // AddOns
-plotchar(INPUT_SHOW_VOL_SPIKE and nzVolume != 0 ? exhaustVol : false, 'Exhaustion Bar', '🚦', location.abovebar, size=size.tiny, display = display.pane)
-plotchar(INPUT_SHOW_HIGH_ATR ? highVolatility : false, 'High Volatile Bar', '⚡', location.belowbar, size=size.tiny, display = display.pane)
+plotchar(INPUT_SHOW_VOL_SPIKE and nzVolume != 0 ? exhaustVol : false, LABEL_EXHAUST, ICON_TRAFFIC, location.abovebar, size=size.tiny, display = display.pane)
+plotchar(INPUT_SHOW_HIGH_ATR ? highVolatility : false, LABEL_HIGH_VOL, ICON_LIGHTNING, location.belowbar, size=size.tiny, display = display.pane)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATUS LINE VALUES
@@ -6173,39 +6286,39 @@ if INPUT_ALERT_ENABLED
 if perf_shouldShowDebugOverlay(INPUT_ENTROPY_DEBUG)
     var table entropyDebugTable = table.new(position.bottom_right, 2, 11, bgcolor = color.new(color.black, 80), border_width = 1)
     
-    table.cell(entropyDebugTable, 0, 0, "Entropy Debug", text_color = color.white, text_size = size.small)
+    table.cell(entropyDebugTable, 0, 0, TBL_ENTROPY, text_color = color.white, text_size = size.small)
     table.cell(entropyDebugTable, 1, 0, "", text_color = color.white, text_size = size.small)
     
-    table.cell(entropyDebugTable, 0, 1, "Mode", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 0, 1, FLD_MODE, text_color = color.gray, text_size = size.tiny)
     table.cell(entropyDebugTable, 1, 1, INPUT_ENTROPY_MODE, text_color = color.yellow, text_size = size.tiny)
     
     string _modeDetail = INPUT_ENTROPY_MODE == ENTROPY_MODE_LEGACY ? "O(N) bins" : "O(1) symbolic"
-    table.cell(entropyDebugTable, 0, 2, "Complexity", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 0, 2, FLD_COMPLEXITY, text_color = color.gray, text_size = size.tiny)
     table.cell(entropyDebugTable, 1, 2, _modeDetail, text_color = INPUT_ENTROPY_MODE == ENTROPY_MODE_LEGACY ? color.orange : color.green, text_size = size.tiny)
     
     int _states = INPUT_ENTROPY_MODE == ENTROPY_MODE_LEGACY ? INPUT_ENTROPY_BINS : INPUT_ENTROPY_MODE == ENTROPY_MODE_BINARY ? 2 : int(math.pow(2, INPUT_ENTROPY_K))
-    table.cell(entropyDebugTable, 0, 3, "States", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 0, 3, FLD_STATES, text_color = color.gray, text_size = size.tiny)
     table.cell(entropyDebugTable, 1, 3, str.tostring(_states), text_color = color.white, text_size = size.tiny)
     
-    table.cell(entropyDebugTable, 0, 4, "K (k-gram)", text_color = color.gray, text_size = size.tiny)
-    table.cell(entropyDebugTable, 1, 4, INPUT_ENTROPY_MODE == ENTROPY_MODE_KGRAM ? str.tostring(INPUT_ENTROPY_K) : "—", text_color = color.white, text_size = size.tiny)
+    table.cell(entropyDebugTable, 0, 4, FLD_K_GRAM, text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 4, INPUT_ENTROPY_MODE == ENTROPY_MODE_KGRAM ? str.tostring(INPUT_ENTROPY_K) : TEXT_DASH, text_color = color.white, text_size = size.tiny)
     
-    table.cell(entropyDebugTable, 0, 5, "Window", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 0, 5, FLD_WINDOW, text_color = color.gray, text_size = size.tiny)
     table.cell(entropyDebugTable, 1, 5, str.tostring(INPUT_ENTROPY_WINDOW), text_color = color.white, text_size = size.tiny)
     
-    table.cell(entropyDebugTable, 0, 6, "H_raw", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 0, 6, FLD_H_RAW, text_color = color.gray, text_size = size.tiny)
     table.cell(entropyDebugTable, 1, 6, str.tostring(GLOBAL_regime.entropy, "#.####"), text_color = color.white, text_size = size.tiny)
     
-    table.cell(entropyDebugTable, 0, 7, "H_norm", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 0, 7, FLD_H_NORM, text_color = color.gray, text_size = size.tiny)
     table.cell(entropyDebugTable, 1, 7, str.tostring(GLOBAL_regime.entropyNorm, "#.####"), text_color = color.yellow, text_size = size.tiny)
     
     string _regimeStr = GLOBAL_regime.entropyRegime == ENTROPY_REGIME_ORDERED ? "ORDERED" : GLOBAL_regime.entropyRegime == ENTROPY_REGIME_TRANSITION ? "TRANSITION" : "DISORDERED"
     color _regimeColor = GLOBAL_regime.entropyRegime == ENTROPY_REGIME_ORDERED ? color.green : GLOBAL_regime.entropyRegime == ENTROPY_REGIME_TRANSITION ? color.yellow : color.red
-    table.cell(entropyDebugTable, 0, 8, "Regime", text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 0, 8, FLD_REGIME, text_color = color.gray, text_size = size.tiny)
     table.cell(entropyDebugTable, 1, 8, _regimeStr, text_color = _regimeColor, text_size = size.tiny)
     
-    table.cell(entropyDebugTable, 0, 9, "entropyOk", text_color = color.gray, text_size = size.tiny)
-    table.cell(entropyDebugTable, 1, 9, GLOBAL_regime.entropyOk ? "✓" : "✗", text_color = GLOBAL_regime.entropyOk ? color.green : color.red, text_size = size.tiny)
+    table.cell(entropyDebugTable, 0, 9, FLD_ENTROPY_OK, text_color = color.gray, text_size = size.tiny)
+    table.cell(entropyDebugTable, 1, 9, GLOBAL_regime.entropyOk ? ICON_CHECK : SYM_CROSS, text_color = GLOBAL_regime.entropyOk ? color.green : color.red, text_size = size.tiny)
     
     // Show buffer validation for symbolic modes
     if INPUT_ENTROPY_MODE != ENTROPY_MODE_LEGACY and GLOBAL_symbolicEntropy.initialized
@@ -6214,11 +6327,11 @@ if perf_shouldShowDebugOverlay(INPUT_ENTROPY_DEBUG)
         for i = 0 to GLOBAL_symbolicEntropy.counts.size() - 1
             _countsSum += GLOBAL_symbolicEntropy.counts.get(i)
         bool _valid = _bufSize == _countsSum
-        table.cell(entropyDebugTable, 0, 10, "Buffer ✓", text_color = color.gray, text_size = size.tiny)
-        table.cell(entropyDebugTable, 1, 10, str.tostring(_bufSize) + "=" + str.tostring(_countsSum) + " " + (_valid ? "✓" : "⚠"), text_color = _valid ? color.green : color.red, text_size = size.tiny)
+        table.cell(entropyDebugTable, 0, 10, FLD_BUFFER_OK, text_color = color.gray, text_size = size.tiny)
+        table.cell(entropyDebugTable, 1, 10, str.tostring(_bufSize) + "=" + str.tostring(_countsSum) + TEXT_SPACE + (_valid ? ICON_CHECK : ICON_WARNING), text_color = _valid ? color.green : color.red, text_size = size.tiny)
     else
-        table.cell(entropyDebugTable, 0, 10, "Buffer", text_color = color.gray, text_size = size.tiny)
-        table.cell(entropyDebugTable, 1, 10, "—", text_color = color.gray, text_size = size.tiny)
+        table.cell(entropyDebugTable, 0, 10, FLD_BUFFER, text_color = color.gray, text_size = size.tiny)
+        table.cell(entropyDebugTable, 1, 10, TEXT_DASH, text_color = color.gray, text_size = size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // HURST DEBUG OVERLAY - Last Bar Only (FUNC-7)
@@ -6229,14 +6342,14 @@ if perf_shouldShowDebugOverlay(INPUT_ENTROPY_DEBUG)
 if perf_shouldShowDebugOverlay(INPUT_HURST_DEBUG)
     var table hurstDebugTable = table.new(position.middle_right, 2, 10, bgcolor = color.new(color.black, 80), border_width = 1)
     
-    table.cell(hurstDebugTable, 0, 0, "Hurst Debug", text_color = color.white, text_size = size.small)
+    table.cell(hurstDebugTable, 0, 0, TBL_HURST, text_color = color.white, text_size = size.small)
     table.cell(hurstDebugTable, 1, 0, "", text_color = color.white, text_size = size.small)
     
-    table.cell(hurstDebugTable, 0, 1, "Mode", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 0, 1, FLD_MODE, text_color = color.gray, text_size = size.tiny)
     table.cell(hurstDebugTable, 1, 1, INPUT_HURST_MODE, text_color = color.yellow, text_size = size.tiny)
     
     string _hurstComplexity = INPUT_HURST_MODE == HURST_MODE_LEGACY ? "O(N×scales)" : "O(log N)"
-    table.cell(hurstDebugTable, 0, 2, "Complexity", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 0, 2, FLD_COMPLEXITY, text_color = color.gray, text_size = size.tiny)
     table.cell(hurstDebugTable, 1, 2, _hurstComplexity, text_color = INPUT_HURST_MODE == HURST_MODE_LEGACY ? color.orange : color.green, text_size = size.tiny)
     
     // Show dyadic scales info if in dyadic mode
@@ -6258,20 +6371,20 @@ if perf_shouldShowDebugOverlay(INPUT_HURST_DEBUG)
     table.cell(hurstDebugTable, 0, 5, "Buffer", text_color = color.gray, text_size = size.tiny)
     table.cell(hurstDebugTable, 1, 5, INPUT_HURST_MODE == HURST_MODE_LEGACY ? "—" : str.tostring(_hurstBufSize), text_color = color.white, text_size = size.tiny)
     
-    table.cell(hurstDebugTable, 0, 6, "H Value", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 0, 6, FLD_H_VALUE, text_color = color.gray, text_size = size.tiny)
     table.cell(hurstDebugTable, 1, 6, str.tostring(GLOBAL_regime.hurst, "#.####"), text_color = color.yellow, text_size = size.tiny)
     
     string _hurstRegimeStr = GLOBAL_regime.hurstRegime == HURST_REGIME_TREND ? "TREND" : GLOBAL_regime.hurstRegime == HURST_REGIME_MEANREV ? "MEANREV" : "RANDOM"
     color _hurstRegimeColor = GLOBAL_regime.hurstRegime == HURST_REGIME_TREND ? color.green : GLOBAL_regime.hurstRegime == HURST_REGIME_MEANREV ? color.blue : color.gray
-    table.cell(hurstDebugTable, 0, 7, "Regime", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 0, 7, FLD_REGIME, text_color = color.gray, text_size = size.tiny)
     table.cell(hurstDebugTable, 1, 7, _hurstRegimeStr, text_color = _hurstRegimeColor, text_size = size.tiny)
     
-    table.cell(hurstDebugTable, 0, 8, "hurstOk", text_color = color.gray, text_size = size.tiny)
-    table.cell(hurstDebugTable, 1, 8, GLOBAL_regime.hurstOk ? "✓" : "✗", text_color = GLOBAL_regime.hurstOk ? color.green : color.red, text_size = size.tiny)
+    table.cell(hurstDebugTable, 0, 8, FLD_HURST_OK, text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 1, 8, GLOBAL_regime.hurstOk ? ICON_CHECK : SYM_CROSS, text_color = GLOBAL_regime.hurstOk ? color.green : color.red, text_size = size.tiny)
     
     // Show chunk mode for fast vs stable
     string _chunkMode = INPUT_HURST_MODE == HURST_MODE_DYADIC_FAST ? "Single (recent)" : INPUT_HURST_MODE == HURST_MODE_DYADIC_STABLE ? "All (averaged)" : "N/A"
-    table.cell(hurstDebugTable, 0, 9, "Chunks", text_color = color.gray, text_size = size.tiny)
+    table.cell(hurstDebugTable, 0, 9, FLD_CHUNKS, text_color = color.gray, text_size = size.tiny)
     table.cell(hurstDebugTable, 1, 9, _chunkMode, text_color = color.white, text_size = size.tiny)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -6281,17 +6394,17 @@ if perf_shouldShowDebugOverlay(INPUT_HURST_DEBUG)
 if perf_shouldShowDebugOverlay(INPUT_EXT_DEBUG)
     var table extDebugTable = table.new(position.bottom_left, 2, 8, bgcolor = color.new(color.black, 80), border_width = 1)
     
-    table.cell(extDebugTable, 0, 0, "External Context", text_color = color.white, text_size = size.small)
+    table.cell(extDebugTable, 0, 0, TBL_EXT, text_color = color.white, text_size = size.small)
     table.cell(extDebugTable, 1, 0, "", text_color = color.white, text_size = size.small)
     
-    table.cell(extDebugTable, 0, 1, "Enabled", text_color = color.gray, text_size = size.tiny)
-    table.cell(extDebugTable, 1, 1, GLOBAL_extContext.enabled ? "✓" : "✗", text_color = GLOBAL_extContext.enabled ? color.green : color.red, text_size = size.tiny)
+    table.cell(extDebugTable, 0, 1, FLD_ENABLED, text_color = color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 1, GLOBAL_extContext.enabled ? ICON_CHECK : SYM_CROSS, text_color = GLOBAL_extContext.enabled ? color.green : color.red, text_size = size.tiny)
     
-    table.cell(extDebugTable, 0, 2, "Gated", text_color = color.gray, text_size = size.tiny)
-    table.cell(extDebugTable, 1, 2, GLOBAL_extContext.gated ? "✓" : "✗", text_color = GLOBAL_extContext.gated ? color.green : color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 0, 2, FLD_GATED, text_color = color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 2, GLOBAL_extContext.gated ? ICON_CHECK : SYM_CROSS, text_color = GLOBAL_extContext.gated ? color.green : color.gray, text_size = size.tiny)
     
-    table.cell(extDebugTable, 0, 3, "Budget OK", text_color = color.gray, text_size = size.tiny)
-    table.cell(extDebugTable, 1, 3, GLOBAL_extContext.budgetExceeded ? "⚠ EXCEEDED" : "✓", text_color = GLOBAL_extContext.budgetExceeded ? color.orange : color.green, text_size = size.tiny)
+    table.cell(extDebugTable, 0, 3, FLD_BUDGET_OK, text_color = color.gray, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 3, GLOBAL_extContext.budgetExceeded ? TEXT_EXCEEDED : ICON_CHECK, text_color = GLOBAL_extContext.budgetExceeded ? color.orange : color.green, text_size = size.tiny)
     
     table.cell(extDebugTable, 0, 4, "Contexts", text_color = color.gray, text_size = size.tiny)
     table.cell(extDebugTable, 1, 4, str.tostring(GLOBAL_extContext.usedContexts), text_color = color.white, text_size = size.tiny)
@@ -6300,7 +6413,7 @@ if perf_shouldShowDebugOverlay(INPUT_EXT_DEBUG)
     table.cell(extDebugTable, 1, 5, str.tostring(GLOBAL_extContext.validCount) + "/" + str.tostring(array.size(GLOBAL_extContext.symbols)), text_color = color.white, text_size = size.tiny)
     
     table.cell(extDebugTable, 0, 6, "extOk", text_color = color.gray, text_size = size.tiny)
-    table.cell(extDebugTable, 1, 6, GLOBAL_extContext.extOk ? "✓" : "✗", text_color = GLOBAL_extContext.extOk ? color.green : color.red, text_size = size.tiny)
+    table.cell(extDebugTable, 1, 6, GLOBAL_extContext.extOk ? ICON_CHECK : SYM_CROSS, text_color = GLOBAL_extContext.extOk ? color.green : color.red, text_size = size.tiny)
     
     // Show first symbol + close if available
     string _symInfo = "—"
@@ -6356,7 +6469,7 @@ if perf_shouldShowDashboard()
     
     // Header
     color _presetColor = INPUT_PERF_PRESET == PERF_PRESET_FAST ? color.yellow : INPUT_PERF_PRESET == PERF_PRESET_DEBUG ? color.orange : color.green
-    table.cell(perfDashboard, 0, 0, "⚡ Perf Dashboard", text_color = color.white, text_size = size.small)
+    table.cell(perfDashboard, 0, 0, TBL_PERF, text_color = color.white, text_size = size.small)
     table.cell(perfDashboard, 1, 0, perf_getPresetName(), text_color = _presetColor, text_size = size.small)
     
     // Effective Settings Section
@@ -6367,42 +6480,42 @@ if perf_shouldShowDashboard()
     string _effEntMode = perf_getEntropyMode(INPUT_ENTROPY_MODE)
     bool _entDegraded = _effEntMode != INPUT_ENTROPY_MODE
     table.cell(perfDashboard, 0, 2, "Entropy Mode", text_color = color.gray, text_size = size.tiny)
-    table.cell(perfDashboard, 1, 2, (_entDegraded ? "⚡ " : "") + (_effEntMode == ENTROPY_MODE_KGRAM ? "K-gram" : _effEntMode == ENTROPY_MODE_BINARY ? "Binary" : "Legacy"), text_color = _entDegraded ? color.yellow : color.white, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 2, (_entDegraded ? TEXT_DEGRADE_PFX : "") + (_effEntMode == ENTROPY_MODE_KGRAM ? "K-gram" : _effEntMode == ENTROPY_MODE_BINARY ? "Binary" : "Legacy"), text_color = _entDegraded ? color.yellow : color.white, text_size = size.tiny)
     
     int _effEntWindow = perf_getEntropyWindow(INPUT_ENTROPY_WINDOW)
     bool _entWinDegraded = _effEntWindow != INPUT_ENTROPY_WINDOW
     table.cell(perfDashboard, 0, 3, "Entropy Window", text_color = color.gray, text_size = size.tiny)
-    table.cell(perfDashboard, 1, 3, (_entWinDegraded ? "⚡ " : "") + str.tostring(_effEntWindow), text_color = _entWinDegraded ? color.yellow : color.white, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 3, (_entWinDegraded ? TEXT_DEGRADE_PFX : "") + str.tostring(_effEntWindow), text_color = _entWinDegraded ? color.yellow : color.white, text_size = size.tiny)
     
     // Hurst settings
     string _effHurstMode = perf_getHurstMode(INPUT_HURST_MODE)
     bool _hurstDegraded = _effHurstMode != INPUT_HURST_MODE
     table.cell(perfDashboard, 0, 4, "Hurst Mode", text_color = color.gray, text_size = size.tiny)
-    table.cell(perfDashboard, 1, 4, (_hurstDegraded ? "⚡ " : "") + (_effHurstMode == HURST_MODE_DYADIC_FAST ? "Dyadic Fast" : _effHurstMode == HURST_MODE_DYADIC_STABLE ? "Dyadic Stable" : "Legacy"), text_color = _hurstDegraded ? color.yellow : color.white, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 4, (_hurstDegraded ? TEXT_DEGRADE_PFX : "") + (_effHurstMode == HURST_MODE_DYADIC_FAST ? "Dyadic Fast" : _effHurstMode == HURST_MODE_DYADIC_STABLE ? "Dyadic Stable" : "Legacy"), text_color = _hurstDegraded ? color.yellow : color.white, text_size = size.tiny)
     
     int _effHurstWindow = perf_getHurstWindow(INPUT_HURST_WINDOW)
     bool _hurstWinDegraded = _effHurstWindow != INPUT_HURST_WINDOW
     table.cell(perfDashboard, 0, 5, "Hurst Window", text_color = color.gray, text_size = size.tiny)
-    table.cell(perfDashboard, 1, 5, (_hurstWinDegraded ? "⚡ " : "") + str.tostring(_effHurstWindow), text_color = _hurstWinDegraded ? color.yellow : color.white, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 5, (_hurstWinDegraded ? TEXT_DEGRADE_PFX : "") + str.tostring(_effHurstWindow), text_color = _hurstWinDegraded ? color.yellow : color.white, text_size = size.tiny)
     
     // Feature Toggles Section
     table.cell(perfDashboard, 0, 6, "─ Feature Toggles ─", text_color = color.gray, text_size = size.tiny)
     table.cell(perfDashboard, 1, 6, "", text_color = color.gray, text_size = size.tiny)
     
     table.cell(perfDashboard, 0, 7, "Entropy Filter", text_color = color.gray, text_size = size.tiny)
-    table.cell(perfDashboard, 1, 7, INPUT_ENTROPY_ENABLED ? "✓ ON" : "✗ OFF", text_color = INPUT_ENTROPY_ENABLED ? color.green : color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 7, INPUT_ENTROPY_ENABLED ? TEXT_ON : TEXT_OFF, text_color = INPUT_ENTROPY_ENABLED ? color.green : color.gray, text_size = size.tiny)
     
     table.cell(perfDashboard, 0, 8, "Hurst Filter", text_color = color.gray, text_size = size.tiny)
-    table.cell(perfDashboard, 1, 8, INPUT_HURST_ENABLED ? "✓ ON" : "✗ OFF", text_color = INPUT_HURST_ENABLED ? color.green : color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 8, INPUT_HURST_ENABLED ? TEXT_ON : TEXT_OFF, text_color = INPUT_HURST_ENABLED ? color.green : color.gray, text_size = size.tiny)
     
     table.cell(perfDashboard, 0, 9, "Z-Score Filter", text_color = color.gray, text_size = size.tiny)
-    table.cell(perfDashboard, 1, 9, INPUT_ZSCORE_ENABLED ? "✓ ON" : "✗ OFF", text_color = INPUT_ZSCORE_ENABLED ? color.green : color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 9, INPUT_ZSCORE_ENABLED ? TEXT_ON : TEXT_OFF, text_color = INPUT_ZSCORE_ENABLED ? color.green : color.gray, text_size = size.tiny)
     
     table.cell(perfDashboard, 0, 10, "Monte Carlo", text_color = color.gray, text_size = size.tiny)
-    table.cell(perfDashboard, 1, 10, INPUT_MC_ENABLED ? "✓ ON" : "✗ OFF", text_color = INPUT_MC_ENABLED ? color.green : color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 10, INPUT_MC_ENABLED ? TEXT_ON : TEXT_OFF, text_color = INPUT_MC_ENABLED ? color.green : color.gray, text_size = size.tiny)
     
     table.cell(perfDashboard, 0, 11, "Learning Engine", text_color = color.gray, text_size = size.tiny)
-    table.cell(perfDashboard, 1, 11, INPUT_LEARNING_ENABLED ? "✓ ON" : "✗ OFF", text_color = INPUT_LEARNING_ENABLED ? color.green : color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 11, INPUT_LEARNING_ENABLED ? TEXT_ON : TEXT_OFF, text_color = INPUT_LEARNING_ENABLED ? color.green : color.gray, text_size = size.tiny)
     
     // Runtime Info
     table.cell(perfDashboard, 0, 12, "─ Runtime ─", text_color = color.gray, text_size = size.tiny)
