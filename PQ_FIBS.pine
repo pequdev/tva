@@ -1,5 +1,68 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.11.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// PROFILER CHECKLIST — Performance System Instruction
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// 
+// This script implements a Limit-Safe discipline layer for runtime budget management.
+//
+// ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+// │ PROFILER WORKFLOW                                                                       │
+// ├─────────────────────────────────────────────────────────────────────────────────────────┤
+// │ 1. ENABLE PROFILER: Pine Editor → More (⋮) → Profiler mode                              │
+// │ 2. IDENTIFY HOTSPOTS: Look for "flame" bars (red/orange) indicating high % time         │
+// │ 3. DOCUMENT: Note top 3 lines/blocks consuming >10% each                                │
+// │ 4. OPTIMIZE: Apply patterns below to hotspots                                           │
+// │ 5. RE-MEASURE: Run profiler again (note: profiler adds ~10-20% overhead)                │
+// │ 6. ATTACH: Include profiler screenshot in PR                                            │
+// └─────────────────────────────────────────────────────────────────────────────────────────┘
+//
+// ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+// │ RUNTIME LIMITS (Pine v6)                                                                │
+// ├─────────────────────────────────────────────────────────────────────────────────────────┤
+// │ • Total execution: 20s (Basic) / 40s (non-Basic)                                        │
+// │ • Loop time per bar: 500ms                                                              │
+// │ • Plot count: 64 (includes plot*, alertcondition, bgcolor with series color)            │
+// │ • Drawing objects: 500 line/box/label IDs, 100 polyline IDs                             │
+// │ • Compiled tokens: 100,000 (imported libraries: 1,000,000 combined)                     │
+// │ • Compilation time: 2 minutes (repeated warnings → temporary bans)                      │
+// └─────────────────────────────────────────────────────────────────────────────────────────┘
+//
+// ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+// │ OPTIMIZATION PLAYBOOK                                                                   │
+// ├─────────────────────────────────────────────────────────────────────────────────────────┤
+// │ LOOPS:                                                                                  │
+// │   • Use dyadic grids (O(log N)) instead of linear scans (O(N))                          │
+// │   • Move invariants outside loops                                                       │
+// │   • Break early when result found                                                       │
+// │                                                                                         │
+// │ MEMORY:                                                                                 │
+// │   • Use `var` arrays + push/shift pattern for bounded buffers                           │
+// │   • Avoid per-bar array.new() — reuse persistent arrays                                 │
+// │   • Use maps for O(1) lookups instead of array.indexof()                                │
+// │                                                                                         │
+// │ GATING:                                                                                 │
+// │   • Check barstate.isconfirmed before heavy computation                                 │
+// │   • Check warm-up (bar_index >= window) before regime calculations                      │
+// │   • Use perf_shouldComputeHeavy() from PerfController                                   │
+// │                                                                                         │
+// │ STRINGS:                                                                                │
+// │   • Use array.push() + array.join() instead of += concatenation                         │
+// │   • Cache JSON keys (str.replace is expensive in loops)                                 │
+// │   • Guard debug strings with barstate.islast                                            │
+// │                                                                                         │
+// │ PLOTS:                                                                                  │
+// │   • Use table.new() for debug dashboards (no plot count)                                │
+// │   • Use polyline/box for debug traces instead of plot()                                 │
+// │   • Prefer display.data_window for auxiliary data                                       │
+// └─────────────────────────────────────────────────────────────────────────────────────────┘
+//
+// See /docs/PQ_FIBS_PERFORMANCE_GUIDE.md for detailed guidelines and examples.
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+// NOTE: calc_bars_count must be a compile-time literal (cannot use input()).
+// Set to 0 (all bars) for maximum compatibility. For profiling heavy scripts,
+// temporarily change to a lower value like 10000 and recompile.
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS/1.13.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true, calc_bars_count=0)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -109,6 +172,36 @@ int   HURST_REGIME_MEANREV      = 2     // H < lower: anti-persistent/mean-rever
 string HURST_MODE_LEGACY        = "🔸 Legacy (Geometric)"       // Original O(N*scales) implementation
 string HURST_MODE_DYADIC_STABLE = "🟢 Dyadic Stable (Chunk Avg)" // O(log N) dyadic with chunk averaging
 string HURST_MODE_DYADIC_FAST   = "⚡ Dyadic Fast (Single Chunk)" // O(log N) dyadic, most recent chunk only
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// PERFORMANCE CONTROLLER CONSTANTS (Ticket #31 - Limit-Safe Discipline Layer)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Runtime Limits (Pine v6 - ref: https://www.tradingview.com/pine-script-docs/writing/limitations/)
+// - Total execution time: 20s (Basic) / 40s (non-Basic)
+// - Loop time per bar: 500ms
+// - Plot count limit: 64
+// - Drawing object limits: 500 line/box/label IDs, 100 polyline IDs
+// - Compiled tokens: 100,000 (imported libraries: 1,000,000 combined)
+// - Compilation time: 2 minutes max
+
+// Performance Preset Modes
+string PERF_PRESET_BALANCED     = "🟢 Balanced"      // Default: all features, confirmed bars
+string PERF_PRESET_FAST         = "⚡ Fast"           // Degrades optional features for speed
+string PERF_PRESET_DEBUG        = "🔍 Debug"         // Enables all debug overlays (table-based)
+
+// Performance preset-driven parameter adjustments
+int    PERF_ENTROPY_WINDOW_FAST = 10     // Reduced window for Fast mode
+int    PERF_HURST_WINDOW_FAST   = 50     // Reduced window for Fast mode
+int    PERF_VISUAL_KEEP_FAST    = 100    // Max visual objects to keep in Fast mode
+int    PERF_VISUAL_KEEP_BALANCED = 250   // Max visual objects in Balanced mode
+
+// --- PERFORMANCE CONTROLLER INPUTS (declared early for PerfController helpers) ---
+string GROUP_PERF_CTRL  = '⚡ Performance Controller'
+INPUT_PERF_PRESET       = input.string(PERF_PRESET_BALANCED, '⚡ Performance Preset', options=[PERF_PRESET_BALANCED, PERF_PRESET_FAST, PERF_PRESET_DEBUG], group=GROUP_PERF_CTRL, tooltip="Controls runtime/feature trade-offs:\n\n🟢 Balanced: All features enabled, confirmed bar gating (default).\n⚡ Fast: Degrades optional heavy features (smaller windows, skips stable Hurst).\n🔍 Debug: Enables all debug overlays (table-based, no plot count impact).\n\nDefault behavior unchanged with Balanced preset.")
+INPUT_PERF_SHOW_DASHBOARD = input.bool(false, '   ↳ Show Performance Dashboard', group=GROUP_PERF_CTRL, tooltip="Displays a performance dashboard table on the last bar.\nShows active preset, feature toggles, window sizes, and object counts.\nUses table (no plot count impact).")
+INPUT_PERF_DEGRADE_HURST = input.bool(true, '   ↳ Fast: Degrade Hurst Mode', group=GROUP_PERF_CTRL, tooltip="When Fast preset is active:\n• Forces Dyadic Fast mode (O(log N) single chunk)\n• Reduces window from user setting to 50 bars\n• Reduces computation by ~70% vs Legacy mode.")
+INPUT_PERF_DEGRADE_ENTROPY = input.bool(true, '   ↳ Fast: Degrade Entropy Window', group=GROUP_PERF_CTRL, tooltip="When Fast preset is active:\n• Forces Binary K-gram mode (O(1) incremental)\n• Reduces window from user setting to 10 bars\n• Reduces computation by ~80% vs Legacy binned mode.")
+INPUT_PERF_SKIP_ALERTS  = input.bool(false, '   ↳ Fast: Skip Alert JSON', group=GROUP_PERF_CTRL, tooltip="When Fast preset is active:\n• Skips JSON serialization for alerts\n• Reduces string operations significantly\n• Alerts still fire but with minimal payload.")
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // Z-SCORE MOMENTUM CONSTANTS
@@ -398,6 +491,85 @@ method meanStdev(array<float> buf) =>
 // @returns True if bar_index >= window_bars (safe to compute)
 f_readyForRegime(int window_bars) =>
     bar_index >= window_bars
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// PERFORMANCE CONTROLLER (FUNC-2 - Ticket #31: Limit-Safe Discipline Layer)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// Central gating helpers for runtime budget management.
+// Provides preset-driven parameter adjustments and guards.
+// Ref: https://www.tradingview.com/pine-script-docs/writing/limitations/
+
+// @function Check if heavy computations should run (confirmed bar + warm-up + feature enabled)
+// @param enabled Feature toggle from input
+// @param window_bars Warm-up window required
+// @returns True if all preconditions met for heavy computation
+perf_shouldComputeHeavy(bool enabled, int window_bars) =>
+    enabled and barstate.isconfirmed and bar_index >= window_bars
+
+// @function Check if debug rendering should occur (debug preset + last bar only)
+// @returns True if DEBUG preset active and on last bar (table-safe)
+perf_shouldRenderDebug() =>
+    INPUT_PERF_PRESET == PERF_PRESET_DEBUG and barstate.islast
+
+// @function Check if any debug overlay should render (explicit toggle OR debug preset)
+// @param explicit_toggle The specific debug input toggle (e.g., INPUT_ENTROPY_DEBUG)
+// @returns True if should render debug info
+perf_shouldShowDebugOverlay(bool explicit_toggle) =>
+    (explicit_toggle or INPUT_PERF_PRESET == PERF_PRESET_DEBUG) and barstate.islast
+
+// @function Check if performance dashboard should render
+// @returns True if dashboard enabled and on last bar
+perf_shouldShowDashboard() =>
+    INPUT_PERF_SHOW_DASHBOARD and barstate.islast
+
+// @function Get effective entropy window based on preset
+// @param user_window User-configured window from input
+// @returns Adjusted window (reduced in Fast mode)
+perf_getEntropyWindow(int user_window) =>
+    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_ENTROPY ? 
+        math.min(user_window, PERF_ENTROPY_WINDOW_FAST) : user_window
+
+// @function Get effective Hurst window based on preset
+// @param user_window User-configured window from input
+// @returns Adjusted window (reduced in Fast mode)
+perf_getHurstWindow(int user_window) =>
+    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_HURST ? 
+        math.min(user_window, PERF_HURST_WINDOW_FAST) : user_window
+
+// @function Get effective Hurst mode based on preset
+// @param user_mode User-configured mode from input
+// @returns Adjusted mode (forced to Dyadic Fast in Fast preset)
+perf_getHurstMode(string user_mode) =>
+    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_HURST ? 
+        HURST_MODE_DYADIC_FAST : user_mode
+
+// @function Get effective Entropy mode based on preset
+// @param user_mode User-configured mode from input
+// @returns Adjusted mode (forced to K-gram in Fast preset)
+perf_getEntropyMode(string user_mode) =>
+    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_DEGRADE_ENTROPY ? 
+        ENTROPY_MODE_KGRAM : user_mode
+
+// @function Get max visual objects to keep based on preset
+// @returns Object limit for GC purposes
+perf_getVisualMaxKeep() =>
+    INPUT_PERF_PRESET == PERF_PRESET_FAST ? PERF_VISUAL_KEEP_FAST : PERF_VISUAL_KEEP_BALANCED
+
+// @function Check if alert JSON should be skipped (Fast mode optimization)
+// @returns True if JSON serialization should be skipped
+perf_skipAlertJson() =>
+    INPUT_PERF_PRESET == PERF_PRESET_FAST and INPUT_PERF_SKIP_ALERTS
+
+// @function Get preset display name for dashboard
+// @returns Human-readable preset name
+perf_getPresetName() =>
+    switch INPUT_PERF_PRESET
+        PERF_PRESET_BALANCED => "Balanced"
+        PERF_PRESET_FAST => "Fast"
+        PERF_PRESET_DEBUG => "Debug"
+        => "Unknown"
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 // @function Check if learning engine can run heavy calculations (last-bar only)
 // @param enabled Feature toggle
@@ -1463,6 +1635,7 @@ string GROUP_VOL_VOL    = 'Volume / Volatility AddOns'
 string GROUP_ALERTS     = 'Alerts'
 string GROUP_STAT_POS   = 'Statistical Position Engine'
 string GROUP_EXT_CTX    = 'External Context (Dynamic Requests)'
+// NOTE: GROUP_PERF_CTRL and INPUT_PERF_* are declared early (after performance constants) for PerfController helpers
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // INPUTS
@@ -1636,7 +1809,7 @@ INPUT_EXT_GATE_MODE     = input.string(EXT_GATE_ALWAYS, '   ↳ Gating Mode', op
 INPUT_EXT_DEBUG         = input.bool(false, '   ↳ Debug Overlay', group=GROUP_EXT_CTX, tooltip="Shows debug info on last bar:\nGating state, used contexts, fetched values.\nNo per-bar labels (performance safe).")
 // --- DEBUG EXECUTION FLOW (Internal) ---
 INPUT_DEBUG_FLOW        = input.bool(false, '🔍 Debug Execution Flow', group=GROUP_EXT_CTX, tooltip="Shows execution flow diagnostics on last bar:\nGuard pass counts, heavy function executions.\nNo per-bar labels (performance safe).")
-// ------------------------------------------
+// NOTE: INPUT_PERF_* are declared early (after performance constants) for PerfController helpers
 
 // Fibonacci Levels
 INPUT_SHOW_0            = input.bool(true, '', inline='Level0', group=GROUP_FIB_LEVELS)
@@ -3361,21 +3534,26 @@ GLOBAL_regime.annualizedVol := f_annualizedVol(GLOBAL_regime.logReturnStdev, GLO
 // Populate entropy state (FUNC-8: Route based on mode)
 // Legacy mode uses original binned log-return entropy
 // Symbolic modes use O(1) incremental binary/k-gram entropy
+// PerfController: Fast preset forces K-gram mode with reduced window
 float _ent = na
 float _entNorm = na
 int _entReg = ENTROPY_REGIME_DISORDERED
 
-if INPUT_ENTROPY_MODE == ENTROPY_MODE_LEGACY
+// Apply PerfController adjustments for effective mode/window
+string _effectiveEntropyMode = perf_getEntropyMode(INPUT_ENTROPY_MODE)
+int _effectiveEntropyWindow = perf_getEntropyWindow(INPUT_ENTROPY_WINDOW)
+
+if _effectiveEntropyMode == ENTROPY_MODE_LEGACY
     // Legacy path: O(window) binned entropy (default for backward compatibility)
-    [__ent, __entNorm, __entReg] = f_rollingEntropy(GLOBAL_regime.logReturn, INPUT_ENTROPY_WINDOW, INPUT_ENTROPY_BINS, INPUT_ENTROPY_THRESH, INPUT_ENTROPY_TRANSITION)
+    [__ent, __entNorm, __entReg] = f_rollingEntropy(GLOBAL_regime.logReturn, _effectiveEntropyWindow, INPUT_ENTROPY_BINS, INPUT_ENTROPY_THRESH, INPUT_ENTROPY_TRANSITION)
     _ent := __ent
     _entNorm := __entNorm
     _entReg := __entReg
 else
     // Symbolic path: O(1) incremental entropy (FUNC-2 through FUNC-6)
-    // FUNC-7: Reinitialize if config changed
-    if GLOBAL_symbolicEntropy.needsReinit(INPUT_ENTROPY_MODE, INPUT_ENTROPY_K, INPUT_ENTROPY_WINDOW)
-        GLOBAL_symbolicEntropy.init(INPUT_ENTROPY_MODE, INPUT_ENTROPY_K, INPUT_ENTROPY_WINDOW)
+    // FUNC-7: Reinitialize if config changed (includes effective mode/window)
+    if GLOBAL_symbolicEntropy.needsReinit(_effectiveEntropyMode, INPUT_ENTROPY_K, _effectiveEntropyWindow)
+        GLOBAL_symbolicEntropy.init(_effectiveEntropyMode, INPUT_ENTROPY_K, _effectiveEntropyWindow)
     
     // FUNC-2: Generate binary state (up=1, down/flat=0)
     int binaryState = f_binaryState(close, close[1])
@@ -3407,20 +3585,25 @@ var DyadicHurstState GLOBAL_dyadicHurst = DyadicHurstState.new()
 float _hurst = 0.5
 int _hurstReg = HURST_REGIME_RANDOM
 
-if INPUT_HURST_MODE == HURST_MODE_LEGACY
+// Apply PerfController adjustments for effective mode/window
+string _effectiveHurstMode = perf_getHurstMode(INPUT_HURST_MODE)
+int _effectiveHurstWindow = perf_getHurstWindow(INPUT_HURST_WINDOW)
+
+if _effectiveHurstMode == HURST_MODE_LEGACY
     // Legacy path: Original geometric scaling (O(N * scales) per bar)
     // Kept for backward compatibility and baseline parity checks
-    [__hurst, __hurstReg] = f_rollingHurst(GLOBAL_regime.logReturn, INPUT_HURST_WINDOW, HURST_MIN_WINDOW, INPUT_HURST_TREND, INPUT_HURST_MEANREV)
+    [__hurst, __hurstReg] = f_rollingHurst(GLOBAL_regime.logReturn, _effectiveHurstWindow, HURST_MIN_WINDOW, INPUT_HURST_TREND, INPUT_HURST_MEANREV)
     _hurst := __hurst
     _hurstReg := __hurstReg
 else
     // Dyadic path: Optimized O(log N) with precomputed regression constants
-    // Check for config changes requiring reinit
-    if GLOBAL_dyadicHurst.needsReinit(HURST_MIN_WINDOW, INPUT_HURST_WINDOW, INPUT_HURST_MODE)
-        GLOBAL_dyadicHurst.init(HURST_MIN_WINDOW, INPUT_HURST_WINDOW, INPUT_HURST_MODE)
+    // Check for config changes requiring reinit (includes effective mode/window)
+    if GLOBAL_dyadicHurst.needsReinit(HURST_MIN_WINDOW, _effectiveHurstWindow, _effectiveHurstMode)
+        GLOBAL_dyadicHurst.init(HURST_MIN_WINDOW, _effectiveHurstWindow, _effectiveHurstMode)
     
     // Determine fast mode (single chunk) vs stable (all chunks)
-    bool isFastMode = INPUT_HURST_MODE == HURST_MODE_DYADIC_FAST
+    // PerfController may force Fast mode even if user selected Stable
+    bool isFastMode = _effectiveHurstMode == HURST_MODE_DYADIC_FAST
     
     // Update with current log return
     GLOBAL_dyadicHurst.update(GLOBAL_regime.logReturn, isFastMode, INPUT_HURST_TREND, INPUT_HURST_MEANREV)
@@ -4205,49 +4388,54 @@ f_jsonMonteCarlo(LearningMetrics lm) =>
 // @param timePhase Time decay phase
 // @param decayRate Decay rate
 // @param expired Expired flag
-// @returns JSON formatted string with complete state snapshot
+// @returns JSON formatted string with complete state snapshot (or minimal JSON if Fast preset + skip enabled)
 f_getAlertMessageFull(string id, string eventType, bool isProj, bool isLong, bool zoneTouched, bool slHit, bool tpHit, float rawZoneTop, float rawZoneBottom, float zoneTop, float zoneBottom, float bufferPct, bool inZone, bool zoneEntry, float minDist, float slPrice, float tpPrice, float tpCons, float tpAggr, bool useAggr, float slMult, float atr, float smartSl, int creationBar, int barsSince, int timePhase, float decayRate, bool expired) =>
-    float entryMid = (zoneTop + zoneBottom) / 2
-    
-    // Build envelope
-    string envelope = f_jsonEnvelope(id, eventType)
-    
-    // Build component JSONs
-    string pivots_json = f_jsonPivots(
-        GLOBAL_cachedPivots.iMidPivot, GLOBAL_cachedPivots.pMidPivot,
-        GLOBAL_cachedPivots.iEndBase, GLOBAL_cachedPivots.pEndBase,
-        GLOBAL_projection.isActive() ? GLOBAL_projection.iMidPivot : GLOBAL_cachedPivots.iMidPivot,
-        GLOBAL_projection.isActive() ? GLOBAL_projection.pMidPivot : GLOBAL_cachedPivots.pMidPivot,
-        GLOBAL_projection.isActive() ? bar_index : GLOBAL_cachedPivots.iEndBase,
-        GLOBAL_projection.isActive() ? GLOBAL_projection.pEndBase : GLOBAL_cachedPivots.pEndBase,
-        GLOBAL_projection.isActive())
-    string setup_json = f_jsonSetup(isProj, isLong, zoneTouched, slHit, tpHit)
-    string zone_json = f_jsonZone(rawZoneTop, rawZoneBottom, zoneTop, zoneBottom, bufferPct, inZone, zoneEntry, minDist)
-    string position_json = f_jsonPosition(entryMid, slPrice, tpPrice, tpCons, tpAggr, useAggr, slMult, atr, smartSl)
-    string time_decay_json = f_jsonTimeDecay(INPUT_POS_TIME_DECAY, creationBar, barsSince, timePhase, decayRate, expired)
-    string regime_json = f_jsonRegime(GLOBAL_regime)
-    string learning_json = f_jsonLearning(GLOBAL_learning, GLOBAL_setupHistory.size())
-    string backtest_json = f_jsonBacktest(GLOBAL_backtest.stats)
-    string mc_json = f_jsonMonteCarlo(GLOBAL_learning)
-    string retracements_json = GLOBAL_pivotLevelsLogRetracements.toJson()
-    string crossed_json = GLOBAL_pivotLevelsLogCrossed.toJson()
-    
-    // Assemble full JSON using array.join for efficient concatenation
-    array.join(array.from(
-        '{', envelope,
-        ',"pivots":', pivots_json,
-        ',"setup":', setup_json,
-        ',"zone":', zone_json,
-        ',"position":', position_json,
-        ',"time_decay":', time_decay_json,
-        ',"regime":', regime_json,
-        ',"learning":', learning_json,
-        ',"backtest":', backtest_json,
-        ',"monte_carlo":', mc_json,
-        ',"retracements":', retracements_json,
-        ',"crossed_retracements":', crossed_json,
-        ',"confluence":{"exhaust_vol":', f_jsonBool(exhaustVol),
-        ',"high_volatility":', f_jsonBool(highVolatility), '}}'), '')
+    // PerfController: Fast preset can skip full JSON serialization for performance
+    if perf_skipAlertJson()
+        // Minimal JSON payload - just ID and event type for alert routing
+        '{"id":"' + id + '","event":"' + eventType + '","minimal":true}'
+    else
+        float entryMid = (zoneTop + zoneBottom) / 2
+        
+        // Build envelope
+        string envelope = f_jsonEnvelope(id, eventType)
+        
+        // Build component JSONs
+        string pivots_json = f_jsonPivots(
+            GLOBAL_cachedPivots.iMidPivot, GLOBAL_cachedPivots.pMidPivot,
+            GLOBAL_cachedPivots.iEndBase, GLOBAL_cachedPivots.pEndBase,
+            GLOBAL_projection.isActive() ? GLOBAL_projection.iMidPivot : GLOBAL_cachedPivots.iMidPivot,
+            GLOBAL_projection.isActive() ? GLOBAL_projection.pMidPivot : GLOBAL_cachedPivots.pMidPivot,
+            GLOBAL_projection.isActive() ? bar_index : GLOBAL_cachedPivots.iEndBase,
+            GLOBAL_projection.isActive() ? GLOBAL_projection.pEndBase : GLOBAL_cachedPivots.pEndBase,
+            GLOBAL_projection.isActive())
+        string setup_json = f_jsonSetup(isProj, isLong, zoneTouched, slHit, tpHit)
+        string zone_json = f_jsonZone(rawZoneTop, rawZoneBottom, zoneTop, zoneBottom, bufferPct, inZone, zoneEntry, minDist)
+        string position_json = f_jsonPosition(entryMid, slPrice, tpPrice, tpCons, tpAggr, useAggr, slMult, atr, smartSl)
+        string time_decay_json = f_jsonTimeDecay(INPUT_POS_TIME_DECAY, creationBar, barsSince, timePhase, decayRate, expired)
+        string regime_json = f_jsonRegime(GLOBAL_regime)
+        string learning_json = f_jsonLearning(GLOBAL_learning, GLOBAL_setupHistory.size())
+        string backtest_json = f_jsonBacktest(GLOBAL_backtest.stats)
+        string mc_json = f_jsonMonteCarlo(GLOBAL_learning)
+        string retracements_json = GLOBAL_pivotLevelsLogRetracements.toJson()
+        string crossed_json = GLOBAL_pivotLevelsLogCrossed.toJson()
+        
+        // Assemble full JSON using array.join for efficient concatenation
+        array.join(array.from(
+            '{', envelope,
+            ',"pivots":', pivots_json,
+            ',"setup":', setup_json,
+            ',"zone":', zone_json,
+            ',"position":', position_json,
+            ',"time_decay":', time_decay_json,
+            ',"regime":', regime_json,
+            ',"learning":', learning_json,
+            ',"backtest":', backtest_json,
+            ',"monte_carlo":', mc_json,
+            ',"retracements":', retracements_json,
+            ',"crossed_retracements":', crossed_json,
+            ',"confluence":{"exhaust_vol":', f_jsonBool(exhaustVol),
+            ',"high_volatility":', f_jsonBool(highVolatility), '}}'), '')
 
 // @function Construct legacy JSON alert message (backward compatible)
 // @param id Alert ID string
@@ -5981,7 +6169,8 @@ if INPUT_ALERT_ENABLED
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // NOTE: Displays entropy engine diagnostics for performance validation.
 //       Only renders on barstate.islast to avoid per-bar label spam.
-if INPUT_ENTROPY_DEBUG and barstate.islast
+//       Triggered by explicit toggle OR Debug preset (via perf_shouldShowDebugOverlay).
+if perf_shouldShowDebugOverlay(INPUT_ENTROPY_DEBUG)
     var table entropyDebugTable = table.new(position.bottom_right, 2, 11, bgcolor = color.new(color.black, 80), border_width = 1)
     
     table.cell(entropyDebugTable, 0, 0, "Entropy Debug", text_color = color.white, text_size = size.small)
@@ -6036,7 +6225,8 @@ if INPUT_ENTROPY_DEBUG and barstate.islast
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // NOTE: Displays Hurst engine diagnostics for performance validation.
 //       Only renders on barstate.islast to avoid per-bar label spam.
-if INPUT_HURST_DEBUG and barstate.islast
+//       Triggered by explicit toggle OR Debug preset (via perf_shouldShowDebugOverlay).
+if perf_shouldShowDebugOverlay(INPUT_HURST_DEBUG)
     var table hurstDebugTable = table.new(position.middle_right, 2, 10, bgcolor = color.new(color.black, 80), border_width = 1)
     
     table.cell(hurstDebugTable, 0, 0, "Hurst Debug", text_color = color.white, text_size = size.small)
@@ -6087,7 +6277,8 @@ if INPUT_HURST_DEBUG and barstate.islast
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // EXTERNAL CONTEXT DEBUG OVERLAY - Last Bar Only
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-if INPUT_EXT_DEBUG and barstate.islast
+//       Triggered by explicit toggle OR Debug preset (via perf_shouldShowDebugOverlay).
+if perf_shouldShowDebugOverlay(INPUT_EXT_DEBUG)
     var table extDebugTable = table.new(position.bottom_left, 2, 8, bgcolor = color.new(color.black, 80), border_width = 1)
     
     table.cell(extDebugTable, 0, 0, "External Context", text_color = color.white, text_size = size.small)
@@ -6125,7 +6316,8 @@ if INPUT_EXT_DEBUG and barstate.islast
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // NOTE: Displays execution counters for heavy functions to identify performance hotspots.
 //       Only renders on barstate.islast to avoid per-bar label spam.
-if INPUT_DEBUG_FLOW and barstate.islast
+//       Triggered by explicit toggle OR Debug preset (via perf_shouldShowDebugOverlay).
+if perf_shouldShowDebugOverlay(INPUT_DEBUG_FLOW)
     var table flowDebugTable = table.new(position.top_left, 2, 8, bgcolor = color.new(color.black, 80), border_width = 1)
     
     table.cell(flowDebugTable, 0, 0, "Execution Flow", text_color = color.white, text_size = size.small)
@@ -6152,3 +6344,69 @@ if INPUT_DEBUG_FLOW and barstate.islast
     float _blockRate = COUNTER_spawn_attempts > 0 ? float(COUNTER_spawn_blocked) / float(COUNTER_spawn_attempts) * 100 : 0.0
     table.cell(flowDebugTable, 0, 7, "Block rate", text_color = color.gray, text_size = size.tiny)
     table.cell(flowDebugTable, 1, 7, str.tostring(_blockRate, "#.#") + "%", text_color = _blockRate > 50 ? color.red : color.green, text_size = size.tiny)
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// PERFORMANCE DASHBOARD - Limit-Safe Debug Table (FUNC-5 - Ticket #31)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// NOTE: Displays active performance preset, feature toggles, effective window sizes.
+//       Uses table.new() which has NO plot count impact (limit-safe).
+//       Only renders on barstate.islast when dashboard enabled or Debug preset active.
+if perf_shouldShowDashboard()
+    var table perfDashboard = table.new(position.top_right, 2, 14, bgcolor = color.new(color.blue, 85), border_width = 1)
+    
+    // Header
+    color _presetColor = INPUT_PERF_PRESET == PERF_PRESET_FAST ? color.yellow : INPUT_PERF_PRESET == PERF_PRESET_DEBUG ? color.orange : color.green
+    table.cell(perfDashboard, 0, 0, "⚡ Perf Dashboard", text_color = color.white, text_size = size.small)
+    table.cell(perfDashboard, 1, 0, perf_getPresetName(), text_color = _presetColor, text_size = size.small)
+    
+    // Effective Settings Section
+    table.cell(perfDashboard, 0, 1, "─ Effective Settings ─", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 1, "", text_color = color.gray, text_size = size.tiny)
+    
+    // Entropy settings
+    string _effEntMode = perf_getEntropyMode(INPUT_ENTROPY_MODE)
+    bool _entDegraded = _effEntMode != INPUT_ENTROPY_MODE
+    table.cell(perfDashboard, 0, 2, "Entropy Mode", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 2, (_entDegraded ? "⚡ " : "") + (_effEntMode == ENTROPY_MODE_KGRAM ? "K-gram" : _effEntMode == ENTROPY_MODE_BINARY ? "Binary" : "Legacy"), text_color = _entDegraded ? color.yellow : color.white, text_size = size.tiny)
+    
+    int _effEntWindow = perf_getEntropyWindow(INPUT_ENTROPY_WINDOW)
+    bool _entWinDegraded = _effEntWindow != INPUT_ENTROPY_WINDOW
+    table.cell(perfDashboard, 0, 3, "Entropy Window", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 3, (_entWinDegraded ? "⚡ " : "") + str.tostring(_effEntWindow), text_color = _entWinDegraded ? color.yellow : color.white, text_size = size.tiny)
+    
+    // Hurst settings
+    string _effHurstMode = perf_getHurstMode(INPUT_HURST_MODE)
+    bool _hurstDegraded = _effHurstMode != INPUT_HURST_MODE
+    table.cell(perfDashboard, 0, 4, "Hurst Mode", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 4, (_hurstDegraded ? "⚡ " : "") + (_effHurstMode == HURST_MODE_DYADIC_FAST ? "Dyadic Fast" : _effHurstMode == HURST_MODE_DYADIC_STABLE ? "Dyadic Stable" : "Legacy"), text_color = _hurstDegraded ? color.yellow : color.white, text_size = size.tiny)
+    
+    int _effHurstWindow = perf_getHurstWindow(INPUT_HURST_WINDOW)
+    bool _hurstWinDegraded = _effHurstWindow != INPUT_HURST_WINDOW
+    table.cell(perfDashboard, 0, 5, "Hurst Window", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 5, (_hurstWinDegraded ? "⚡ " : "") + str.tostring(_effHurstWindow), text_color = _hurstWinDegraded ? color.yellow : color.white, text_size = size.tiny)
+    
+    // Feature Toggles Section
+    table.cell(perfDashboard, 0, 6, "─ Feature Toggles ─", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 6, "", text_color = color.gray, text_size = size.tiny)
+    
+    table.cell(perfDashboard, 0, 7, "Entropy Filter", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 7, INPUT_ENTROPY_ENABLED ? "✓ ON" : "✗ OFF", text_color = INPUT_ENTROPY_ENABLED ? color.green : color.gray, text_size = size.tiny)
+    
+    table.cell(perfDashboard, 0, 8, "Hurst Filter", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 8, INPUT_HURST_ENABLED ? "✓ ON" : "✗ OFF", text_color = INPUT_HURST_ENABLED ? color.green : color.gray, text_size = size.tiny)
+    
+    table.cell(perfDashboard, 0, 9, "Z-Score Filter", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 9, INPUT_ZSCORE_ENABLED ? "✓ ON" : "✗ OFF", text_color = INPUT_ZSCORE_ENABLED ? color.green : color.gray, text_size = size.tiny)
+    
+    table.cell(perfDashboard, 0, 10, "Monte Carlo", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 10, INPUT_MC_ENABLED ? "✓ ON" : "✗ OFF", text_color = INPUT_MC_ENABLED ? color.green : color.gray, text_size = size.tiny)
+    
+    table.cell(perfDashboard, 0, 11, "Learning Engine", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 11, INPUT_LEARNING_ENABLED ? "✓ ON" : "✗ OFF", text_color = INPUT_LEARNING_ENABLED ? color.green : color.gray, text_size = size.tiny)
+    
+    // Runtime Info
+    table.cell(perfDashboard, 0, 12, "─ Runtime ─", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 12, "", text_color = color.gray, text_size = size.tiny)
+    
+    table.cell(perfDashboard, 0, 13, "Visual Max Keep", text_color = color.gray, text_size = size.tiny)
+    table.cell(perfDashboard, 1, 13, str.tostring(perf_getVisualMaxKeep()), text_color = color.white, text_size = size.tiny)
