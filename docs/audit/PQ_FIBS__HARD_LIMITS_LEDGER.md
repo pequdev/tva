@@ -1,7 +1,7 @@
 # PQ_FIBS.pine — Hard Limits Ledger
 
 > **Version**: 1.0  
-> **Generated**: 2024-12-22  
+> **Generated**: 2025-12-22  
 > **Source**: `PQ_FIBS.pine` (5,591 lines)  
 > **Pine Version**: v6
 
