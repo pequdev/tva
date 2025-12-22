@@ -11,20 +11,20 @@
 | # | Subsystem | Lines | Inputs | Outputs | Frequency | Complexity | Failure Modes |
 |---|-----------|-------|--------|---------|-----------|------------|---------------|
 | 1 | **Constants & Theme** | L10-425 | — | Colors, styles | Compile-time | Low | None |
-| 2 | **Input Declarations** | L655-865 | User UI | INPUT_* vars | Compile-time | Low | Invalid input ranges |
+| 2 | **Input Declarations** | L511-865 | User UI | INPUT_* vars (211 inputs) | Compile-time | Low | Invalid input ranges |
 | 3 | **Performance Gating** | L1043-1092 | Inputs, bar_index | bool flags | Every bar | Low | False negatives block features |
 | 4 | **Entropy Engine** | L1095-1340 | close series | entropyNorm (0-1) | Gated bars | High | Division by zero if window=0 |
 | 5 | **Hurst Engine** | L1339-1620 | close series | hurst (0-1) | Gated bars | High | log(0) if segment empty |
 | 6 | **Z-Score Engine** | L1617-1700 | close series | zscore (-3 to 3) | Gated bars | Medium | StdDev = 0 edge case |
 | 7 | **External Context** | L1661-1730 | symbol CSV | closes[] | Gated bars | Medium | Invalid symbol errors |
-| 8 | **ZigZag Engine** | L1924-2130 | H/L, depth, dev | pivot coords | Every bar | Medium | Insufficient history |
+| 8 | **ZigZag Engine** | L1924-2130 (types), L3113-3205 (exec) | H/L, depth, dev | pivot coords | Every bar | Medium | Insufficient history |
 | 9 | **Cached Pivots** | L3135-3200 | ZigZag output | indexed refs | Pivot change | Low | None |
 | 10 | **Projection State** | L2354-2406 | ZigZag, H/L | tentative pivot | Every bar | Low | False positives |
 | 11 | **Fib Level Calc** | L2409-2470 | Pivot coords | level prices | Pivot change | Low | None |
 | 12 | **Statistical Position** | L3796-4010 | Pivots, Learning | TP/SL prices | Zone entry | Medium | Division by ATR=0 |
 | 13 | **Learning Engine** | L4390-4750 | Setup history | adaptive params | Bar close | High | Empty history buffer |
 | 14 | **Position Visual** | L4010-4250 | Setup state | drawing objects | Zone entry | Low | Object limit exceeded |
-| 15 | **Backtest Engine** | L2600-2730 | Price action | win/loss stats | Trade close | Medium | Insufficient trades |
+| 15 | **Backtest Engine** | L2600-2730 (types), L5050-5160 (integration) | Price action | win/loss stats | Trade close | Medium | Insufficient trades |
 | 16 | **Alert Dispatch** | L5248-5360 | Alert state | alert() calls | Zone events | Low | Message too long |
 | 17 | **Debug Overlays** | L5359-5530 | All state | table objects | Last bar | Low | Table cell limits |
 | 18 | **Dashboard** | L5527-5590 | Perf counters | summary table | Last bar | Low | None |
@@ -277,7 +277,7 @@
 
 | Zone | Lines | Reason |
 |------|-------|--------|
-| ZigZag engine | L1924-2130 | Core state machine |
+| ZigZag engine | L1924-2130 (types), L3113-3205 (exec) | Core state machine |
 | Global requests | L2471-2480 | Scope-critical |
 | Pivot caching | L3135-3200 | Signal integrity |
 | Alert dispatch | L5248-5360 | External integration |

@@ -42,7 +42,7 @@
 | 2 | UI Groups & Options | L426-453 | Input group definitions, option constants |
 | 3 | Static Defaults | L450-570 | Default thresholds, window sizes, regime constants |
 | 4 | Performance Control | L494-570 | Perf presets, degradation flags, static limits |
-| 5 | Input Declarations | L655-865 | All user inputs (73 inputs) |
+| 5 | Input Declarations | L511-865 | All user inputs (211 inputs across 22 groups) |
 | 6 | Helper Functions (Math) | L867-1095 | Intrabar resolver, log returns, volatility, perf gates |
 | 7 | Entropy Engine | L1095-1340 | Shannon entropy, symbolic entropy, rolling entropy |
 | 8 | Hurst Engine | L1339-1620 | R/S analysis, dyadic Hurst, rescaled range |
@@ -58,7 +58,7 @@
 | 18 | Debug Counters | L2896-2915 | DBG_ counter variables |
 | 19 | Regime Computation | L2913-3040 | Entropy/Hurst/Z-score execution |
 | 20 | External Context Exec | L3038-3115 | External symbol request loop |
-| 21 | ZigZag Engine | L3113-3205 | ZigZag state machine, pivot detection |
+| 21 | ZigZag Engine Exec | L3113-3205 | ZigZag runtime execution (types at L1924-2130) |
 | 22 | Cached Pivots | L3135-3200 | CachedPivots type, pivot coordinate refs |
 | 23 | HTF OHLC | L3203-3390 | HTF data fetching function |
 | 24 | Pivot Coordinate Refs | L3388-3410 | GLOBAL_ pivot index/price assignments |
@@ -71,7 +71,7 @@
 | 31 | Position Visuals | L4010-4250 | PositionVisual rendering |
 | 32 | Learning Engine | L4390-4750 | Adaptive learning, win rate, MAE/MFE |
 | 33 | Display & Labels | L4940-5050 | Label text building, EV display |
-| 34 | Backtest Integration | L5050-5160 | Setup recording, history management |
+| 34 | Backtest Integration | L5050-5160 | Setup recording, history management (types at L2600-2730) |
 | 35 | Alert Dispatching | L5248-5360 | Alert condition checks, message firing |
 | 36 | Debug Overlays | L5359-5530 | Entropy/Hurst/Ext debug tables |
 | 37 | Performance Dashboard | L5527-5590 | Dashboard table on last bar |
@@ -274,20 +274,51 @@
 
 ## 8. Input Groups
 
+### Main Feature Groups
+
 | Group Constant | Purpose | Input Count |
 |----------------|---------|-------------|
-| `UI_GROUP_perfControl` | Performance presets | 6 |
-| `UI_GROUP_pick` | Feature toggles | 2 |
-| `UI_GROUP_pivot` | Pivot point settings | 8 |
-| `UI_GROUP_fibTool` | Fib tool settings | 9 |
-| `UI_GROUP_statPos` | Statistical position | 28 |
-| `UI_GROUP_extContext` | External context | 7 |
-| `UI_GROUP_fibLevels` | Fib level toggles | 30 |
+| `UI_GROUP_perfControl` | Performance presets | 5 |
+| `UI_GROUP_pick` | Feature toggles | 1 |
+| `UI_GROUP_pivot` | Pivot point settings | 6 |
+| `UI_GROUP_fibTool` | Fib tool settings | 10 |
+| `UI_GROUP_statPos` | Statistical position | 52 |
+| `UI_GROUP_extContext` | External context | 9 |
+| `UI_GROUP_fibLevels` | Fib level toggles | 66 |
 | `UI_GROUP_zigzag` | ZigZag settings | 5 |
-| `UI_GROUP_alerts` | Alert settings | 3 |
+| `UI_GROUP_alerts` | Alert settings | 1 |
 | `UI_GROUP_volVol` | Volume/volatility | 6 |
 
-**Total Inputs**: ~73
+### Timeframe-Specific Threshold Groups
+
+| Group Constant | Purpose | Input Count |
+|----------------|---------|-------------|
+| `UI_GROUP_threshSec` | Deviation thresholds (seconds TFs) | 7 |
+| `UI_GROUP_threshMin` | Deviation thresholds (minutes TFs) | 8 |
+| `UI_GROUP_threshHour` | Deviation thresholds (hours TFs) | 4 |
+| `UI_GROUP_threshDay` | Deviation thresholds (daily TFs) | 2 |
+| `UI_GROUP_threshWeek` | Deviation thresholds (weekly TFs) | 1 |
+| `UI_GROUP_threshMonth` | Deviation thresholds (monthly TFs) | 3 |
+
+### Timeframe-Specific Depth Groups
+
+| Group Constant | Purpose | Input Count |
+|----------------|---------|-------------|
+| `UI_GROUP_depthSec` | Depth settings (seconds TFs) | 7 |
+| `UI_GROUP_depthMin` | Depth settings (minutes TFs) | 8 |
+| `UI_GROUP_depthHour` | Depth settings (hours TFs) | 4 |
+| `UI_GROUP_depthDay` | Depth settings (daily TFs) | 2 |
+| `UI_GROUP_depthWeek` | Depth settings (weekly TFs) | 1 |
+| `UI_GROUP_depthMonth` | Depth settings (monthly TFs) | 3 |
+
+### Summary
+
+| Category | Input Count |
+|----------|-------------|
+| Main Feature Groups | 161 |
+| Threshold Groups (TF-specific) | 25 |
+| Depth Groups (TF-specific) | 25 |
+| **Total Inputs** | **211** |
 
 ---
 
@@ -305,17 +336,19 @@
 
 ## 10. Prefix Distribution
 
-| Prefix | Count | Purpose |
-|--------|-------|---------|
-| `GLOBAL_` | 741 | Cross-section state |
-| `INPUT_` | 410 | User inputs |
-| `STATIC_` | 554 | Compile-time constants |
-| `STATE_` | 54 | Persistent var state |
-| `UI_` | 745 | UI/rendering tokens |
-| `REQ_` | 11 | Request contexts |
-| `DBG_` | 19 | Debug counters |
-| `TMP_` | 24 | Per-bar temporaries |
-| `BUF_` | 29 | Array buffers |
+> **Note**: Counts are unique identifiers, not total occurrences.
+
+| Prefix | Unique Identifiers | Purpose |
+|--------|-------------------|---------|
+| `GLOBAL_` | 43 | Cross-section state |
+| `INPUT_` | 165 | User inputs |
+| `STATIC_` | 185 | Compile-time constants |
+| `STATE_` | 2 | Persistent var state |
+| `UI_` | 292 | UI/rendering tokens |
+| `REQ_` | 8 | Request contexts |
+| `DBG_` | 6 | Debug counters |
+| `TMP_` | 8 | Per-bar temporaries |
+| `BUF_` | 1 | Array buffers |
 
 ---
 

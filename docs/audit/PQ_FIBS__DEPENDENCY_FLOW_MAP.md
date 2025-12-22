@@ -49,7 +49,7 @@
                                       ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                            ZIGZAG ENGINE                                     │
-│  (L3113-3205) Core pivot detection                                          │
+│  (L3113-3205) Runtime execution (types at L1924-2130)                       │
 │                                                                              │
 │  Inputs:  high, low, depth, deviation                                       │
 │  Output:  GLOBAL_zigzag with pivot coordinates                              │
@@ -82,7 +82,7 @@
           ▼                           ▼                           ▼
 ┌─────────────────────┐   ┌─────────────────────┐   ┌─────────────────────┐
 │   FIB RENDERING     │   │  POSITION VISUAL    │   │  BACKTEST ENGINE    │
-│   (L3744-3900)      │   │  (L4010-4250)       │   │  (L5050-5160)       │
+│   (L3744-3900)      │   │  (L4010-4250)       │   │  (L5050-5160, types L2600-2730) │
 │                     │   │                     │   │                     │
 │  line.new for lvls  │   │  box.new entry      │   │  Trade recording    │
 │  label.new for lbls │   │  line.new SL/TP     │   │  Win/loss tracking  │
