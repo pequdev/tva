@@ -1,5 +1,5 @@
 //@version=6
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.6.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS1.7.0', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -1707,7 +1707,18 @@ INPUT_VAL_NEG_0_65      = input.float(-0.65, '', inline='Level10', group=GROUP_F
 INPUT_COL_NEG_0_65      = input.color(color.new(COLOR_TEAL, TRANS_SUPP), '', inline='Level10', group=GROUP_FIB_LEVELS)
 
 // ZigZag
-INPUT_SHOW_ZIGZAG       = input.bool(true, 'Zig Zag  ', inline='ZZ', group=GROUP_ZIGZAG, tooltip=TOOLTIP_ZIGZAG)
+INPUT_SHOW_ZIGZAG       = input.bool(true, 'Zig Zag', inline='ZZ', group=GROUP_ZIGZAG, tooltip=TOOLTIP_ZIGZAG)
+
+// ZigZag Rendering Mode (FUNC-1: PolylinePlus Architecture)
+string TOOLTIP_ZZ_RENDER = 'LINES: Classic per-segment line drawing (max 500 lines).\nPOLYLINE_BUFFER: Buffered polyline rendering (max 100 polylines, 10k points each).\nPolyline mode uses xloc.bar_time for stable deep-history rendering.'
+string TOOLTIP_ZZ_POLY_MAX = 'Maximum polylines to keep before garbage collection. Oldest polylines are deleted when limit exceeded.'
+string TOOLTIP_ZZ_POLY_POINTS = 'Maximum points per polyline before flushing to a new polyline. Use < 10000 for safety margin.'
+string TOOLTIP_ZZ_LIVE_SEG = 'Keep a single live line for the current unconfirmed leg. Updates per bar until pivot confirmation.'
+
+INPUT_ZZ_RENDER_MODE    = input.string('LINES', 'Render Mode', options=['LINES', 'POLYLINE_BUFFER'], group=GROUP_ZIGZAG, tooltip=TOOLTIP_ZZ_RENDER)
+INPUT_ZZ_POLY_MAX_KEEP  = input.int(50, 'Max Polylines', minval=1, maxval=100, group=GROUP_ZIGZAG, tooltip=TOOLTIP_ZZ_POLY_MAX)
+INPUT_ZZ_POLY_MAX_POINTS = input.int(9500, 'Max Points/Poly', minval=100, maxval=10000, group=GROUP_ZIGZAG, tooltip=TOOLTIP_ZZ_POLY_POINTS)
+INPUT_ZZ_LIVE_SEGMENT   = input.bool(true, 'Live Segment Line', group=GROUP_ZIGZAG, tooltip=TOOLTIP_ZZ_LIVE_SEG)
 
 // Alerts
 INPUT_ALERT_ENABLED     = input.bool(false, 'Enable Alerts', group=GROUP_ALERTS)
@@ -1787,23 +1798,31 @@ method getLevel(PivotContext this, float ratio) =>
 // @field ln The current ZigZag line being drawn
 // @field iLast Bar index of last point
 // @field pLast Price of last point
+// @field tLast Time of last point (UNIX ms)
 // @field isHighLast True if last pivot was a high
 // @field iPrev Bar index of previous point (before iLast)
+// @field tPrev Time of previous point
 // @field iPrevPivot Bar index of the pivot before the current one (x1 of previous line)
 // @field pPrevPivot Price of the pivot before the current one
+// @field tPrevPivot Time of the pivot before the current one
 // @field iLastPivot Bar index of the most recent confirmed pivot (x2 of previous line)
 // @field pLastPivot Price of the most recent confirmed pivot
+// @field tLastPivot Time of the most recent confirmed pivot
 // @field changed True if a new pivot was confirmed this bar (reset each bar)
 type ZigZagEngine
     line ln = na
     int iLast = 0
     float pLast = 0.0
+    int tLast = 0
     bool isHighLast = false
     int iPrev = 0
+    int tPrev = 0
     int iPrevPivot = 0
     float pPrevPivot = 0.0
+    int tPrevPivot = 0
     int iLastPivot = 0
     float pLastPivot = 0.0
+    int tLastPivot = 0
     bool changed = false
 
 // @function Reset the changed flag at the start of each bar
@@ -1831,52 +1850,85 @@ f_calcDev(float base_price, float price) =>
 // @param dev Deviation from last point
 // @param isHigh True if this is a high pivot candidate
 // @param index Bar index of the pivot
+// @param tPivot Time of the pivot (UNIX ms)
 // @param price Price of the pivot
 // @param dev_threshold Deviation threshold for confirming new pivots
 // @param zz_color Color for ZigZag lines
 // @param show_zigzag Whether to display the ZigZag lines
+// @param usePolylineMode If true, skip line drawing (polyline buffer handles visuals)
 // @returns True if a NEW line segment was created (not just extended)
-method processPivot(ZigZagEngine this, float dev, bool isHigh, int index, float price, float dev_threshold, color zz_color, bool show_zigzag) =>
+method processPivot(ZigZagEngine this, float dev, bool isHigh, int index, int tPivot, float price, float dev_threshold, color zz_color, bool show_zigzag, bool usePolylineMode = false) =>
     bool newSegment = false
     
-    if this.isHighLast == isHigh and not na(this.ln)
+    if this.isHighLast == isHigh
         // Same direction - check if we should extend the existing line
         if this.isHighLast ? price > this.pLast : price < this.pLast
-            line.set_xy2(this.ln, index, price)
+            if not na(this.ln) and not usePolylineMode
+                line.set_xy2(this.ln, index, price)
             // Update tracking vars
             this.iPrev := this.iLast
             this.iLast := index
             this.pLast := price
+            this.tPrev := this.tLast
+            this.tLast := tPivot
     else
         // Different direction or no existing line
-        if na(this.ln)
-            // First line ever
-            line newLine = line.new(this.iLast, this.pLast, index, price, color=zz_color, width=2, style=line.style_solid)
-            this.ln := newLine
+        bool isFirstSegment = na(this.ln) and this.pLast != 0 and this.iPrevPivot == 0
+        if isFirstSegment
+            // First segment ever - set tracking vars for polyline buffer
+            this.iPrevPivot := this.iLast
+            this.pPrevPivot := this.pLast
+            this.tPrevPivot := this.tLast
+            this.iLastPivot := index
+            this.pLastPivot := price
+            this.tLastPivot := tPivot
+            
+            if not usePolylineMode
+                line newLine = line.new(this.iLast, this.pLast, index, price, color=zz_color, width=2, style=line.style_solid)
+                this.ln := newLine
             this.isHighLast := isHigh
             this.iPrev := this.iLast
             this.iLast := index
             this.pLast := price
+            this.tPrev := this.tLast
+            this.tLast := tPivot
             newSegment := true
-        else if math.abs(dev) > dev_threshold
+        else if math.abs(dev) > dev_threshold or (na(this.ln) and not usePolylineMode)
             // Deviation threshold met - create new line segment
-            // First, capture the previous line's coordinates for caching
-            this.iPrevPivot := line.get_x1(this.ln)
-            this.pPrevPivot := line.get_y1(this.ln)
-            this.iLastPivot := line.get_x2(this.ln)
-            this.pLastPivot := line.get_y2(this.ln)
+            // Capture the previous segment's coordinates for caching
+            if not na(this.ln)
+                this.iPrevPivot := line.get_x1(this.ln)
+                this.pPrevPivot := line.get_y1(this.ln)
+                this.iLastPivot := line.get_x2(this.ln)
+                this.pLastPivot := line.get_y2(this.ln)
+                this.tPrevPivot := this.tPrev
+                this.tLastPivot := this.tLast
+            else
+                // In polyline mode (no line object), the new segment goes from
+                // current end (iLast,pLast,tLast) to new point (index,price,tPivot)
+                this.iPrevPivot := this.iLast
+                this.pPrevPivot := this.pLast
+                this.tPrevPivot := this.tLast
+                this.iLastPivot := index
+                this.pLastPivot := price
+                this.tLastPivot := tPivot
             
-            // Delete old line if ZigZag display is disabled
-            if not show_zigzag
-                line.delete(this.ln)
+            // Delete old line if ZigZag display is disabled or polyline mode active
+            if not show_zigzag or usePolylineMode
+                if not na(this.ln)
+                    line.delete(this.ln)
+                    this.ln := na
             
-            // Create new line
-            line newLine = line.new(this.iLast, this.pLast, index, price, color=zz_color, width=2, style=line.style_solid)
-            this.ln := newLine
+            // Create new line (only in LINES mode)
+            if not usePolylineMode
+                line newLine = line.new(this.iLast, this.pLast, index, price, color=zz_color, width=2, style=line.style_solid)
+                this.ln := newLine
             this.isHighLast := isHigh
             this.iPrev := this.iLast
             this.iLast := index
             this.pLast := price
+            this.tPrev := this.tLast
+            this.tLast := tPivot
             this.changed := true
             newSegment := true
     
@@ -1885,13 +1937,157 @@ method processPivot(ZigZagEngine this, float dev, bool isHigh, int index, float 
 // @function Initialize the ZigZag with the first pivot point (no line yet)
 // @param this ZigZagEngine instance
 // @param index Bar index of first point
+// @param tTime Time of first point
 // @param price Price of first point
 // @param isHigh True if first point is a high
 // @returns ZigZagEngine instance for chaining
-method initFirst(ZigZagEngine this, int index, float price, bool isHigh) =>
+method initFirst(ZigZagEngine this, int index, int tTime, float price, bool isHigh) =>
     this.iLast := index
     this.pLast := price
+    this.tLast := tTime
     this.isHighLast := isHigh
+    this
+
+// @type ZigZagVisualBuffer - Buffers ZigZag pivots into polylines (PolylinePlus)
+// @description Maintains a rolling set of polyline objects using bar_time xloc for deep history stability.
+//              Supports active chunk re-rendering, manual garbage collection, and optional live segment line.
+// @field points Active chart points for the current polyline chunk
+// @field sealed Completed polylines that have been flushed
+// @field active Currently rendered polyline for the active chunk
+// @field liveLine Optional live line for the in-flight leg
+// @field maxPolys Max sealed polylines to keep (hard cap GC)
+// @field maxPoints Max points per polyline before flushing
+// @field liveEnabled Whether to render the live segment line
+type ZigZagVisualBuffer
+    array<chart.point> points = na
+    array<polyline> sealed = na
+    polyline active = na
+    line liveLine = na
+    int maxPolys = 50
+    int maxPoints = 9500
+    bool liveEnabled = true
+
+// @function Configure buffer caps and ensure arrays exist
+// @param this ZigZagVisualBuffer instance
+// @param maxPolys Maximum sealed polylines to retain
+// @param maxPoints Maximum points per active polyline chunk
+// @param liveEnabled Enable/disable live segment drawing
+// @returns ZigZagVisualBuffer instance
+method configure(ZigZagVisualBuffer this, int maxPolys, int maxPoints, bool liveEnabled) =>
+    if na(this.points)
+        this.points := array.new<chart.point>()
+    if na(this.sealed)
+        this.sealed := array.new<polyline>()
+    this.maxPolys := maxPolys
+    this.maxPoints := maxPoints
+    this.liveEnabled := liveEnabled
+    this
+
+// @function Clear all buffered drawings and state
+// @param this ZigZagVisualBuffer instance
+// @returns ZigZagVisualBuffer instance
+method clearAll(ZigZagVisualBuffer this) =>
+    if not na(this.active)
+        polyline.delete(this.active)
+        this.active := na
+    if not na(this.sealed)
+        if array.size(this.sealed) > 0
+            for i = 0 to array.size(this.sealed) - 1
+                polyline.delete(array.get(this.sealed, i))
+        array.clear(this.sealed)
+    if not na(this.points)
+        array.clear(this.points)
+    if not na(this.liveLine)
+        line.delete(this.liveLine)
+        this.liveLine := na
+    this
+
+// @function Garbage collect sealed polylines beyond cap
+// @param this ZigZagVisualBuffer instance
+// @returns ZigZagVisualBuffer instance
+method gcPolys(ZigZagVisualBuffer this) =>
+    if not na(this.sealed)
+        while array.size(this.sealed) > this.maxPolys
+            polyline doomed = array.shift(this.sealed)
+            polyline.delete(doomed)
+    this
+
+// @function Render or refresh the active polyline chunk
+// @param this ZigZagVisualBuffer instance
+// @param col Line color to use
+// @returns ZigZagVisualBuffer instance
+method renderActive(ZigZagVisualBuffer this, color col) =>
+    if array.size(this.points) >= 2
+        array<chart.point> snapshot = array.copy(this.points)
+        if not na(this.active)
+            polyline.delete(this.active)
+        this.active := polyline.new(snapshot, curved=false, closed=false, xloc=xloc.bar_time, line_color=col, line_style=line.style_solid, line_width=2)
+    this
+
+// @function Flush active chunk into sealed list when it hits capacity
+// @param this ZigZagVisualBuffer instance
+// @returns ZigZagVisualBuffer instance
+method flushIfFull(ZigZagVisualBuffer this) =>
+    if array.size(this.points) >= this.maxPoints and not na(this.active)
+        array.push(this.sealed, this.active)
+        this.active := na
+        this.gcPolys()
+        chart.point lastPoint = array.get(this.points, array.size(this.points) - 1)
+        array.clear(this.points)
+        array.push(this.points, lastPoint)
+    this
+
+// @function Append a confirmed segment and render
+// @param this ZigZagVisualBuffer instance
+// @param tStart Start time (UNIX ms)
+// @param pStart Start price
+// @param tEnd End time (UNIX ms)
+// @param pEnd End price
+// @param col Line color
+// @returns ZigZagVisualBuffer instance
+method addSegment(ZigZagVisualBuffer this, int tStart, float pStart, int tEnd, float pEnd, color col) =>
+    // FUNC-6 safety: skip if any coordinate is invalid
+    if tStart == 0 or tEnd == 0 or na(pStart) or na(pEnd)
+        this
+    else
+        chart.point ptStart = chart.point.from_time(tStart, pStart)
+        chart.point ptEnd = chart.point.from_time(tEnd, pEnd)
+        if array.size(this.points) == 0
+            array.push(this.points, ptStart)
+        else
+            chart.point lastPt = array.get(this.points, array.size(this.points) - 1)
+            if lastPt.time != ptStart.time or lastPt.price != ptStart.price
+                array.push(this.points, ptStart)
+        array.push(this.points, ptEnd)
+        this.renderActive(col)
+        this.flushIfFull()
+        this
+
+// @function Update or hide the live segment line
+// @param this ZigZagVisualBuffer instance
+// @param tStart Start time (UNIX ms)
+// @param pStart Start price
+// @param tEnd End time (UNIX ms)
+// @param pEnd End price
+// @param col Line color
+// @param show Show/hide flag
+// @returns ZigZagVisualBuffer instance
+method updateLive(ZigZagVisualBuffer this, int tStart, float pStart, int tEnd, float pEnd, color col, bool show) =>
+    bool canShow = show and this.liveEnabled and tStart != 0 and tEnd != 0
+    if not canShow
+        if not na(this.liveLine)
+            line.delete(this.liveLine)
+            this.liveLine := na
+    else
+        if na(this.liveLine)
+            this.liveLine := line.new(tStart, pStart, tEnd, pEnd, xloc=xloc.bar_time, style=line.style_dotted, width=1, color=col)
+        else
+            line.set_xloc(this.liveLine, tStart, tEnd, xloc.bar_time)
+            line.set_xy1(this.liveLine, tStart, pStart)
+            line.set_xy2(this.liveLine, tEnd, pEnd)
+            line.set_style(this.liveLine, line.style_dotted)
+            line.set_color(this.liveLine, col)
+            line.set_width(this.liveLine, 1)
     this
 
 // @type RegimeState - Consolidates all regime detection state
@@ -3330,6 +3526,22 @@ GLOBAL_extContext.extOk := _extOk
 // ZIGZAG ENGINE - Manages ZigZag line drawing and pivot state
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 var ZigZagEngine GLOBAL_zigzag = ZigZagEngine.new()
+var ZigZagVisualBuffer GLOBAL_zigzagBuffer = ZigZagVisualBuffer.new()
+var string GLOBAL_prevZzRender = INPUT_ZZ_RENDER_MODE
+
+bool _zzRenderChanged = INPUT_ZZ_RENDER_MODE != GLOBAL_prevZzRender
+GLOBAL_prevZzRender := INPUT_ZZ_RENDER_MODE
+bool _zzUsePolyline = INPUT_ZZ_RENDER_MODE == 'POLYLINE_BUFFER'
+
+GLOBAL_zigzagBuffer.configure(INPUT_ZZ_POLY_MAX_KEEP, INPUT_ZZ_POLY_MAX_POINTS, INPUT_ZZ_LIVE_SEGMENT)
+
+// Mode switch cleanup: clear polylines when switching FROM polyline mode or when mode changes
+if _zzRenderChanged
+    GLOBAL_zigzagBuffer.clearAll()
+    // Delete existing line when switching TO polyline mode
+    if _zzUsePolyline and not na(GLOBAL_zigzag.ln)
+        line.delete(GLOBAL_zigzag.ln)
+        GLOBAL_zigzag.ln := na
 
 // @type CachedPivots - Stores cached pivot coordinates for stable Fibonacci drawing
 // @description Encapsulates bar index (i) and price (p) for both primary and secondary pivot pairs.
@@ -3436,6 +3648,8 @@ pH = ta.pivothigh(high, pivotLength, pivotLength)
 pL = ta.pivotlow(low, pivotLength, pivotLength)
 iH = not na(pH) ? bar_index[pivotLength] : int(na)
 iL = not na(pL) ? bar_index[pivotLength] : int(na)
+int tH = not na(pH) ? time[pivotLength] : int(na)
+int tL = not na(pL) ? time[pivotLength] : int(na)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // PROJECTION MODE: Tentative Pivot Detection (real-time, before depth confirmation)
@@ -3503,10 +3717,10 @@ GLOBAL_zigzag.resetChanged()
 
 if not na(iH)
     if na(GLOBAL_zigzag.ln) and GLOBAL_zigzag.pLast == 0
-        GLOBAL_zigzag.initFirst(iH, pH, true)
+        GLOBAL_zigzag.initFirst(iH, tH, pH, true)
     else
         float dev = f_calcDev(GLOBAL_zigzag.pLast, pH)
-        bool newSegment = GLOBAL_zigzag.processPivot(dev, true, iH, pH, GLOBAL_DEV_THRESHOLD, COLOR_ZZ, INPUT_SHOW_ZIGZAG)
+        bool newSegment = GLOBAL_zigzag.processPivot(dev, true, iH, tH, pH, GLOBAL_DEV_THRESHOLD, COLOR_ZZ, INPUT_SHOW_ZIGZAG, _zzUsePolyline)
         
         if newSegment
             // New line segment was created - update cached pivot values
@@ -3519,7 +3733,15 @@ if not na(iH)
             GLOBAL_cachedPivots.pMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
             GLOBAL_cachedPivots.iEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : GLOBAL_zigzag.iLastPivot
             GLOBAL_cachedPivots.pEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : GLOBAL_zigzag.pLastPivot
-        else if not na(GLOBAL_zigzag.ln) and INPUT_HIST_PIVOT == 0
+            
+            if _zzUsePolyline and INPUT_SHOW_ZIGZAG
+                int tStart = GLOBAL_zigzag.tPrevPivot
+                int tEnd = GLOBAL_zigzag.tLastPivot
+                float pStart = GLOBAL_zigzag.pPrevPivot
+                float pEnd = GLOBAL_zigzag.pLastPivot
+                if tStart != 0 and tEnd != 0 and not na(pStart) and not na(pEnd)
+                    GLOBAL_zigzagBuffer.addSegment(tStart, pStart, tEnd, pEnd, COLOR_ZZ)
+        else if INPUT_HIST_PIVOT == 0
             // Line was extended (same direction) - update endpoint caches
             if GLOBAL_zigzag.isHighLast and pH > (GLOBAL_zigzag[1]).pLast
                 GLOBAL_cachedPivots.iEndBase := iH
@@ -3530,10 +3752,10 @@ if not na(iH)
 else
     if not na(iL)
         if na(GLOBAL_zigzag.ln) and GLOBAL_zigzag.pLast == 0
-            GLOBAL_zigzag.initFirst(iL, pL, false)
+            GLOBAL_zigzag.initFirst(iL, tL, pL, false)
         else
             float dev = f_calcDev(GLOBAL_zigzag.pLast, pL)
-            bool newSegment = GLOBAL_zigzag.processPivot(dev, false, iL, pL, GLOBAL_DEV_THRESHOLD, COLOR_ZZ, INPUT_SHOW_ZIGZAG)
+            bool newSegment = GLOBAL_zigzag.processPivot(dev, false, iL, tL, pL, GLOBAL_DEV_THRESHOLD, COLOR_ZZ, INPUT_SHOW_ZIGZAG, _zzUsePolyline)
             
             if newSegment
                 // New line segment was created - update cached pivot values
@@ -3546,7 +3768,15 @@ else
                 GLOBAL_cachedPivots.pMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
                 GLOBAL_cachedPivots.iEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_iEndBase2_hist : GLOBAL_zigzag.iLastPivot
                 GLOBAL_cachedPivots.pEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? temp_pEndBase2_hist : GLOBAL_zigzag.pLastPivot
-            else if not na(GLOBAL_zigzag.ln) and INPUT_HIST_PIVOT == 0
+                
+                if _zzUsePolyline and INPUT_SHOW_ZIGZAG
+                    int tStart = GLOBAL_zigzag.tPrevPivot
+                    int tEnd = GLOBAL_zigzag.tLastPivot
+                    float pStart = GLOBAL_zigzag.pPrevPivot
+                    float pEnd = GLOBAL_zigzag.pLastPivot
+                    if tStart != 0 and tEnd != 0 and not na(pStart) and not na(pEnd)
+                        GLOBAL_zigzagBuffer.addSegment(tStart, pStart, tEnd, pEnd, COLOR_ZZ)
+            else if INPUT_HIST_PIVOT == 0
                 // Line was extended (same direction) - update endpoint caches
                 if not GLOBAL_zigzag.isHighLast and pL < (GLOBAL_zigzag[1]).pLast
                     GLOBAL_cachedPivots.iEndBase := iL
@@ -3554,6 +3784,16 @@ else
                     GLOBAL_cachedPivots.iEndBase2 := iL
                     GLOBAL_cachedPivots.pEndBase2 := pL
                     GLOBAL_zigzag.changed := true
+
+if _zzUsePolyline and INPUT_SHOW_ZIGZAG
+    // Live segment extends from last pivot to current high (if bullish) or low (if bearish)
+    float livePrice = GLOBAL_zigzag.isHighLast ? low : high
+    bool showLive = INPUT_ZZ_LIVE_SEGMENT and GLOBAL_zigzag.tLast != 0 and not na(GLOBAL_zigzag.pLast)
+    GLOBAL_zigzagBuffer.updateLive(GLOBAL_zigzag.tLast, GLOBAL_zigzag.pLast, time, livePrice, COLOR_ZZ, showLive)
+else if not _zzUsePolyline and not na(GLOBAL_zigzagBuffer.liveLine)
+    // Ensure live line is cleaned up in LINES mode
+    line.delete(GLOBAL_zigzagBuffer.liveLine)
+    GLOBAL_zigzagBuffer.liveLine := na
 
 // @function Get OHLC values for a higher timeframe
 // @param _htf Higher timeframe string (e.g., "240", "D")
