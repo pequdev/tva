@@ -5,7 +5,7 @@
 //   - Compiled tokens: 100k (libraries: 1M combined)
 //   - Dynamic requests: 40 max per script
 //   - calc_bars_count: compile-time literal (0 = all bars)
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS/1.20', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true, calc_bars_count=0)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS/1.25', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true, calc_bars_count=0)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
@@ -46,27 +46,13 @@ string UI_TEXT_stale       = "STALE"
 string UI_TEXT_learning    = "📊 Learning..."
 string UI_TEXT_samples     = " samples"
 
-// UI Icons
-string UI_ICON_BRAIN       = "🧠"
-string UI_ICON_CHART       = "📊"
-string UI_ICON_TARGET      = "🎯"
-string UI_ICON_FIRE        = "🔥"
-string UI_ICON_ICE         = "❄️"
-string UI_ICON_LIGHTNING   = "⚡"
-string UI_ICON_WAVE        = "🌊"
-string UI_ICON_CHECK       = "✓"
-string UI_ICON_WARNING     = "⚠"
-string UI_ICON_HOURGLASS   = "⏳"
-string UI_ICON_STOP        = "🛑"
-string UI_ICON_SCALE       = "⚖️"
-
 // Position Display
-string UI_TEXT_tpPrefix   = "\n" + UI_ICON_TARGET + " TP: "
-string UI_TEXT_slPrefix   = "\n" + UI_ICON_STOP + " SL: "
-string UI_TEXT_rrPrefix   = "\n" + UI_ICON_SCALE + " R:R "
-string UI_TEXT_projTag    = " " + UI_ICON_LIGHTNING + "PROJ"
-string UI_TEXT_activeTag  = " " + UI_ICON_CHECK + "ACTIVE"
-string UI_TEXT_smartSL    = "\n   " + UI_ICON_TARGET + " Smart SL: "
+string UI_TEXT_tpPrefix   = "\n" + "🎯" + " TP: "
+string UI_TEXT_slPrefix   = "\n🛑 SL: "
+string UI_TEXT_rrPrefix   = "\n" + "⚖️" + " R:R "
+string UI_TEXT_projTag    = " " + "⚡" + "PROJ"
+string UI_TEXT_activeTag  = " " + "✓" + "ACTIVE"
+string UI_TEXT_smartSL    = "\n   " + "🎯" + " Smart SL: "
 
 // Learning Display
 string UI_TEXT_lBuf       = " | Buf:+"
@@ -80,26 +66,26 @@ string UI_TEXT_lEdge      = "% edge"
 string UI_TEXT_lLong      = "\n   L:"
 string UI_TEXT_lShort     = " S:"
 string UI_TEXT_lXMAE      = " ✗MAE:"
-string UI_TEXT_lTP        = "\n   " + UI_ICON_BRAIN + " TP:"
+string UI_TEXT_lTP        = "\n   " + "🧠" + " TP:"
 string UI_TEXT_lDecay     = " Decay:"
 string UI_TEXT_lRsiWt     = " RSIwt:"
-string UI_TEXT_lConf      = "\n   " + UI_ICON_TARGET + " Conf:"
+string UI_TEXT_lConf      = "\n   " + "🎯" + " Conf:"
 string UI_TEXT_lPF        = "\n   PF:"
 string UI_TEXT_lExp       = " Exp:"
-string UI_TEXT_lHighVol   = "\n   " + UI_ICON_LIGHTNING + "HighVol"
-string UI_TEXT_lLowVol    = "\n   " + UI_ICON_WAVE + " LowVol"
+string UI_TEXT_lHighVol   = "\n   " + "⚡" + "HighVol"
+string UI_TEXT_lLowVol    = "\n   " + "🌊" + " LowVol"
 string UI_TEXT_lSR        = "\n   SR:"
-string UI_TEXT_lWarn      = "\n   " + UI_ICON_WARNING + " "
-string UI_TEXT_lFire      = "\n   " + UI_ICON_FIRE + " "
+string UI_TEXT_lWarn      = "\n   " + "⚠" + " "
+string UI_TEXT_lFire      = "\n   " + "🔥" + " "
 string UI_TEXT_lStreakL  = "L streak"
 string UI_TEXT_lStreakW  = "W streak"
 
 // Backtest Display
-string UI_TEXT_btPrefix   = "\n" + UI_ICON_CHART + " Backtested "
+string UI_TEXT_btPrefix   = "\n" + "📊" + " Backtested "
 string UI_TEXT_btTrades   = " Trades: "
 string UI_TEXT_btWR       = "% WR"
-string UI_TEXT_btLow      = " " + UI_ICON_WARNING + "LOW"
-string UI_TEXT_btEmpty    = "\n" + UI_ICON_CHART + " Backtesting... (0 trades)"
+string UI_TEXT_btLow      = " " + "⚠" + "LOW"
+string UI_TEXT_btEmpty    = "\n" + "📊" + " Backtesting... (0 trades)"
 
 // Rating Symbols
 string UI_SYM_UP           = "▲"
@@ -132,7 +118,6 @@ string UI_TEXT_dash        = "—"
 // Plotchar Labels
 string UI_LABEL_EXHAUST    = "Exhaustion Bar"
 string UI_LABEL_HIGH_VOL   = "High Volatile Bar"
-string UI_ICON_TRAFFIC     = "🚦"
 
 // Table Headers
 string UI_TBL_ENTROPY      = "Entropy Debug"
@@ -195,14 +180,14 @@ string UI_TEXT_EV_MARGINAL = "marginal"
 string UI_TEXT_EV_DECENT   = "decent"
 string UI_TEXT_EV_STRONG   = "strong"
 string UI_TEXT_EV_EXCEPT   = "exceptional"
-string UI_TEXT_EV_CONF_YES = UI_ICON_CHECK
+string UI_TEXT_EV_CONF_YES = "✓"
 string UI_TEXT_EV_CONF_NO  = "?"
 
 // Status Labels
-string UI_TEXT_ON          = UI_ICON_CHECK + " ON"
+string UI_TEXT_ON          = "✓" + " ON"
 string UI_TEXT_OFF         = UI_SYM_CROSS + " OFF"
-string UI_TEXT_EXCEEDED    = UI_ICON_WARNING + " EXCEEDED"
-string UI_TEXT_DEGRADE_PFX = UI_ICON_LIGHTNING + " "
+string UI_TEXT_EXCEEDED    = "⚠" + " EXCEEDED"
+string UI_TEXT_DEGRADE_PFX = "⚡" + " "
 
 // Tooltips
 string UI_TOOLTIP_threshold   = 'Deviation is a multiplier that affects how much the price should deviate from the previous pivot in order for the bar to become a new pivot\n\nDepth affects the minimum number of bars that will be taken into account when building'
@@ -249,6 +234,145 @@ string UI_POS_lastBar      = "Last Bar"
 string UI_POS_pivotStart   = "Pivot Start"
 string UI_POS_pivotEnd     = "Pivot End"
 string STATIC_KEY_default  = "DEFAULT"
+
+// Timeframe Keys (for threshold/depth maps)
+string STATIC_TF_1S        = "1S"
+string STATIC_TF_5S        = "5S"
+string STATIC_TF_10S       = "10S"
+string STATIC_TF_15S       = "15S"
+string STATIC_TF_30S       = "30S"
+string STATIC_TF_45S       = "45S"
+string STATIC_TF_1M        = "1"
+string STATIC_TF_2M        = "2"
+string STATIC_TF_3M        = "3"
+string STATIC_TF_5M        = "5"
+string STATIC_TF_10M       = "10"
+string STATIC_TF_15M       = "15"
+string STATIC_TF_30M       = "30"
+string STATIC_TF_45M       = "45"
+string STATIC_TF_1H        = "60"
+string STATIC_TF_2H        = "120"
+string STATIC_TF_3H        = "180"
+string STATIC_TF_4H        = "240"
+string STATIC_TF_1D        = "1D"
+string STATIC_TF_7D        = "7D"
+string STATIC_TF_4W        = "4W"
+string STATIC_TF_3Mo       = "3M"
+string STATIC_TF_6Mo       = "6M"
+string STATIC_TF_12Mo      = "12M"
+
+// Input Labels - Deviation
+string UI_LABEL_devDefault = 'Deviation (default)'
+string UI_LABEL_dev1S      = 'Deviation (1S)'
+string UI_LABEL_dev5S      = 'Deviation (5S)'
+string UI_LABEL_dev10S     = 'Deviation (10S)'
+string UI_LABEL_dev15S     = 'Deviation (15S)'
+string UI_LABEL_dev30S     = 'Deviation (30S)'
+string UI_LABEL_dev45S     = 'Deviation (45S)'
+string UI_LABEL_dev1M      = 'Deviation (1M)'
+string UI_LABEL_dev2M      = 'Deviation (2M)'
+string UI_LABEL_dev3M      = 'Deviation (3M)'
+string UI_LABEL_dev5M      = 'Deviation (5M)'
+string UI_LABEL_dev10M     = 'Deviation (10M)'
+string UI_LABEL_dev15M     = 'Deviation (15M)'
+string UI_LABEL_dev30M     = 'Deviation (30M)'
+string UI_LABEL_dev45M     = 'Deviation (45M)'
+string UI_LABEL_dev1H      = 'Deviation (1H)'
+string UI_LABEL_dev2H      = 'Deviation (2H)'
+string UI_LABEL_dev3H      = 'Deviation (3H)'
+string UI_LABEL_dev4H      = 'Deviation (4H)'
+string UI_LABEL_dev1D      = 'Deviation (1D)'
+string UI_LABEL_dev7D      = 'Deviation (7D)'
+string UI_LABEL_dev4W      = 'Deviation (4W)'
+string UI_LABEL_dev3Mo     = 'Deviation (3Mo)'
+string UI_LABEL_dev6Mo     = 'Deviation (6Mo)'
+string UI_LABEL_dev12Mo    = 'Deviation (12Mo)'
+
+// Input Labels - Depth
+string UI_LABEL_depDefault = 'Depth (default)'
+string UI_LABEL_dep1S      = 'Depth (1S)'
+string UI_LABEL_dep5S      = 'Depth (5S)'
+string UI_LABEL_dep10S     = 'Depth (10S)'
+string UI_LABEL_dep15S     = 'Depth (15S)'
+string UI_LABEL_dep30S     = 'Depth (30S)'
+string UI_LABEL_dep45S     = 'Depth (45S)'
+string UI_LABEL_dep1M      = 'Depth (1M)'
+string UI_LABEL_dep2M      = 'Depth (2M)'
+string UI_LABEL_dep3M      = 'Depth (3M)'
+string UI_LABEL_dep5M      = 'Depth (5M)'
+string UI_LABEL_dep10M     = 'Depth (10M)'
+string UI_LABEL_dep15M     = 'Depth (15M)'
+string UI_LABEL_dep30M     = 'Depth (30M)'
+string UI_LABEL_dep45M     = 'Depth (45M)'
+string UI_LABEL_dep1H      = 'Depth (1H)'
+string UI_LABEL_dep2H      = 'Depth (2H)'
+string UI_LABEL_dep3H      = 'Depth (3H)'
+string UI_LABEL_dep4H      = 'Depth (4H)'
+string UI_LABEL_dep1D      = 'Depth (1D)'
+string UI_LABEL_dep7D      = 'Depth (7D)'
+string UI_LABEL_dep4W      = 'Depth (4W)'
+string UI_LABEL_dep3Mo     = 'Depth (3Mo)'
+string UI_LABEL_dep6Mo     = 'Depth (6Mo)'
+string UI_LABEL_dep12Mo    = 'Depth (12Mo)'
+
+// Input Option Constants - Level Labels
+string UI_OPT_levels       = 'Levels'
+string UI_OPT_prices       = 'Prices'
+string UI_OPT_levelsPrices = 'Levels + Prices'
+string UI_OPT_none         = 'None'
+
+// Input Option Constants - Position
+string UI_OPT_left         = 'Left'
+string UI_OPT_right        = 'Right'
+
+// Input Option Constants - Render Mode
+string UI_OPT_lines        = 'LINES'
+string UI_OPT_polyline     = 'POLYLINE_BUFFER'
+
+// Input Option Constants - Size
+string UI_OPT_small        = 'Small'
+string UI_OPT_normal       = 'Normal'
+
+// Input Option Constants - Position Labels
+string UI_OPT_pivotEnd     = 'Pivot End'
+string UI_OPT_pivotStart   = 'Pivot Start'
+string UI_OPT_lastBar      = 'Last Bar'
+
+// Input Option Constants - Vertical Position
+string UI_OPT_bottom       = 'Bottom'
+string UI_OPT_top          = 'Top'
+
+// Input Option Constants - HTF Mode
+string UI_OPT_auto         = 'Auto'
+string UI_OPT_userDefined  = 'User Defined'
+
+// Input Option Constants - HTF Timeframes
+string UI_OPT_tf15min      = '15 Min'
+string UI_OPT_tf1hour      = '1 Hour'
+string UI_OPT_tf4hour      = '4 Hour'
+string UI_OPT_tfDaily      = 'Daily'
+string UI_OPT_tfWeekly     = 'Weekly'
+string UI_OPT_tfMonthly    = 'Monthly'
+string UI_OPT_tfQuarterly  = 'Quarterly'
+string UI_OPT_tfYearly     = 'Yearly'
+
+// Input Option Constants - LTF Resolution
+string UI_OPT_ltf1         = '1'
+string UI_OPT_ltf5         = '5'
+string UI_OPT_ltf15        = '15'
+
+// Input Option Constants - Alert Mode
+string UI_OPT_alertData    = 'calculateAlertData'
+string UI_OPT_alertUpdates = 'calculateAlertUpdates'
+
+// JSON Literals
+string STATIC_JSON_null    = 'null'
+string STATIC_JSON_true    = 'true'
+string STATIC_JSON_false   = 'false'
+
+// Label Prefixes
+string UI_PREFIX_ret       = 'RET '
+string UI_PREFIX_ext       = 'EXT '
 
 // Render Mode Constants
 string UI_RENDER_lines     = "LINES"
@@ -537,38 +661,38 @@ INPUT_CUSTOM_THRESHOLD  = input.bool(true, 'Custom thresholds', inline='C')
 INPUT_CUSTOM_DEPTH      = input.bool(true, 'Custom depths', inline='C')
 
 // Pivot Settings
-INPUT_HTF_MODE          = input.string('Auto', 'Pivot Points TimeFrame', options=['Auto', 'User Defined'], inline='HTF', group=UI_GROUP_pivot, tooltip=UI_TOOLTIP_pivotPoint)
-INPUT_HTF_USER_RAW      = input.string('15 Min', '          or User Defined', options=['15 Min', '1 Hour', '4 Hour', 'Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'], inline='HTF1', group=UI_GROUP_pivot)
+INPUT_HTF_MODE          = input.string(UI_OPT_auto, 'Pivot Points TimeFrame', options=[UI_OPT_auto, UI_OPT_userDefined], inline='HTF', group=UI_GROUP_pivot, tooltip=UI_TOOLTIP_pivotPoint)
+INPUT_HTF_USER_RAW      = input.string(UI_OPT_tf15min, '          or User Defined', options=[UI_OPT_tf15min, UI_OPT_tf1hour, UI_OPT_tf4hour, UI_OPT_tfDaily, UI_OPT_tfWeekly, UI_OPT_tfMonthly, UI_OPT_tfQuarterly, UI_OPT_tfYearly], inline='HTF1', group=UI_GROUP_pivot)
 
 // Parse HTF input
-REQ_htfUserParsed = INPUT_HTF_USER_RAW == '15 Min'? '15' : 
-                  INPUT_HTF_USER_RAW == '1 Hour'? '60' : 
-                  INPUT_HTF_USER_RAW == '4 Hour'? '240' : 
-                  INPUT_HTF_USER_RAW == 'Daily'? 'D' : 
-                  INPUT_HTF_USER_RAW == 'Weekly'? 'W' : 
-                  INPUT_HTF_USER_RAW == 'Monthly'? 'M' : 
-                  INPUT_HTF_USER_RAW == 'Quarterly'? '3M' : '12M'
+REQ_htfUserParsed = INPUT_HTF_USER_RAW == UI_OPT_tf15min? '15' : 
+                  INPUT_HTF_USER_RAW == UI_OPT_tf1hour? '60' : 
+                  INPUT_HTF_USER_RAW == UI_OPT_tf4hour? '240' : 
+                  INPUT_HTF_USER_RAW == UI_OPT_tfDaily? 'D' : 
+                  INPUT_HTF_USER_RAW == UI_OPT_tfWeekly? 'W' : 
+                  INPUT_HTF_USER_RAW == UI_OPT_tfMonthly? 'M' : 
+                  INPUT_HTF_USER_RAW == UI_OPT_tfQuarterly? '3M' : '12M'
 
-INPUT_LEVELS_PVT        = input.string('Prices', 'Level Labels', options=['Levels', 'Prices', 'Levels + Prices', 'None'], inline='pvt', group=UI_GROUP_pivot)
-INPUT_LEVELS_PVT_POS    = input.string('Pivot End', '', options=['Last Bar', 'Pivot End'], inline='pvt', group=UI_GROUP_pivot)
-INPUT_LEVELS_PVT_SIZE   = input.string('Small', '', options=['Small', 'Normal'], inline='pvt', group=UI_GROUP_pivot)
+INPUT_LEVELS_PVT        = input.string(UI_OPT_prices, 'Level Labels', options=[UI_OPT_levels, UI_OPT_prices, UI_OPT_levelsPrices, UI_OPT_none], inline='pvt', group=UI_GROUP_pivot)
+INPUT_LEVELS_PVT_POS    = input.string(UI_OPT_pivotEnd, '', options=[UI_OPT_lastBar, UI_OPT_pivotEnd], inline='pvt', group=UI_GROUP_pivot)
+INPUT_LEVELS_PVT_SIZE   = input.string(UI_OPT_small, '', options=[UI_OPT_small, UI_OPT_normal], inline='pvt', group=UI_GROUP_pivot)
 INPUT_EXTEND_PVT        = input.bool(false, 'Extend Pivot Point Lines', inline='fLines', group=UI_GROUP_pivot)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // FIBONACCI EXTENSION / RETRACEMENT / TIME ZONE INPUTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-INPUT_LEVELS_LABEL      = input.string('Prices', 'Level Labels', options=['Levels', 'Prices', 'Levels + Prices', 'None'], inline='fLines', group=UI_GROUP_fibTool)
-INPUT_LEVELS_POS        = input.string('Pivot Start', '', options=['Last Bar', 'Pivot Start'], inline='fLines', group=UI_GROUP_fibTool)
-INPUT_LEVELS_SIZE       = input.string('Small', '', options=['Small', 'Normal'], inline='fLines', group=UI_GROUP_fibTool)
+INPUT_LEVELS_LABEL      = input.string(UI_OPT_prices, 'Level Labels', options=[UI_OPT_levels, UI_OPT_prices, UI_OPT_levelsPrices, UI_OPT_none], inline='fLines', group=UI_GROUP_fibTool)
+INPUT_LEVELS_POS        = input.string(UI_OPT_pivotStart, '', options=[UI_OPT_lastBar, UI_OPT_pivotStart], inline='fLines', group=UI_GROUP_fibTool)
+INPUT_LEVELS_SIZE       = input.string(UI_OPT_small, '', options=[UI_OPT_small, UI_OPT_normal], inline='fLines', group=UI_GROUP_fibTool)
 INPUT_REVERSE           = input.bool(false, 'Reverse Extention / Retracement Levels', group=UI_GROUP_fibTool)
 INPUT_EXTEND_ER         = input.bool(false, 'Extend Extention / Retracement Lines', inline='fLine', group=UI_GROUP_fibTool)
 INPUT_HIST_PIVOT        = input.int (0, 'Historical Extention / Retracement Levels', minval=0, group=UI_GROUP_fibTool)
 INPUT_HIST_PIVOT_2      = input.int(0, 'Historical Time Zones', minval=0, group=UI_GROUP_fibTool)
 INPUT_FIB_TZ_LABEL      = input.bool(false, 'Time Zone Lables', inline='tz poz', group=UI_GROUP_fibTool)
-INPUT_FIB_TZ_POS_X      = input.string('Left', '', options=['Right', 'Left'], inline='tz poz', group=UI_GROUP_fibTool)
-UI_fibTzLabelPos                = INPUT_FIB_TZ_POS_X == 'Left' ? label.style_label_left : label.style_label_right
-INPUT_FIB_TZ_POS_Y      = input.string('Bottom', '', options=['Bottom', 'Top'], inline='tz poz', group=UI_GROUP_fibTool)
+INPUT_FIB_TZ_POS_X      = input.string(UI_OPT_left, '', options=[UI_OPT_right, UI_OPT_left], inline='tz poz', group=UI_GROUP_fibTool)
+UI_fibTzLabelPos                = INPUT_FIB_TZ_POS_X == UI_OPT_left ? label.style_label_left : label.style_label_right
+INPUT_FIB_TZ_POS_Y      = input.string(UI_OPT_bottom, '', options=[UI_OPT_bottom, UI_OPT_top], inline='tz poz', group=UI_GROUP_fibTool)
 
 // --- STATISTICAL POSITION ENGINE INPUTS ---
 INPUT_SHOW_POS          = input.bool(true, 'Show Stat Position Preview', group=UI_GROUP_statPos, tooltip=UI_TOOLTIP_statPos)
@@ -577,7 +701,7 @@ INPUT_POS_SL_DYNAMIC    = input.bool(true, 'Dynamic SL (Volatility-Adjusted)', g
 INPUT_POS_RSI_DIV       = input.bool(true, 'RSI Divergence Filter', group=UI_GROUP_statPos, tooltip="Adds momentum confluence by detecting RSI divergence at the Golden Pocket.\nBullish div: price lower but RSI higher (for longs).\nBearish div: price higher but RSI lower (for shorts).\nBoosts confidence when divergence confirms the setup.")
 INPUT_POS_RSI_LEN       = input.int(14, 'RSI Length', minval=2, maxval=50, group=UI_GROUP_statPos, tooltip="Period for RSI calculation. Default 14 is standard.")
 INPUT_POS_TIME_DECAY    = input.bool(true, 'Fib Time Decay', group=UI_GROUP_statPos, tooltip="Applies time-based decay to zone validity using Fibonacci sequence thresholds (8, 13, 21, 34, 55, 89 bars).\nZone fades 15% at each Fib threshold, reducing win probability and visual opacity.\nCrypto moves fast—stale setups lose edge.")
-INPUT_POS_TP_MODE       = input.string('Conservative', 'Take Profit Mode', options=['Conservative', 'Aggressive'], group=UI_GROUP_statPos, tooltip="Conservative: Targets Pivot End (0.0).\nAggressive: Targets 1.272 Extension.")
+INPUT_POS_TP_MODE       = input.string(UI_OPT_conservative, 'Take Profit Mode', options=[UI_OPT_conservative, UI_OPT_aggressive], group=UI_GROUP_statPos, tooltip="Conservative: Targets Pivot End (0.0).\nAggressive: Targets 1.272 Extension.")
 INPUT_POS_WIN_RATE      = input.float(61.8, 'Assumed Win Rate %', minval=1.0, maxval=99.0, step=1.0, group=UI_GROUP_statPos, tooltip="Estimated win probability for Kelly Criterion sizing.\nDefault 61.8% aligns with Golden Ratio confluence.\nAdjust based on your backtested strategy performance.")
 INPUT_POS_KELLY_FRAC    = input.float(0.5, 'Kelly Fraction', minval=0.1, maxval=1.0, step=0.1, group=UI_GROUP_statPos, tooltip="Fraction of Kelly to use (Half-Kelly = 0.5 is standard for reduced variance).\n1.0 = Full Kelly (aggressive), 0.25 = Quarter Kelly (conservative).")
 // --- LEARNING ENGINE INPUTS ---
@@ -596,8 +720,8 @@ INPUT_PROJECTION_MODE   = input.bool(true, '⚡ Projection Mode (Early Pivot)', 
 INPUT_PROJ_SENSITIVITY  = input.float(0.5, '   ↳ Sensitivity', minval=0.1, maxval=1.0, step=0.1, group=UI_GROUP_statPos, tooltip="Scalar for deviation threshold. < 1.0 reduces lag for tentative setups but increases false positive rate.\n0.5 = 50% of normal threshold (faster signals).\n1.0 = same as confirmed ZigZag (no early warning).")
 // --- INTRABAR PRECISION (Backtest Engine) ---
 INPUT_INTRABAR_ENABLED  = input.bool(true, '🔬 Intrabar Precision', group=UI_GROUP_statPos, tooltip="Uses lower timeframe data to resolve TP/SL order when both are hit in the same HTF bar.\nEliminates look-ahead bias and improves backtest accuracy.\nRequires dynamic_requests=true in indicator declaration.")
-INPUT_INTRABAR_TF       = input.string('5', '   ↳ LTF Resolution', options=['1', '5', '15'], group=UI_GROUP_statPos, tooltip="Lower timeframe for intrabar inspection.\n1 = 1 minute (most precise, higher overhead)\n5 = 5 minutes (balanced, recommended)\n15 = 15 minutes (fastest, less precise)")
-INPUT_INTRABAR_TIEBREAK = input.string('Conservative', '   ↳ Tie-Break Policy', options=['Conservative', 'Optimistic'], group=UI_GROUP_statPos, tooltip="When TP and SL are hit in the same LTF bar:\nConservative: Assume SL hit first (capital preservation)\nOptimistic: Assume TP hit first (best case)")
+INPUT_INTRABAR_TF       = input.string(UI_OPT_ltf5, '   ↳ LTF Resolution', options=[UI_OPT_ltf1, UI_OPT_ltf5, UI_OPT_ltf15], group=UI_GROUP_statPos, tooltip="Lower timeframe for intrabar inspection.\n1 = 1 minute (most precise, higher overhead)\n5 = 5 minutes (balanced, recommended)\n15 = 15 minutes (fastest, less precise)")
+INPUT_INTRABAR_TIEBREAK = input.string(UI_OPT_conservative, '   ↳ Tie-Break Policy', options=[UI_OPT_conservative, UI_OPT_optimistic], group=UI_GROUP_statPos, tooltip="When TP and SL are hit in the same LTF bar:\nConservative: Assume SL hit first (capital preservation)\nOptimistic: Assume TP hit first (best case)")
 // --- SHANNON ENTROPY FILTER ---
 INPUT_ENTROPY_ENABLED   = input.bool(true, '🎲 Entropy Regime Filter', group=UI_GROUP_statPos, tooltip="Filters trades based on Shannon Entropy of recent price action.\nBlocks signals during high-entropy (choppy/random) regimes.\nAllows signals during low-entropy (structured/trending) regimes.")
 INPUT_ENTROPY_MODE      = input.string(STATIC_ENTROPY_modeLegacy, '   ↳ Entropy Mode', options=[STATIC_ENTROPY_modeLegacy, STATIC_ENTROPY_modeBinary, STATIC_ENTROPY_modeKgram], group=UI_GROUP_statPos, tooltip="LEGACY_BINS: Original binned log-return entropy (default).\nBINARY_UPDOWN: Optimized binary up/down symbolic entropy (O(1)).\nBINARY_KGRAM: K-gram pattern entropy for multi-bar patterns (O(1)).")
@@ -623,11 +747,11 @@ INPUT_ZSCORE_Z_LEN      = input.int(50, '   ↳ Z-Score Window', minval=20, maxv
 INPUT_ZSCORE_THRESH     = input.float(2.0, '   ↳ Z Threshold', minval=1.0, maxval=4.0, step=0.1, group=UI_GROUP_statPos, tooltip="Z-score threshold for significant momentum.\n2.0 = ~95% confidence (2 sigma).\nHigher = stricter filtering.")
 // --- BAYESIAN WIN-RATE & SORTINO ---
 INPUT_BAYES_ENABLED     = input.bool(true, '📊 Bayesian Win-Rate', group=UI_GROUP_statPos, tooltip="Replaces naive win rate with Bayesian Beta-Binomial model.\nAutomatically penalizes small sample sizes.\nOutputs conservative lower credible bound.")
-INPUT_STATIC_BAYES_ALPHA_PRIOR = input.float(1.0, '   ↳ Prior α (Pseudo-Wins)', minval=0.1, maxval=10.0, step=0.1, group=UI_GROUP_statPos, tooltip="Prior pseudo-wins for Beta distribution.\n1.0 = uninformative Bayes-Laplace prior.\nHigher = more conservative (shrinks toward 0.5).")
-INPUT_STATIC_BAYES_BETA_PRIOR  = input.float(1.0, '   ↳ Prior β (Pseudo-Losses)', minval=0.1, maxval=10.0, step=0.1, group=UI_GROUP_statPos, tooltip="Prior pseudo-losses for Beta distribution.\n1.0 = uninformative Bayes-Laplace prior.\nHigher = more conservative (shrinks toward 0.5).")
+INPUT_BAYES_ALPHA_PRIOR = input.float(1.0, '   ↳ Prior α (Pseudo-Wins)', minval=0.1, maxval=10.0, step=0.1, group=UI_GROUP_statPos, tooltip="Prior pseudo-wins for Beta distribution.\n1.0 = uninformative Bayes-Laplace prior.\nHigher = more conservative (shrinks toward 0.5).")
+INPUT_BAYES_BETA_PRIOR  = input.float(1.0, '   ↳ Prior β (Pseudo-Losses)', minval=0.1, maxval=10.0, step=0.1, group=UI_GROUP_statPos, tooltip="Prior pseudo-losses for Beta distribution.\n1.0 = uninformative Bayes-Laplace prior.\nHigher = more conservative (shrinks toward 0.5).")
 INPUT_BAYES_CONFIDENCE  = input.float(0.95, '   ↳ Confidence Level', minval=0.80, maxval=0.99, step=0.01, group=UI_GROUP_statPos, tooltip="Confidence level for credible interval.\n0.95 = 95% confidence (5th percentile lower bound).\nHigher = more conservative estimate.")
 INPUT_SORTINO_ENABLED   = input.bool(true, '📉 Sortino Ratio', group=UI_GROUP_statPos, tooltip="Downside-risk adjusted performance metric.\nPenalizes losses/drawdowns without penalizing upside volatility.\nAligns with asymmetric payoff goals.")
-INPUT_STATIC_SORTINO_MAR       = input.float(0.0, '   ↳ Min Acceptable Return', minval=-0.10, maxval=0.10, step=0.01, group=UI_GROUP_statPos, tooltip="Minimum Acceptable Return (MAR) threshold.\nReturns below this are considered 'downside'.\n0.0 = break-even target.")
+INPUT_SORTINO_MAR       = input.float(0.0, '   ↳ Min Acceptable Return', minval=-0.10, maxval=0.10, step=0.01, group=UI_GROUP_statPos, tooltip="Minimum Acceptable Return (MAR) threshold.\nReturns below this are considered 'downside'.\n0.0 = break-even target.")
 // --- MONTE CARLO PERMUTATION TEST ---
 INPUT_permtestEnabled        = input.bool(true, '🎲 Monte Carlo Validation', group=UI_GROUP_statPos, tooltip="Permutation test to validate timing edge.\nShuffles trade sequence to test if drawdown control is real.\nRejects strategies that look good by chance.")
 INPUT_permtestSims           = input.int(100, '   ↳ Simulations', minval=20, maxval=500, group=UI_GROUP_statPos, tooltip="Number of permutation simulations.\nMore = more accurate p-value, but slower.\n100 is a good balance.")
@@ -722,14 +846,14 @@ string UI_TOOLTIP_zzPolyMax = 'Maximum polylines to keep before garbage collecti
 string UI_TOOLTIP_zzPolyPoints = 'Maximum points per polyline before flushing to a new polyline. Use < 10000 for safety margin.'
 string UI_TOOLTIP_zzLiveSeg = 'Keep a single live line for the current unconfirmed leg. Updates per bar until pivot confirmation.'
 
-INPUT_ZZ_RENDER_MODE    = input.string('LINES', 'Render Mode', options=['LINES', 'POLYLINE_BUFFER'], group=UI_GROUP_zigzag, tooltip=UI_TOOLTIP_zzRender)
+INPUT_ZZ_RENDER_MODE    = input.string(UI_OPT_lines, 'Render Mode', options=[UI_OPT_lines, UI_OPT_polyline], group=UI_GROUP_zigzag, tooltip=UI_TOOLTIP_zzRender)
 INPUT_ZZ_POLY_MAX_KEEP  = input.int(50, 'Max Polylines', minval=1, maxval=100, group=UI_GROUP_zigzag, tooltip=UI_TOOLTIP_zzPolyMax)
 INPUT_ZZ_POLY_MAX_POINTS = input.int(9500, 'Max Points/Poly', minval=100, maxval=10000, group=UI_GROUP_zigzag, tooltip=UI_TOOLTIP_zzPolyPoints)
 INPUT_ZZ_LIVE_SEGMENT   = input.bool(true, 'Live Segment Line', group=UI_GROUP_zigzag, tooltip=UI_TOOLTIP_zzLiveSeg)
 
 // Alerts
 INPUT_ALERT_ENABLED     = input.bool(false, 'Enable Alerts', group=UI_GROUP_alerts)
-INPUT_ALERT_MODE        = input.string('calculateAlertUpdates', 'Alert data collection mode', options=['calculateAlertData', 'calculateAlertUpdates'], group = UI_GROUP_alerts)
+INPUT_ALERT_MODE        = input.string(UI_OPT_alertUpdates, 'Alert data collection mode', options=[UI_OPT_alertData, UI_OPT_alertUpdates], group = UI_GROUP_alerts)
 INPUT_ALERT_SEPARATOR   = input.string('|', 'Alert data separator', group = UI_GROUP_alerts)
 
 // Volatility & Volume AddOns
@@ -1703,61 +1827,62 @@ f_permutationTestDD(array<float> returns, int num_sims, int seed_base) =>
     [original_dd, mean_shuffled_dd, p_value, sims_run]
 
 dev_treshold(float dev_treshold) => ta.atr(2) / close * 100 * dev_treshold
+
 // Deviation Thresholds (map-based for O(1) lookup)
 var map<string, float> STATE_tfDevThresholds = map.new<string, float>()
-STATE_tfDevThresholds.put(STATIC_KEY_default, dev_treshold(input.float(2.0, 'Deviation (default)', minval=0, inline='Pivots', group=UI_GROUP_threshSec, tooltip=UI_TOOLTIP_threshold)))
-STATE_tfDevThresholds.put("1S", dev_treshold(input.float(2.0, 'Deviation (1S)', minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
-STATE_tfDevThresholds.put("5S", dev_treshold(input.float(2.0, 'Deviation (5S)', minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
-STATE_tfDevThresholds.put("10S", dev_treshold(input.float(2.0, 'Deviation (10S)', minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
-STATE_tfDevThresholds.put("15S", dev_treshold(input.float(2.0, 'Deviation (15S)', minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
-STATE_tfDevThresholds.put("30S", dev_treshold(input.float(2.0, 'Deviation (30S)', minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
-STATE_tfDevThresholds.put("45S", dev_treshold(input.float(2.0, 'Deviation (45S)', minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
-STATE_tfDevThresholds.put("1", dev_treshold(input.float(2.0, 'Deviation (1M)', minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
-STATE_tfDevThresholds.put("2", dev_treshold(input.float(2.0, 'Deviation (2M)', minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
-STATE_tfDevThresholds.put("3", dev_treshold(input.float(2.0, 'Deviation (3M)', minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
-STATE_tfDevThresholds.put("5", dev_treshold(input.float(2.0, 'Deviation (5M)', minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
-STATE_tfDevThresholds.put("10", dev_treshold(input.float(2.0, 'Deviation (10M)', minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
-STATE_tfDevThresholds.put("15", dev_treshold(input.float(2.0, 'Deviation (15M)', minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
-STATE_tfDevThresholds.put("30", dev_treshold(input.float(2.0, 'Deviation (30M)', minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
-STATE_tfDevThresholds.put("45", dev_treshold(input.float(2.0, 'Deviation (45M)', minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
-STATE_tfDevThresholds.put("60", dev_treshold(input.float(2.0, 'Deviation (1H)', minval=0, inline='Pivots', group=UI_GROUP_threshHour)))
-STATE_tfDevThresholds.put("120", dev_treshold(input.float(2.0, 'Deviation (2H)', minval=0, inline='Pivots', group=UI_GROUP_threshHour)))
-STATE_tfDevThresholds.put("180", dev_treshold(input.float(2.0, 'Deviation (3H)', minval=0, inline='Pivots', group=UI_GROUP_threshHour)))
-STATE_tfDevThresholds.put("240", dev_treshold(input.float(2.0, 'Deviation (4H)', minval=0, inline='Pivots', group=UI_GROUP_threshHour)))
-STATE_tfDevThresholds.put("1D", dev_treshold(input.float(2.0, 'Deviation (1D)', minval=0, inline='Pivots', group=UI_GROUP_threshDay)))
-STATE_tfDevThresholds.put("7D", dev_treshold(input.float(2.0, 'Deviation (7D)', minval=0, inline='Pivots', group=UI_GROUP_threshDay)))
-STATE_tfDevThresholds.put("4W", dev_treshold(input.float(2.0, 'Deviation (4W)', minval=0, inline='Pivots', group=UI_GROUP_threshWeek)))
-STATE_tfDevThresholds.put("3M", dev_treshold(input.float(2.0, 'Deviation (3Mo)', minval=0, inline='Pivots', group=UI_GROUP_threshMonth)))
-STATE_tfDevThresholds.put("6M", dev_treshold(input.float(2.0, 'Deviation (6Mo)', minval=0, inline='Pivots', group=UI_GROUP_threshMonth)))
-STATE_tfDevThresholds.put("12M", dev_treshold(input.float(2.0, 'Deviation (12Mo)', minval=0, inline='Pivots', group=UI_GROUP_threshMonth)))
+STATE_tfDevThresholds.put(STATIC_KEY_default, dev_treshold(input.float(2.0, UI_LABEL_devDefault, minval=0, inline='Pivots', group=UI_GROUP_threshSec, tooltip=UI_TOOLTIP_threshold)))
+STATE_tfDevThresholds.put(STATIC_TF_1S, dev_treshold(input.float(2.0, UI_LABEL_dev1S, minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
+STATE_tfDevThresholds.put(STATIC_TF_5S, dev_treshold(input.float(2.0, UI_LABEL_dev5S, minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
+STATE_tfDevThresholds.put(STATIC_TF_10S, dev_treshold(input.float(2.0, UI_LABEL_dev10S, minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
+STATE_tfDevThresholds.put(STATIC_TF_15S, dev_treshold(input.float(2.0, UI_LABEL_dev15S, minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
+STATE_tfDevThresholds.put(STATIC_TF_30S, dev_treshold(input.float(2.0, UI_LABEL_dev30S, minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
+STATE_tfDevThresholds.put(STATIC_TF_45S, dev_treshold(input.float(2.0, UI_LABEL_dev45S, minval=0, inline='Pivots', group=UI_GROUP_threshSec)))
+STATE_tfDevThresholds.put(STATIC_TF_1M, dev_treshold(input.float(2.0, UI_LABEL_dev1M, minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
+STATE_tfDevThresholds.put(STATIC_TF_2M, dev_treshold(input.float(2.0, UI_LABEL_dev2M, minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
+STATE_tfDevThresholds.put(STATIC_TF_3M, dev_treshold(input.float(2.0, UI_LABEL_dev3M, minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
+STATE_tfDevThresholds.put(STATIC_TF_5M, dev_treshold(input.float(2.0, UI_LABEL_dev5M, minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
+STATE_tfDevThresholds.put(STATIC_TF_10M, dev_treshold(input.float(2.0, UI_LABEL_dev10M, minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
+STATE_tfDevThresholds.put(STATIC_TF_15M, dev_treshold(input.float(2.0, UI_LABEL_dev15M, minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
+STATE_tfDevThresholds.put(STATIC_TF_30M, dev_treshold(input.float(2.0, UI_LABEL_dev30M, minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
+STATE_tfDevThresholds.put(STATIC_TF_45M, dev_treshold(input.float(2.0, UI_LABEL_dev45M, minval=0, inline='Pivots', group=UI_GROUP_threshMin)))
+STATE_tfDevThresholds.put(STATIC_TF_1H, dev_treshold(input.float(2.0, UI_LABEL_dev1H, minval=0, inline='Pivots', group=UI_GROUP_threshHour)))
+STATE_tfDevThresholds.put(STATIC_TF_2H, dev_treshold(input.float(2.0, UI_LABEL_dev2H, minval=0, inline='Pivots', group=UI_GROUP_threshHour)))
+STATE_tfDevThresholds.put(STATIC_TF_3H, dev_treshold(input.float(2.0, UI_LABEL_dev3H, minval=0, inline='Pivots', group=UI_GROUP_threshHour)))
+STATE_tfDevThresholds.put(STATIC_TF_4H, dev_treshold(input.float(2.0, UI_LABEL_dev4H, minval=0, inline='Pivots', group=UI_GROUP_threshHour)))
+STATE_tfDevThresholds.put(STATIC_TF_1D, dev_treshold(input.float(2.0, UI_LABEL_dev1D, minval=0, inline='Pivots', group=UI_GROUP_threshDay)))
+STATE_tfDevThresholds.put(STATIC_TF_7D, dev_treshold(input.float(2.0, UI_LABEL_dev7D, minval=0, inline='Pivots', group=UI_GROUP_threshDay)))
+STATE_tfDevThresholds.put(STATIC_TF_4W, dev_treshold(input.float(2.0, UI_LABEL_dev4W, minval=0, inline='Pivots', group=UI_GROUP_threshWeek)))
+STATE_tfDevThresholds.put(STATIC_TF_3Mo, dev_treshold(input.float(2.0, UI_LABEL_dev3Mo, minval=0, inline='Pivots', group=UI_GROUP_threshMonth)))
+STATE_tfDevThresholds.put(STATIC_TF_6Mo, dev_treshold(input.float(2.0, UI_LABEL_dev6Mo, minval=0, inline='Pivots', group=UI_GROUP_threshMonth)))
+STATE_tfDevThresholds.put(STATIC_TF_12Mo, dev_treshold(input.float(2.0, UI_LABEL_dev12Mo, minval=0, inline='Pivots', group=UI_GROUP_threshMonth)))
 
 // Depths (map-based for O(1) lookup)
 var map<string, int> STATE_tfDepths = map.new<string, int>()
-STATE_tfDepths.put(STATIC_KEY_default, input.int(10, 'Depth (default)', minval=1, inline='Pivots', group=UI_GROUP_depthSec))
-STATE_tfDepths.put("1S", input.int(10, 'Depth (1S)', minval=1, inline='Pivots', group=UI_GROUP_depthSec))
-STATE_tfDepths.put("5S", input.int(10, 'Depth (5S)', minval=1, inline='Pivots', group=UI_GROUP_depthSec))
-STATE_tfDepths.put("10S", input.int(10, 'Depth (10S)', minval=1, inline='Pivots', group=UI_GROUP_depthSec))
-STATE_tfDepths.put("15S", input.int(10, 'Depth (15S)', minval=1, inline='Pivots', group=UI_GROUP_depthSec))
-STATE_tfDepths.put("30S", input.int(10, 'Depth (30S)', minval=1, inline='Pivots', group=UI_GROUP_depthSec))
-STATE_tfDepths.put("45S", input.int(10, 'Depth (45S)', minval=1, inline='Pivots', group=UI_GROUP_depthSec))
-STATE_tfDepths.put("1", input.int(10, 'Depth (1M)', minval=1, inline='Pivots', group=UI_GROUP_depthMin))
-STATE_tfDepths.put("2", input.int(10, 'Depth (2M)', minval=1, inline='Pivots', group=UI_GROUP_depthMin))
-STATE_tfDepths.put("3", input.int(10, 'Depth (3M)', minval=1, inline='Pivots', group=UI_GROUP_depthMin))
-STATE_tfDepths.put("5", input.int(10, 'Depth (5M)', minval=1, inline='Pivots', group=UI_GROUP_depthMin))
-STATE_tfDepths.put("10", input.int(10, 'Depth (10M)', minval=1, inline='Pivots', group=UI_GROUP_depthMin))
-STATE_tfDepths.put("15", input.int(10, 'Depth (15M)', minval=1, inline='Pivots', group=UI_GROUP_depthMin))
-STATE_tfDepths.put("30", input.int(10, 'Depth (30M)', minval=1, inline='Pivots', group=UI_GROUP_depthMin))
-STATE_tfDepths.put("45", input.int(10, 'Depth (45M)', minval=1, inline='Pivots', group=UI_GROUP_depthMin))
-STATE_tfDepths.put("60", input.int(10, 'Depth (1H)', minval=1, inline='Pivots', group=UI_GROUP_depthHour))
-STATE_tfDepths.put("120", input.int(10, 'Depth (2H)', minval=1, inline='Pivots', group=UI_GROUP_depthHour))
-STATE_tfDepths.put("180", input.int(10, 'Depth (3H)', minval=1, inline='Pivots', group=UI_GROUP_depthHour))
-STATE_tfDepths.put("240", input.int(10, 'Depth (4H)', minval=1, inline='Pivots', group=UI_GROUP_depthHour))
-STATE_tfDepths.put("1D", input.int(10, 'Depth (1D)', minval=1, inline='Pivots', group=UI_GROUP_depthDay))
-STATE_tfDepths.put("7D", input.int(10, 'Depth (7D)', minval=1, inline='Pivots', group=UI_GROUP_depthDay))
-STATE_tfDepths.put("4W", input.int(10, 'Depth (4W)', minval=1, inline='Pivots', group=UI_GROUP_depthWeek))
-STATE_tfDepths.put("3M", input.int(10, 'Depth (3Mo)', minval=1, inline='Pivots', group=UI_GROUP_depthMonth))
-STATE_tfDepths.put("6M", input.int(10, 'Depth (6Mo)', minval=1, inline='Pivots', group=UI_GROUP_depthMonth))
-STATE_tfDepths.put("12M", input.int(10, 'Depth (12Mo)', minval=1, inline='Pivots', group=UI_GROUP_depthMonth))
+STATE_tfDepths.put(STATIC_KEY_default, input.int(10, UI_LABEL_depDefault, minval=1, inline='Pivots', group=UI_GROUP_depthSec))
+STATE_tfDepths.put(STATIC_TF_1S, input.int(10, UI_LABEL_dep1S, minval=1, inline='Pivots', group=UI_GROUP_depthSec))
+STATE_tfDepths.put(STATIC_TF_5S, input.int(10, UI_LABEL_dep5S, minval=1, inline='Pivots', group=UI_GROUP_depthSec))
+STATE_tfDepths.put(STATIC_TF_10S, input.int(10, UI_LABEL_dep10S, minval=1, inline='Pivots', group=UI_GROUP_depthSec))
+STATE_tfDepths.put(STATIC_TF_15S, input.int(10, UI_LABEL_dep15S, minval=1, inline='Pivots', group=UI_GROUP_depthSec))
+STATE_tfDepths.put(STATIC_TF_30S, input.int(10, UI_LABEL_dep30S, minval=1, inline='Pivots', group=UI_GROUP_depthSec))
+STATE_tfDepths.put(STATIC_TF_45S, input.int(10, UI_LABEL_dep45S, minval=1, inline='Pivots', group=UI_GROUP_depthSec))
+STATE_tfDepths.put(STATIC_TF_1M, input.int(10, UI_LABEL_dep1M, minval=1, inline='Pivots', group=UI_GROUP_depthMin))
+STATE_tfDepths.put(STATIC_TF_2M, input.int(10, UI_LABEL_dep2M, minval=1, inline='Pivots', group=UI_GROUP_depthMin))
+STATE_tfDepths.put(STATIC_TF_3M, input.int(10, UI_LABEL_dep3M, minval=1, inline='Pivots', group=UI_GROUP_depthMin))
+STATE_tfDepths.put(STATIC_TF_5M, input.int(10, UI_LABEL_dep5M, minval=1, inline='Pivots', group=UI_GROUP_depthMin))
+STATE_tfDepths.put(STATIC_TF_10M, input.int(10, UI_LABEL_dep10M, minval=1, inline='Pivots', group=UI_GROUP_depthMin))
+STATE_tfDepths.put(STATIC_TF_15M, input.int(10, UI_LABEL_dep15M, minval=1, inline='Pivots', group=UI_GROUP_depthMin))
+STATE_tfDepths.put(STATIC_TF_30M, input.int(10, UI_LABEL_dep30M, minval=1, inline='Pivots', group=UI_GROUP_depthMin))
+STATE_tfDepths.put(STATIC_TF_45M, input.int(10, UI_LABEL_dep45M, minval=1, inline='Pivots', group=UI_GROUP_depthMin))
+STATE_tfDepths.put(STATIC_TF_1H, input.int(10, UI_LABEL_dep1H, minval=1, inline='Pivots', group=UI_GROUP_depthHour))
+STATE_tfDepths.put(STATIC_TF_2H, input.int(10, UI_LABEL_dep2H, minval=1, inline='Pivots', group=UI_GROUP_depthHour))
+STATE_tfDepths.put(STATIC_TF_3H, input.int(10, UI_LABEL_dep3H, minval=1, inline='Pivots', group=UI_GROUP_depthHour))
+STATE_tfDepths.put(STATIC_TF_4H, input.int(10, UI_LABEL_dep4H, minval=1, inline='Pivots', group=UI_GROUP_depthHour))
+STATE_tfDepths.put(STATIC_TF_1D, input.int(10, UI_LABEL_dep1D, minval=1, inline='Pivots', group=UI_GROUP_depthDay))
+STATE_tfDepths.put(STATIC_TF_7D, input.int(10, UI_LABEL_dep7D, minval=1, inline='Pivots', group=UI_GROUP_depthDay))
+STATE_tfDepths.put(STATIC_TF_4W, input.int(10, UI_LABEL_dep4W, minval=1, inline='Pivots', group=UI_GROUP_depthWeek))
+STATE_tfDepths.put(STATIC_TF_3Mo, input.int(10, UI_LABEL_dep3Mo, minval=1, inline='Pivots', group=UI_GROUP_depthMonth))
+STATE_tfDepths.put(STATIC_TF_6Mo, input.int(10, UI_LABEL_dep6Mo, minval=1, inline='Pivots', group=UI_GROUP_depthMonth))
+STATE_tfDepths.put(STATIC_TF_12Mo, input.int(10, UI_LABEL_dep12Mo, minval=1, inline='Pivots', group=UI_GROUP_depthMonth))
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CALCULATIONS & LOGIC
@@ -2331,7 +2456,7 @@ method toJson(LevelLog this) =>
         array.push(parts, '"')
         array.push(parts, lvl.key)  // Use pre-computed key instead of per-loop str.replace
         array.push(parts, '":')
-        array.push(parts, na(val) ? 'null' : str.tostring(val))
+        array.push(parts, na(val) ? STATIC_JSON_null : str.tostring(val))
         if i < levelCount - 1
             array.push(parts, ',')
     array.push(parts, '}')
@@ -3012,18 +3137,18 @@ type CachedPivots
     float pMidPivot = na
     int iEndBase = na
     float pEndBase = na
-    int GLOBAL_indexMidPivot2 = na
-    float GLOBAL_priceMidPivot2 = na
-    int GLOBAL_indexEndBase2 = na
-    float GLOBAL_priceEndBase2 = na
+    int iMidPivot2 = na
+    float pMidPivot2 = na
+    int iEndBase2 = na
+    float pEndBase2 = na
 
 method reset(CachedPivots this) =>
     this.iMidPivot := na
     this.pMidPivot := na
     this.iEndBase := na
     this.pEndBase := na
-    this.GLOBAL_indexMidPivot2 := na
-    this.GLOBAL_priceMidPivot2 := na
+    this.iMidPivot2 := na
+    this.pMidPivot2 := na
     this.iEndBase2 := na
     this.pEndBase2 := na
     this
@@ -3036,8 +3161,8 @@ method updatePrimary(CachedPivots this, int iMid, float pMid, int iEnd, float pE
     this
 
 method updateSecondary(CachedPivots this, int iMid, float pMid, int iEnd, float pEnd) =>
-    this.GLOBAL_indexMidPivot2 := iMid
-    this.GLOBAL_priceMidPivot2 := pMid
+    this.iMidPivot2 := iMid
+    this.pMidPivot2 := pMid
     this.iEndBase2 := iEnd
     this.pEndBase2 := pEnd
     this
@@ -3065,7 +3190,7 @@ REQ_htfAuto = timeframe.period == '1'   ? '240' :
            timeframe.period == 'D'   ? 'M'   : 
            timeframe.period == 'W'   ? '3M'  : '12M'
 
-REQ_htf = INPUT_HTF_MODE == 'Auto' ? REQ_htfAuto : REQ_htfUserParsed
+REQ_htf = INPUT_HTF_MODE == UI_OPT_auto ? REQ_htfAuto : REQ_htfUserParsed
 
 // Time Calculations
 REQ_timeX10 = ta.valuewhen(ta.change(time(REQ_htf)) != 0, time, 1)
@@ -3165,8 +3290,8 @@ if not na(GLOBAL_indexHigh)
             GLOBAL_cachedPivots.iEndBase := INPUT_HIST_PIVOT > 0 ? TMP_iEndBase_hist : GLOBAL_zigzag.iLastPivot
             GLOBAL_cachedPivots.pEndBase := INPUT_HIST_PIVOT > 0 ? TMP_pEndBase_hist : GLOBAL_zigzag.pLastPivot
             
-            GLOBAL_cachedPivots.GLOBAL_indexMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_GLOBAL_indexMidPivot2_hist : GLOBAL_zigzag.iPrevPivot
-            GLOBAL_cachedPivots.GLOBAL_priceMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_GLOBAL_priceMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
+            GLOBAL_cachedPivots.iMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_GLOBAL_indexMidPivot2_hist : GLOBAL_zigzag.iPrevPivot
+            GLOBAL_cachedPivots.pMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_GLOBAL_priceMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
             GLOBAL_cachedPivots.iEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_iEndBase2_hist : GLOBAL_zigzag.iLastPivot
             GLOBAL_cachedPivots.pEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_pEndBase2_hist : GLOBAL_zigzag.pLastPivot
             
@@ -3200,8 +3325,8 @@ else
                 GLOBAL_cachedPivots.iEndBase := INPUT_HIST_PIVOT > 0 ? TMP_iEndBase_hist : GLOBAL_zigzag.iLastPivot
                 GLOBAL_cachedPivots.pEndBase := INPUT_HIST_PIVOT > 0 ? TMP_pEndBase_hist : GLOBAL_zigzag.pLastPivot
                 
-                GLOBAL_cachedPivots.GLOBAL_indexMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_GLOBAL_indexMidPivot2_hist : GLOBAL_zigzag.iPrevPivot
-                GLOBAL_cachedPivots.GLOBAL_priceMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_GLOBAL_priceMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
+                GLOBAL_cachedPivots.iMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_GLOBAL_indexMidPivot2_hist : GLOBAL_zigzag.iPrevPivot
+                GLOBAL_cachedPivots.pMidPivot2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_GLOBAL_priceMidPivot2_hist : GLOBAL_zigzag.pPrevPivot
                 GLOBAL_cachedPivots.iEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_iEndBase2_hist : GLOBAL_zigzag.iLastPivot
                 GLOBAL_cachedPivots.pEndBase2 := INPUT_HIST_PIVOT_2 > 0 ? TMP_pEndBase2_hist : GLOBAL_zigzag.pLastPivot
                 
@@ -3258,7 +3383,7 @@ f_htf_ohlc(string _htf) =>
 
     [htf_ox, htf_hx, htf_lx, htf_cx, htf_o, htf_h, htf_l, htf_c]
 
-[_, htf_h1, htf_l1, htf_c1, _, _, _, _] = f_htf_ohlc(htf)
+[_, htf_h1, htf_l1, htf_c1, _, _, _, _] = f_htf_ohlc(REQ_htf)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // PIVOT COORDINATE REFERENCES
@@ -3268,8 +3393,8 @@ GLOBAL_indexMidPivot  = GLOBAL_cachedPivots.iMidPivot
 GLOBAL_priceMidPivot  = GLOBAL_cachedPivots.pMidPivot
 GLOBAL_indexEndBase   = GLOBAL_cachedPivots.iEndBase
 GLOBAL_priceEndBase   = GLOBAL_cachedPivots.pEndBase
-GLOBAL_indexMidPivot2 = GLOBAL_cachedPivots.GLOBAL_indexMidPivot2
-GLOBAL_priceMidPivot2 = GLOBAL_cachedPivots.GLOBAL_priceMidPivot2
+GLOBAL_indexMidPivot2 = GLOBAL_cachedPivots.iMidPivot2
+GLOBAL_priceMidPivot2 = GLOBAL_cachedPivots.pMidPivot2
 GLOBAL_indexEndBase2  = GLOBAL_cachedPivots.iEndBase2
 GLOBAL_priceEndBase2  = GLOBAL_cachedPivots.pEndBase2
 
@@ -3341,13 +3466,13 @@ method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRed
                 this.lb := na
             if price > 0
                 this.ln := line.new(x1, price, x2, price, xloc.bar_index, INPUT_EXTEND_ER ? extend.both : extend.right, this.col, line.style_solid, this.level != 1 ? 1 : 2)
-            if INPUT_LEVELS_LABEL != 'None' and price > 0
+            if INPUT_LEVELS_LABEL != UI_OPT_none and price > 0
                 bar_pos = INPUT_LEVELS_POS == UI_POS_lastBar ? x2 : x1
                 style_lbl = INPUT_LEVELS_POS == UI_POS_lastBar ? label.style_label_left : label.style_label_right
-                size_lbl = INPUT_LEVELS_SIZE == 'Small' ? UI_SIZE_small : UI_SIZE_normal
+                size_lbl = INPUT_LEVELS_SIZE == UI_OPT_small ? UI_SIZE_small : UI_SIZE_normal
                 // Build label text using array.join for >3 parts
-                string lvlPart = INPUT_LEVELS_LABEL == 'Prices' ? '' : 'RET ' + str.tostring(this.level)
-                string pricePart = (INPUT_LEVELS_LABEL == 'Levels + Prices' or INPUT_LEVELS_LABEL == 'Prices') ? ' (' + str.tostring(price, format.mintick) + ')' : ''
+                string lvlPart = INPUT_LEVELS_LABEL == UI_OPT_prices ? '' : UI_PREFIX_ret + str.tostring(this.level)
+                string pricePart = (INPUT_LEVELS_LABEL == UI_OPT_levelsPrices or INPUT_LEVELS_LABEL == UI_OPT_prices) ? ' (' + str.tostring(price, format.mintick) + ')' : ''
                 text_str = lvlPart + pricePart
                 tooltip_str = str.tostring(price, format.mintick)
                 this.lb := label.new(bar_pos, price, INPUT_EXTEND_PVT or INPUT_EXTEND_ER or INPUT_LEVELS_POS == UI_POS_lastBar ? text_str + '\n\n' : text_str, xloc.bar_index, yloc.price, color.new(UI_COLOR_fgMain, 100), style_lbl, color.new(UI_COLOR_fgMain, 0), size_lbl, text.align_right, tooltip_str)
@@ -3367,16 +3492,16 @@ method draw(FibLevel this, int x1, float pMid, int x2, float pEnd, bool forceRed
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 f_jsonFloat(float v) =>
-    na(v) ? 'null' : str.tostring(v)
+    na(v) ? STATIC_JSON_null : str.tostring(v)
 
 f_jsonInt(int v) =>
-    na(v) ? 'null' : str.tostring(v)
+    na(v) ? STATIC_JSON_null : str.tostring(v)
 
 f_jsonBool(bool v) =>
-    v ? 'true' : 'false'
+    v ? STATIC_JSON_true : STATIC_JSON_false
 
 f_jsonStr(string v) =>
-    na(v) ? 'null' : '"' + v + '"'
+    na(v) ? STATIC_JSON_null : '"' + v + '"'
 
 // Doc: Uses array.join() for efficient string assembly (TradingView Pine v6 best practice)
 f_jsonEnvelope(string id, string eventType) =>
@@ -3603,18 +3728,18 @@ if INPUT_SHOW_FIB_TIME
         t_labelTZ_text_align = text.align_center
         t_labelTZ_size = UI_SIZE_small
         t_labelTZ_color = color.new(UI_COLOR_fgMain, 0)
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * -1, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='-1', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 0 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='0' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=t_labelTZ_color, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 1 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='1' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=t_labelTZ_color, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 2 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='2' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 3 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='3' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 5 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='5' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 8 , _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='8' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 13, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='13', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 21, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='21', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 34, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='34', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 55, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='55', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
-        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 89, _y=INPUT_FIB_TZ_POS_Y == 'Bottom' ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='89', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * -1, _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='-1', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 0 , _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='0' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=t_labelTZ_color, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 1 , _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='1' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=t_labelTZ_color, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 2 , _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='2' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 3 , _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='3' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 5 , _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='5' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 8 , _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='8' , _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 13, _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='13', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 21, _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='21', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 34, _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='34', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 55, _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='55', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
+        f_drawLabelTZ(_x=GLOBAL_indexMidPivot2 + reference * 89, _y=INPUT_FIB_TZ_POS_Y == UI_OPT_bottom ? math.min(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2) : math.max(GLOBAL_priceEndBase2, GLOBAL_priceMidPivot2), _text='89', _xloc=xloc.bar_index, _yloc=yloc.price, _color=t_labelTZ_background, _style=UI_fibTzLabelPos, _textcolor=UI_COLOR_timeZone, _size=t_labelTZ_size, _textalign=t_labelTZ_text_align, _tooltip='')
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CACHED COORDINATE INITIALIZATION AND UPDATE
@@ -3631,8 +3756,8 @@ if not na(GLOBAL_zigzag.ln)
         GLOBAL_cachedPivots.pMidPivot := GLOBAL_zigzag.pPrevPivot != 0 ? GLOBAL_zigzag.pPrevPivot : currentY1
         GLOBAL_cachedPivots.iEndBase := GLOBAL_zigzag.iLastPivot != 0 ? GLOBAL_zigzag.iLastPivot : currentX2
         GLOBAL_cachedPivots.pEndBase := GLOBAL_zigzag.pLastPivot != 0 ? GLOBAL_zigzag.pLastPivot : currentY2
-        GLOBAL_cachedPivots.GLOBAL_indexMidPivot2 := GLOBAL_zigzag.iPrevPivot != 0 ? GLOBAL_zigzag.iPrevPivot : currentX1
-        GLOBAL_cachedPivots.GLOBAL_priceMidPivot2 := GLOBAL_zigzag.pPrevPivot != 0 ? GLOBAL_zigzag.pPrevPivot : currentY1
+        GLOBAL_cachedPivots.iMidPivot2 := GLOBAL_zigzag.iPrevPivot != 0 ? GLOBAL_zigzag.iPrevPivot : currentX1
+        GLOBAL_cachedPivots.pMidPivot2 := GLOBAL_zigzag.pPrevPivot != 0 ? GLOBAL_zigzag.pPrevPivot : currentY1
         GLOBAL_cachedPivots.iEndBase2 := GLOBAL_zigzag.iLastPivot != 0 ? GLOBAL_zigzag.iLastPivot : currentX2
         GLOBAL_cachedPivots.pEndBase2 := GLOBAL_zigzag.pLastPivot != 0 ? GLOBAL_zigzag.pLastPivot : currentY2
 
@@ -4203,7 +4328,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool zone_expired = INPUT_POS_TIME_DECAY and time_phase >= 5  // Expired after t5+ bars
     
     // Time decay indicator for display (show learned rate if different)
-    string decay_indicator = has_learned_decay ? UI_ICON_HOURGLASS + "*" : UI_ICON_HOURGLASS
+    string decay_indicator = has_learned_decay ? "⏳" + "*" : "⏳"
     string time_status = not INPUT_POS_TIME_DECAY ? "" : 
                          time_phase == 0 ? " " + decay_indicator + UI_TEXT_fresh : 
                          time_phase <= 2 ? " " + decay_indicator + str.tostring(int(time_decay * 100)) + "%" : 
@@ -4264,9 +4389,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     // Calculate empirical win rate from learning history
     // Recalculate only when new trade was recorded (lazy evaluation: toggle, size, flag)
     float p_empirical = p_base
-    if INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= STATIC_LEARN_minSamplesSL and GLOBAL_learning.needsRecalc
+    if INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= STATIC_LEARN_minSamplesSL and GLOBAL_learning.needsRecalculation
         // Reset flag - we're about to recalculate
-        GLOBAL_learning.needsRecalc := false
+        GLOBAL_learning.needsRecalculation := false
         DBG_counterLearningRuns += 1
         
         // Basic counters
@@ -4634,8 +4759,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // 5.1 Bayesian Win-Rate (Beta-Binomial Model)
         if INPUT_BAYES_ENABLED
             // Update posterior: α = prior + wins, β = prior + losses
-            GLOBAL_learning.bayesianAlpha := INPUT_STATIC_BAYES_ALPHA_PRIOR + float(wins)
-            GLOBAL_learning.bayesianBeta := INPUT_STATIC_BAYES_BETA_PRIOR + float(losses)
+            GLOBAL_learning.bayesianAlpha := INPUT_BAYES_ALPHA_PRIOR + float(wins)
+            GLOBAL_learning.bayesianBeta := INPUT_BAYES_BETA_PRIOR + float(losses)
             // Posterior mean: E[θ] = α / (α + β)
             GLOBAL_learning.bayesianMean := f_betaMean(GLOBAL_learning.bayesianAlpha, GLOBAL_learning.bayesianBeta)
             // Lower credible bound (sample-size penalized)
@@ -4657,8 +4782,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     array.push(trade_returns, ret)
                     sum_returns += ret
                     // Track downside deviation (returns below MAR)
-                    if ret < INPUT_STATIC_SORTINO_MAR
-                        float diff = ret - INPUT_STATIC_SORTINO_MAR
+                    if ret < INPUT_SORTINO_MAR
+                        float diff = ret - INPUT_SORTINO_MAR
                         sum_sq_downside += diff * diff
                         downside_count += 1
             
@@ -4710,7 +4835,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         // WR Component: STATIC_CONF_wrWeight% weight - map STATIC_CONF_WR_MIN_MAP-STATIC_CONF_WR_MAX_MAP → 0-35
         conf_base += math.max(0, math.min(STATIC_CONF_wrWeight, (GLOBAL_learning.winRate - STATIC_CONF_WR_MIN_MAP) * 70))
         // RSI Edge: STATIC_CONF_rsiWeight% weight - map 0-0.2 edge → 0-20
-        conf_base += math.max(0, math.min(STATIC_CONF_rsiWeight, GLOBAL_learning.divEdge * 100))
+        conf_base += math.max(0, math.min(STATIC_CONF_rsiWeight, GLOBAL_learning.divergenceEdge * 100))
         // Profit Factor: STATIC_CONF_pfWeight% weight - map STATIC_CONF_PF_MIN_MAP-STATIC_CONF_PF_MAX_MAP → 0-15
         float pf_norm = math.max(0, math.min(STATIC_CONF_pfWeight, (GLOBAL_learning.profitFactor - STATIC_CONF_PF_MIN_MAP) * 10))
         conf_base += pf_norm
@@ -4732,9 +4857,9 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     float p_effective = p_base
     if INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= STATIC_LEARN_minSamplesSL
         // Use direction-specific win rate if we have enough samples per direction
-        bool has_dir_data = (is_long_setup and GLOBAL_learning.wrLong != STATIC_DEFAULT_winRate) or (not is_long_setup and GLOBAL_learning.wrShort != STATIC_DEFAULT_winRate)
+        bool has_dir_data = (is_long_setup and GLOBAL_learning.winRateLong != STATIC_DEFAULT_winRate) or (not is_long_setup and GLOBAL_learning.winRateShort != STATIC_DEFAULT_winRate)
         if has_dir_data
-            float raw_dir_wr = is_long_setup ? GLOBAL_learning.wrLong : GLOBAL_learning.wrShort
+            float raw_dir_wr = is_long_setup ? GLOBAL_learning.winRateLong : GLOBAL_learning.winRateShort
             p_effective := math.max(0.30, math.min(0.70, raw_dir_wr))
         else
             // Use clamped GLOBAL_learning.winRate (already clamped during calculation)
@@ -4747,18 +4872,18 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     bool is_low_vol_regime = current_regime_percentile <= STATIC_VOL_regimeLowThresh
     bool has_regime_data = INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_regime_data
-        if is_high_vol_regime and GLOBAL_learning.wrHighVol != STATIC_DEFAULT_winRate
+        if is_high_vol_regime and GLOBAL_learning.winRateHighVolatility != STATIC_DEFAULT_winRate
             // Blend: 70% direction WR + 30% regime WR for stability
-            p_regime_adjusted := p_effective * 0.7 + GLOBAL_learning.wrHighVol * 0.3
-        else if is_low_vol_regime and GLOBAL_learning.wrLowVol != STATIC_DEFAULT_winRate
-            p_regime_adjusted := p_effective * 0.7 + GLOBAL_learning.wrLowVol * 0.3
+            p_regime_adjusted := p_effective * 0.7 + GLOBAL_learning.winRateHighVolatility * 0.3
+        else if is_low_vol_regime and GLOBAL_learning.winRateLowVolatility != STATIC_DEFAULT_winRate
+            p_regime_adjusted := p_effective * 0.7 + GLOBAL_learning.winRateLowVolatility * 0.3
     
     // Apply learned RSI weight to boost probability when divergence is present
     float p_rsi_adjusted = p_regime_adjusted
     bool has_learned_rsi_weight = INPUT_LEARN_RSI_WEIGHT and INPUT_LEARNING_ENABLED and GLOBAL_setupHistory.size() >= INPUT_LEARN_MIN_SAMPLES
     if has_learned_rsi_weight and rsi_confirm and GLOBAL_learning.rsiWeight > 0
         // Boost win rate by learned edge: p + (edge * weight * (1-p))
-        float boost = GLOBAL_learning.divEdge * GLOBAL_learning.rsiWeight * (1 - p_regime_adjusted)
+        float boost = GLOBAL_learning.divergenceEdge * GLOBAL_learning.rsiWeight * (1 - p_regime_adjusted)
         p_rsi_adjusted := math.min(0.95, p_regime_adjusted + boost)
     
     float p = p_rsi_adjusted * time_decay
@@ -4813,36 +4938,36 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     if INPUT_LEARNING_ENABLED
         int sample_count = GLOBAL_setupHistory.size()
         if sample_count >= 10
-            learn_text := "\n" + UI_ICON_CHART + " " + str.tostring(sample_count) + UI_TEXT_samples
+            learn_text := "\n" + "📊" + " " + str.tostring(sample_count) + UI_TEXT_samples
             if GLOBAL_learning.zoneBuffer > 0
                 learn_text += UI_TEXT_lBuf + str.tostring(GLOBAL_learning.zoneBuffer, "#.##") + "%"
             if sample_count >= 20
                 learn_text += UI_TEXT_lWR + str.tostring(GLOBAL_learning.winRate * 100, "#.#") + "%"
                 // Extended metrics display
-                if GLOBAL_learning.avgMae > 0
-                    learn_text += UI_TEXT_lMAE + str.tostring(GLOBAL_learning.avgMae, "#.#") + "R"
-                    learn_text += UI_TEXT_lMFE + str.tostring(GLOBAL_learning.avgMfe, "#.#") + "R"
-                    learn_text += UI_TEXT_lSlMult + str.tostring(GLOBAL_learning.slMult, "#.#") + "x"
-                if GLOBAL_learning.avgBars > 0
-                    learn_text += UI_TEXT_lTau + str.tostring(GLOBAL_learning.avgBars) + UI_TEXT_bars
+                if GLOBAL_learning.averageMaxAdverseExcursion > 0
+                    learn_text += UI_TEXT_lMAE + str.tostring(GLOBAL_learning.averageMaxAdverseExcursion, "#.#") + "R"
+                    learn_text += UI_TEXT_lMFE + str.tostring(GLOBAL_learning.averageMaxFavorableExcursion, "#.#") + "R"
+                    learn_text += UI_TEXT_lSlMult + str.tostring(GLOBAL_learning.stopLossMultiplier, "#.#") + "x"
+                if GLOBAL_learning.averageBarsHeld > 0
+                    learn_text += UI_TEXT_lTau + str.tostring(GLOBAL_learning.averageBarsHeld) + UI_TEXT_bars
                 // Advanced analytics display (RSI divergence edge)
-                if GLOBAL_learning.divEdge != 0
-                    string div_sign = GLOBAL_learning.divEdge > 0 ? "+" : ""
-                    learn_text += UI_TEXT_lDiv + div_sign + str.tostring(GLOBAL_learning.divEdge * 100, "#.#") + UI_TEXT_lEdge
+                if GLOBAL_learning.divergenceEdge != 0
+                    string div_sign = GLOBAL_learning.divergenceEdge > 0 ? "+" : ""
+                    learn_text += UI_TEXT_lDiv + div_sign + str.tostring(GLOBAL_learning.divergenceEdge * 100, "#.#") + UI_TEXT_lEdge
                 // Direction-specific win rates (show if significant difference)
-                float dir_diff = math.abs(GLOBAL_learning.wrLong - GLOBAL_learning.wrShort)
+                float dir_diff = math.abs(GLOBAL_learning.winRateLong - GLOBAL_learning.winRateShort)
                 if dir_diff > 0.05  // >5% difference
-                    learn_text += UI_TEXT_lLong + str.tostring(GLOBAL_learning.wrLong * 100, "#") + "%" + UI_TEXT_lShort + str.tostring(GLOBAL_learning.wrShort * 100, "#") + "%"
+                    learn_text += UI_TEXT_lLong + str.tostring(GLOBAL_learning.winRateLong * 100, "#") + "%" + UI_TEXT_lShort + str.tostring(GLOBAL_learning.winRateShort * 100, "#") + "%"
                 // Losing MAE (informative: where trades went wrong)
-                if GLOBAL_learning.losingMae > 0
-                    learn_text += UI_TEXT_lXMAE + str.tostring(GLOBAL_learning.losingMae, "#.#") + UI_TEXT_rSuffix
+                if GLOBAL_learning.losingMaxAdverseExcursion > 0
+                    learn_text += UI_TEXT_lXMAE + str.tostring(GLOBAL_learning.losingMaxAdverseExcursion, "#.#") + UI_TEXT_rSuffix
                 // Show learned parameters
                 if sample_count >= INPUT_LEARN_MIN_SAMPLES
                     string p3_text = ""
                     // Show learned TP mode recommendation
-                    if INPUT_LEARN_TP and (GLOBAL_learning.consEv != 0 or GLOBAL_learning.aggrEv != 0)
-                        string tp_rec = GLOBAL_learning.tpAggressive ? UI_TEXT_tpAggr : UI_TEXT_tpCons
-                        p3_text += UI_TEXT_lTP + tp_rec + UI_ICON_CHECK
+                    if INPUT_LEARN_TP and (GLOBAL_learning.conservativeExpectedValue != 0 or GLOBAL_learning.aggressiveExpectedValue != 0)
+                        string tp_rec = GLOBAL_learning.useTakeProfitAggressive ? UI_TEXT_tpAggr : UI_TEXT_tpCons
+                        p3_text += UI_TEXT_lTP + tp_rec + "✓"
                     // Show learned decay rate if different from default
                     if INPUT_LEARN_DECAY and math.abs(GLOBAL_learning.decayRate - STATIC_DEFAULT_decayRate) > 0.02
                         p3_text += UI_TEXT_lDecay + str.tostring(GLOBAL_learning.decayRate, "#.##")
@@ -4856,22 +4981,22 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                     // Calculate per-bar adjusted confidence (add direction alignment + time decay + regime)
                     float adjusted_conf = GLOBAL_learning.confidence
                     // Direction Alignment Adjustment: ±10% based on current direction's relative WR
-                    float dir_wr = is_long_setup ? GLOBAL_learning.wrLong : GLOBAL_learning.wrShort
-                    float opp_wr = is_long_setup ? GLOBAL_learning.wrShort : GLOBAL_learning.wrLong
+                    float dir_wr = is_long_setup ? GLOBAL_learning.winRateLong : GLOBAL_learning.winRateShort
+                    float opp_wr = is_long_setup ? GLOBAL_learning.winRateShort : GLOBAL_learning.winRateLong
                     float dir_edge = dir_wr - opp_wr
                     adjusted_conf += dir_edge * 50  // ±10% edge → ±5 points
                     // Time Decay Adjustment: ±10% (fresh setup = +10, expired = -10)
                     adjusted_conf += (time_decay - 0.5) * 20  // 1.0→+10, 0.5→0, 0→-10
                     // Regime Adjustment: ±5% based on current vol regime performance
-                    float regime_wr = current_regime_percentile >= STATIC_VOL_regimeHighThresh ? GLOBAL_learning.wrHighVol : 
-                                      current_regime_percentile <= STATIC_VOL_regimeLowThresh ? GLOBAL_learning.wrLowVol : GLOBAL_learning.winRate
+                    float regime_wr = current_regime_percentile >= STATIC_VOL_regimeHighThresh ? GLOBAL_learning.winRateHighVolatility : 
+                                      current_regime_percentile <= STATIC_VOL_regimeLowThresh ? GLOBAL_learning.winRateLowVolatility : GLOBAL_learning.winRate
                     if regime_wr != STATIC_DEFAULT_winRate  // Only if we have regime data
                         float regime_edge = regime_wr - GLOBAL_learning.winRate
                         adjusted_conf += regime_edge * 50  // ±10% edge → ±5 points
                     adjusted_conf := math.max(0, math.min(100, adjusted_conf))
                     // Unified Confidence Score with grade
                     string conf_grade = adjusted_conf < STATIC_CONF_gradeDthresh ? UI_GRADE_D : adjusted_conf < STATIC_CONF_gradeCthresh ? UI_GRADE_C : adjusted_conf < STATIC_CONF_gradeBthresh ? UI_GRADE_B : adjusted_conf < STATIC_CONF_gradeAthresh ? UI_GRADE_A : UI_GRADE_aPlus
-                    string health_icon = GLOBAL_learning.isHealthy ? UI_ICON_CHECK : UI_ICON_WARNING
+                    string health_icon = GLOBAL_learning.isHealthy ? "✓" : "⚠"
                     p4_text += UI_TEXT_lConf + str.tostring(adjusted_conf, "#") + UI_TEXT_pctSuffix + UI_TEXT_space + conf_grade + UI_TEXT_space + health_icon
                     // Profit Factor (only show if meaningful)
                     if GLOBAL_learning.profitFactor > 0
@@ -4882,12 +5007,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
                         string exp_sign = GLOBAL_learning.expectancy > 0 ? UI_SYM_PLUS : ""
                         p4_text += UI_TEXT_lExp + exp_sign + str.tostring(GLOBAL_learning.expectancy, "#.##") + UI_TEXT_rSuffix
                     // Regime indicator: Show if we're in favorable/unfavorable vol regime (use real-time percentile)
-                    if current_regime_percentile >= STATIC_VOL_regimeHighThresh and GLOBAL_learning.wrHighVol != STATIC_DEFAULT_winRate
-                        string vol_edge = GLOBAL_learning.wrHighVol > GLOBAL_learning.winRate ? UI_SYM_UP : GLOBAL_learning.wrHighVol < GLOBAL_learning.winRate ? UI_SYM_DOWN : UI_SYM_EQUAL
-                        p4_text += UI_TEXT_lHighVol + vol_edge + UI_TEXT_space + str.tostring(GLOBAL_learning.wrHighVol * 100, "#") + UI_TEXT_pctSuffix
-                    else if current_regime_percentile <= STATIC_VOL_regimeLowThresh and GLOBAL_learning.wrLowVol != STATIC_DEFAULT_winRate
-                        string vol_edge = GLOBAL_learning.wrLowVol > GLOBAL_learning.winRate ? UI_SYM_UP : GLOBAL_learning.wrLowVol < GLOBAL_learning.winRate ? UI_SYM_DOWN : UI_SYM_EQUAL
-                        p4_text += UI_TEXT_lLowVol + vol_edge + UI_TEXT_space + str.tostring(GLOBAL_learning.wrLowVol * 100, "#") + UI_TEXT_pctSuffix
+                    if current_regime_percentile >= STATIC_VOL_regimeHighThresh and GLOBAL_learning.winRateHighVolatility != STATIC_DEFAULT_winRate
+                        string vol_edge = GLOBAL_learning.winRateHighVolatility > GLOBAL_learning.winRate ? UI_SYM_UP : GLOBAL_learning.winRateHighVolatility < GLOBAL_learning.winRate ? UI_SYM_DOWN : UI_SYM_EQUAL
+                        p4_text += UI_TEXT_lHighVol + vol_edge + UI_TEXT_space + str.tostring(GLOBAL_learning.winRateHighVolatility * 100, "#") + UI_TEXT_pctSuffix
+                    else if current_regime_percentile <= STATIC_VOL_regimeLowThresh and GLOBAL_learning.winRateLowVolatility != STATIC_DEFAULT_winRate
+                        string vol_edge = GLOBAL_learning.winRateLowVolatility > GLOBAL_learning.winRate ? UI_SYM_UP : GLOBAL_learning.winRateLowVolatility < GLOBAL_learning.winRate ? UI_SYM_DOWN : UI_SYM_EQUAL
+                        p4_text += UI_TEXT_lLowVol + vol_edge + UI_TEXT_space + str.tostring(GLOBAL_learning.winRateLowVolatility * 100, "#") + UI_TEXT_pctSuffix
                     // Sharpe Ratio (risk-adjusted return)
                     if GLOBAL_learning.sharpeRatio != 0
                         string sr_rating = GLOBAL_learning.sharpeRatio < 0 ? UI_SYM_MINUS : GLOBAL_learning.sharpeRatio < 1 ? UI_SYM_CIRCLE : GLOBAL_learning.sharpeRatio < 2 ? UI_SYM_PLUS : UI_SYM_plusPlus
@@ -4996,7 +5121,7 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         GLOBAL_setupHistory.push(completed_setup)
         
         // Set flag to trigger learning recalculation
-        GLOBAL_learning.needsRecalc := true
+        GLOBAL_learning.needsRecalculation := true
     
     // Initialize CONFIRMED trade tracking - ONLY reset on GLOBAL_zigzag.changed (never for projections)
     // This ensures Learning Engine data is ONLY from confirmed ZigZag pivots
@@ -5117,8 +5242,8 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
         alert(entry_msg, alert.freq_once_per_bar)
 
 // AddOns
-plotchar(INPUT_SHOW_VOL_SPIKE and nzVolume != 0 ? exhaustVol : false, UI_LABEL_EXHAUST, UI_ICON_TRAFFIC, location.abovebar, size=UI_SIZE_tiny, display = display.pane)
-plotchar(INPUT_SHOW_HIGH_ATR ? highVolatility : false, UI_LABEL_HIGH_VOL, UI_ICON_LIGHTNING, location.belowbar, size=UI_SIZE_tiny, display = display.pane)
+plotchar(INPUT_SHOW_VOL_SPIKE and nzVolume != 0 ? exhaustVol : false, UI_LABEL_EXHAUST, "🚦", location.abovebar, size=UI_SIZE_tiny, display = display.pane)
+plotchar(INPUT_SHOW_HIGH_ATR ? highVolatility : false, UI_LABEL_HIGH_VOL, "⚡", location.belowbar, size=UI_SIZE_tiny, display = display.pane)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // STATUS LINE VALUES
@@ -5140,90 +5265,90 @@ plot(UI_fibLevel618,   "Fib 0.618",   color = color.new(UI_COLOR_orange, 0), dis
 
 if INPUT_ALERT_ENABLED
     // Event-based alert routing
-    if INPUT_ALERT_MODE == 'calculateAlertUpdates'
+    if INPUT_ALERT_MODE == UI_OPT_alertUpdates
         // FBU: Full state snapshot on bar confirmation
         if barstate.isconfirmed
             string fbu_msg = f_getAlertMessageFull(STATIC_ALERT_ID_UPDATE, "fib_update",
                 GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
-                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.stopLossHit, GLOBAL_alertState.takeProfitHit, GLOBAL_alertState.rawZoneTop,
                 GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
-                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
-                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
-                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
-                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.bufferPercent, GLOBAL_alertState.isInZone, GLOBAL_alertState.isZoneEntry,
+                GLOBAL_alertState.minimumDistance, GLOBAL_alertState.stopLossPrice, GLOBAL_alertState.takeProfitPrice,
+                GLOBAL_alertState.takeProfitConservative, GLOBAL_alertState.takeProfitAggressive, GLOBAL_alertState.useAggressiveTakeProfit,
+                GLOBAL_alertState.stopLossMultiplier, GLOBAL_alertState.averageTrueRange, GLOBAL_alertState.smartStopLoss,
                 GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
-                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.isExpired)
             alert(fbu_msg, alert.freq_once_per_bar)
         
         // SCT: Setup created on pivot change
         if GLOBAL_zigzag.changed and barstate.isconfirmed
             string sct_msg = f_getAlertMessageFull(STATIC_ALERT_ID_SETUP, "setup_created",
                 GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
-                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.stopLossHit, GLOBAL_alertState.takeProfitHit, GLOBAL_alertState.rawZoneTop,
                 GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
-                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
-                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
-                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
-                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.bufferPercent, GLOBAL_alertState.isInZone, GLOBAL_alertState.isZoneEntry,
+                GLOBAL_alertState.minimumDistance, GLOBAL_alertState.stopLossPrice, GLOBAL_alertState.takeProfitPrice,
+                GLOBAL_alertState.takeProfitConservative, GLOBAL_alertState.takeProfitAggressive, GLOBAL_alertState.useAggressiveTakeProfit,
+                GLOBAL_alertState.stopLossMultiplier, GLOBAL_alertState.averageTrueRange, GLOBAL_alertState.smartStopLoss,
                 GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
-                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.isExpired)
             alert(sct_msg, alert.freq_once_per_bar)
         
         // EXH: Volume exhaustion signal
         if exhaustVol and barstate.isconfirmed
             string exh_msg = f_getAlertMessageFull(STATIC_ALERT_ID_EXHAUSTION, "vol_exhaustion",
                 GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
-                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.stopLossHit, GLOBAL_alertState.takeProfitHit, GLOBAL_alertState.rawZoneTop,
                 GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
-                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
-                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
-                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
-                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.bufferPercent, GLOBAL_alertState.isInZone, GLOBAL_alertState.isZoneEntry,
+                GLOBAL_alertState.minimumDistance, GLOBAL_alertState.stopLossPrice, GLOBAL_alertState.takeProfitPrice,
+                GLOBAL_alertState.takeProfitConservative, GLOBAL_alertState.takeProfitAggressive, GLOBAL_alertState.useAggressiveTakeProfit,
+                GLOBAL_alertState.stopLossMultiplier, GLOBAL_alertState.averageTrueRange, GLOBAL_alertState.smartStopLoss,
                 GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
-                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.isExpired)
             alert(exh_msg, alert.freq_once_per_bar)
         
         // HVO: High volatility signal
         if highVolatility and barstate.isconfirmed
             string hvo_msg = f_getAlertMessageFull(STATIC_ALERT_ID_VOLATILITY, "high_volatility",
                 GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
-                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.stopLossHit, GLOBAL_alertState.takeProfitHit, GLOBAL_alertState.rawZoneTop,
                 GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
-                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
-                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
-                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
-                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.bufferPercent, GLOBAL_alertState.isInZone, GLOBAL_alertState.isZoneEntry,
+                GLOBAL_alertState.minimumDistance, GLOBAL_alertState.stopLossPrice, GLOBAL_alertState.takeProfitPrice,
+                GLOBAL_alertState.takeProfitConservative, GLOBAL_alertState.takeProfitAggressive, GLOBAL_alertState.useAggressiveTakeProfit,
+                GLOBAL_alertState.stopLossMultiplier, GLOBAL_alertState.averageTrueRange, GLOBAL_alertState.smartStopLoss,
                 GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
-                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.isExpired)
             alert(hvo_msg, alert.freq_once_per_bar)
         
         // LRN: Learning recalculated
-        if GLOBAL_learning.needsRecalc and barstate.isconfirmed
+        if GLOBAL_learning.needsRecalculation and barstate.isconfirmed
             string lrn_msg = f_getAlertMessageFull(STATIC_ALERT_ID_LEARNING, "learning_recalc",
                 GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
-                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.stopLossHit, GLOBAL_alertState.takeProfitHit, GLOBAL_alertState.rawZoneTop,
                 GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
-                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
-                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
-                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
-                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.bufferPercent, GLOBAL_alertState.isInZone, GLOBAL_alertState.isZoneEntry,
+                GLOBAL_alertState.minimumDistance, GLOBAL_alertState.stopLossPrice, GLOBAL_alertState.takeProfitPrice,
+                GLOBAL_alertState.takeProfitConservative, GLOBAL_alertState.takeProfitAggressive, GLOBAL_alertState.useAggressiveTakeProfit,
+                GLOBAL_alertState.stopLossMultiplier, GLOBAL_alertState.averageTrueRange, GLOBAL_alertState.smartStopLoss,
                 GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
-                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.isExpired)
             alert(lrn_msg, alert.freq_once_per_bar)
     
-    else if INPUT_ALERT_MODE == 'calculateAlertData'
+    else if INPUT_ALERT_MODE == UI_OPT_alertData
         // Full snapshot on every confirmed bar
         if barstate.isconfirmed
             string full_msg = f_getAlertMessageFull(STATIC_ALERT_ID_UPDATE, "fib_update",
                 GLOBAL_alertState.isProjection, GLOBAL_alertState.isLong, GLOBAL_alertState.zoneTouched,
-                GLOBAL_alertState.slHit, GLOBAL_alertState.tpHit, GLOBAL_alertState.rawZoneTop,
+                GLOBAL_alertState.stopLossHit, GLOBAL_alertState.takeProfitHit, GLOBAL_alertState.rawZoneTop,
                 GLOBAL_alertState.rawZoneBottom, GLOBAL_alertState.adjustedZoneTop, GLOBAL_alertState.adjustedZoneBottom,
-                GLOBAL_alertState.bufferPct, GLOBAL_alertState.inZone, GLOBAL_alertState.zoneEntry,
-                GLOBAL_alertState.minDistance, GLOBAL_alertState.slPrice, GLOBAL_alertState.tpPrice,
-                GLOBAL_alertState.tpCons, GLOBAL_alertState.tpAggr, GLOBAL_alertState.useAggressiveTp,
-                GLOBAL_alertState.slMult, GLOBAL_alertState.atr, GLOBAL_alertState.smartSl,
+                GLOBAL_alertState.bufferPercent, GLOBAL_alertState.isInZone, GLOBAL_alertState.isZoneEntry,
+                GLOBAL_alertState.minimumDistance, GLOBAL_alertState.stopLossPrice, GLOBAL_alertState.takeProfitPrice,
+                GLOBAL_alertState.takeProfitConservative, GLOBAL_alertState.takeProfitAggressive, GLOBAL_alertState.useAggressiveTakeProfit,
+                GLOBAL_alertState.stopLossMultiplier, GLOBAL_alertState.averageTrueRange, GLOBAL_alertState.smartStopLoss,
                 GLOBAL_alertState.creationBar, GLOBAL_alertState.barsSinceCreation, GLOBAL_alertState.timePhase,
-                GLOBAL_alertState.decayRate, GLOBAL_alertState.expired)
+                GLOBAL_alertState.decayRate, GLOBAL_alertState.isExpired)
             alert(full_msg, alert.freq_once_per_bar)
     
     // Clear logs on history for performance
@@ -5272,7 +5397,7 @@ if perf_shouldShowDebugOverlay(INPUT_ENTROPY_DEBUG)
     table.cell(entropyDebugTable, 1, 8, _regimeStr, text_color = _regimeColor, text_size = UI_SIZE_tiny)
     
     table.cell(entropyDebugTable, 0, 9, UI_FLD_ENTROPY_OK, text_color = UI_COLOR_gray, text_size = UI_SIZE_tiny)
-    table.cell(entropyDebugTable, 1, 9, GLOBAL_regime.entropyOk ? UI_ICON_CHECK : UI_SYM_CROSS, text_color = GLOBAL_regime.entropyOk ? UI_COLOR_green : UI_COLOR_red, text_size = UI_SIZE_tiny)
+    table.cell(entropyDebugTable, 1, 9, GLOBAL_regime.entropyOk ? "✓" : UI_SYM_CROSS, text_color = GLOBAL_regime.entropyOk ? UI_COLOR_green : UI_COLOR_red, text_size = UI_SIZE_tiny)
     
     // Show buffer validation for symbolic modes
     if INPUT_ENTROPY_MODE != STATIC_ENTROPY_modeLegacy and GLOBAL_symbolicEntropy.initialized
@@ -5282,7 +5407,7 @@ if perf_shouldShowDebugOverlay(INPUT_ENTROPY_DEBUG)
             _countsSum += GLOBAL_symbolicEntropy.counts.get(i)
         bool _valid = _bufSize == _countsSum
         table.cell(entropyDebugTable, 0, 10, UI_FLD_BUFFER_OK, text_color = UI_COLOR_gray, text_size = UI_SIZE_tiny)
-        table.cell(entropyDebugTable, 1, 10, str.tostring(_bufSize) + "=" + str.tostring(_countsSum) + UI_TEXT_space + (_valid ? UI_ICON_CHECK : UI_ICON_WARNING), text_color = _valid ? UI_COLOR_green : UI_COLOR_red, text_size = UI_SIZE_tiny)
+        table.cell(entropyDebugTable, 1, 10, str.tostring(_bufSize) + "=" + str.tostring(_countsSum) + UI_TEXT_space + (_valid ? "✓" : "⚠"), text_color = _valid ? UI_COLOR_green : UI_COLOR_red, text_size = UI_SIZE_tiny)
     else
         table.cell(entropyDebugTable, 0, 10, UI_FLD_BUFFER, text_color = UI_COLOR_gray, text_size = UI_SIZE_tiny)
         table.cell(entropyDebugTable, 1, 10, UI_TEXT_dash, text_color = UI_COLOR_gray, text_size = UI_SIZE_tiny)
@@ -5329,7 +5454,7 @@ if perf_shouldShowDebugOverlay(INPUT_HURST_DEBUG)
     table.cell(hurstDebugTable, 1, 7, _hurstRegimeStr, text_color = _hurstRegimeColor, text_size = UI_SIZE_tiny)
     
     table.cell(hurstDebugTable, 0, 8, UI_FLD_HURST_OK, text_color = UI_COLOR_gray, text_size = UI_SIZE_tiny)
-    table.cell(hurstDebugTable, 1, 8, GLOBAL_regime.hurstOk ? UI_ICON_CHECK : UI_SYM_CROSS, text_color = GLOBAL_regime.hurstOk ? UI_COLOR_green : UI_COLOR_red, text_size = UI_SIZE_tiny)
+    table.cell(hurstDebugTable, 1, 8, GLOBAL_regime.hurstOk ? "✓" : UI_SYM_CROSS, text_color = GLOBAL_regime.hurstOk ? UI_COLOR_green : UI_COLOR_red, text_size = UI_SIZE_tiny)
     
     // Show chunk mode for fast vs stable
     string _chunkMode = INPUT_HURST_MODE == STATIC_HURST_MODE_DYADIC_FAST ? "Single (recent)" : INPUT_HURST_MODE == STATIC_HURST_MODE_DYADIC_STABLE ? "All (averaged)" : "N/A"
@@ -5344,13 +5469,13 @@ if perf_shouldShowDebugOverlay(INPUT_EXT_DEBUG)
     table.cell(extDebugTable, 1, 0, "", text_color = UI_COLOR_white, text_size = UI_SIZE_small)
     
     table.cell(extDebugTable, 0, 1, UI_FLD_ENABLED, text_color = UI_COLOR_gray, text_size = UI_SIZE_tiny)
-    table.cell(extDebugTable, 1, 1, GLOBAL_extContext.enabled ? UI_ICON_CHECK : UI_SYM_CROSS, text_color = GLOBAL_extContext.enabled ? UI_COLOR_green : UI_COLOR_red, text_size = UI_SIZE_tiny)
+    table.cell(extDebugTable, 1, 1, GLOBAL_extContext.enabled ? "✓" : UI_SYM_CROSS, text_color = GLOBAL_extContext.enabled ? UI_COLOR_green : UI_COLOR_red, text_size = UI_SIZE_tiny)
     
     table.cell(extDebugTable, 0, 2, UI_FLD_GATED, text_color = UI_COLOR_gray, text_size = UI_SIZE_tiny)
-    table.cell(extDebugTable, 1, 2, GLOBAL_extContext.gated ? UI_ICON_CHECK : UI_SYM_CROSS, text_color = GLOBAL_extContext.gated ? UI_COLOR_green : UI_COLOR_gray, text_size = UI_SIZE_tiny)
+    table.cell(extDebugTable, 1, 2, GLOBAL_extContext.gated ? "✓" : UI_SYM_CROSS, text_color = GLOBAL_extContext.gated ? UI_COLOR_green : UI_COLOR_gray, text_size = UI_SIZE_tiny)
     
     table.cell(extDebugTable, 0, 3, UI_FLD_BUDGET_OK, text_color = UI_COLOR_gray, text_size = UI_SIZE_tiny)
-    table.cell(extDebugTable, 1, 3, GLOBAL_extContext.budgetExceeded ? UI_TEXT_EXCEEDED : UI_ICON_CHECK, text_color = GLOBAL_extContext.budgetExceeded ? UI_COLOR_orange : UI_COLOR_green, text_size = UI_SIZE_tiny)
+    table.cell(extDebugTable, 1, 3, GLOBAL_extContext.budgetExceeded ? UI_TEXT_EXCEEDED : "✓", text_color = GLOBAL_extContext.budgetExceeded ? UI_COLOR_orange : UI_COLOR_green, text_size = UI_SIZE_tiny)
     
     table.cell(extDebugTable, 0, 4, UI_FLD_contexts, text_color = UI_COLOR_gray, text_size = UI_SIZE_tiny)
     table.cell(extDebugTable, 1, 4, str.tostring(GLOBAL_extContext.usedContexts), text_color = UI_COLOR_white, text_size = UI_SIZE_tiny)
@@ -5359,7 +5484,7 @@ if perf_shouldShowDebugOverlay(INPUT_EXT_DEBUG)
     table.cell(extDebugTable, 1, 5, str.tostring(GLOBAL_extContext.validCount) + "/" + str.tostring(array.size(GLOBAL_extContext.symbols)), text_color = UI_COLOR_white, text_size = UI_SIZE_tiny)
     
     table.cell(extDebugTable, 0, 6, UI_FLD_extOk, text_color = UI_COLOR_gray, text_size = UI_SIZE_tiny)
-    table.cell(extDebugTable, 1, 6, GLOBAL_extContext.extOk ? UI_ICON_CHECK : UI_SYM_CROSS, text_color = GLOBAL_extContext.extOk ? UI_COLOR_green : UI_COLOR_red, text_size = UI_SIZE_tiny)
+    table.cell(extDebugTable, 1, 6, GLOBAL_extContext.extOk ? "✓" : UI_SYM_CROSS, text_color = GLOBAL_extContext.extOk ? UI_COLOR_green : UI_COLOR_red, text_size = UI_SIZE_tiny)
     
     // Show first symbol + close if available
     string _symInfo = "—"
