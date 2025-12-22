@@ -367,9 +367,7 @@ string STATIC_HURST_MODE_LEGACY        = "🔸 Legacy (Geometric)"       // Orig
 string STATIC_HURST_MODE_DYADIC_STABLE = "🟢 Dyadic Stable (Chunk Avg)" // O(log N) dyadic with chunk averaging
 string STATIC_HURST_MODE_DYADIC_FAST   = "⚡ Dyadic Fast (Single Chunk)" // O(log N) dyadic, most recent chunk only
 
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// PERFORMANCE CONTROLLER - Preset-driven Feature Degradation
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// ── PERFORMANCE CONTROLLER - Preset-driven feature degradation
 
 // Performance Preset Modes
 string STATIC_PERF_presetBalanced     = "🟢 Balanced"      // Default: all features, confirmed bars
@@ -441,6 +439,32 @@ string STATIC_EXT_gateAlways          = "ALWAYS"
 string STATIC_EXT_gateEntropy         = "ON_ENTROPY_DISORDER"
 string STATIC_EXT_gateHurst           = "ON_LOW_HURST"
 string STATIC_EXT_gateCustom          = "CUSTOM"
+
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// INPUTS
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+INPUT_SHOW_FIB_TIME     = input.bool(true, 'Fib Time Zones', inline='TZ', group=UI_GROUP_pick)
+INPUT_CUSTOM_THRESHOLD  = input.bool(true, 'Custom thresholds', inline='C')
+INPUT_CUSTOM_DEPTH      = input.bool(true, 'Custom depths', inline='C')
+
+// Pivot Settings
+INPUT_HTF_MODE          = input.string('Auto', 'Pivot Points TimeFrame', options=['Auto', 'User Defined'], inline='HTF', group=UI_GROUP_pivot, tooltip=UI_TOOLTIP_pivotPoint)
+INPUT_HTF_USER_RAW      = input.string('15 Min', '          or User Defined', options=['15 Min', '1 Hour', '4 Hour', 'Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'], inline='HTF1', group=UI_GROUP_pivot)
+
+// Parse HTF input
+REQ_htfUserParsed = INPUT_HTF_USER_RAW == '15 Min'? '15' : 
+                  INPUT_HTF_USER_RAW == '1 Hour'? '60' : 
+                  INPUT_HTF_USER_RAW == '4 Hour'? '240' : 
+                  INPUT_HTF_USER_RAW == 'Daily'? 'D' : 
+                  INPUT_HTF_USER_RAW == 'Weekly'? 'W' : 
+                  INPUT_HTF_USER_RAW == 'Monthly'? 'M' : 
+                  INPUT_HTF_USER_RAW == 'Quarterly'? '3M' : '12M'
+
+INPUT_LEVELS_PVT        = input.string('Prices', 'Level Labels', options=['Levels', 'Prices', 'Levels + Prices', 'None'], inline='pvt', group=UI_GROUP_pivot)
+INPUT_LEVELS_PVT_POS    = input.string('Pivot End', '', options=['Last Bar', 'Pivot End'], inline='pvt', group=UI_GROUP_pivot)
+INPUT_LEVELS_PVT_SIZE   = input.string('Small', '', options=['Small', 'Normal'], inline='pvt', group=UI_GROUP_pivot)
+INPUT_EXTEND_PVT        = input.bool(false, 'Extend Pivot Point Lines', inline='fLines', group=UI_GROUP_pivot)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // LEARNING ENGINE CONSTANTS
@@ -529,33 +553,7 @@ float STATIC_DEFAULT_confidence        = 50.0
 float STATIC_DEFAULT_minDistance      = 100.0
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// INPUTS
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-
-INPUT_SHOW_FIB_TIME     = input.bool(true, 'Fib Time Zones', inline='TZ', group=UI_GROUP_pick)
-INPUT_CUSTOM_THRESHOLD  = input.bool(true, 'Custom thresholds', inline='C')
-INPUT_CUSTOM_DEPTH      = input.bool(true, 'Custom depths', inline='C')
-
-// Pivot Settings
-INPUT_HTF_MODE          = input.string('Auto', 'Pivot Points TimeFrame', options=['Auto', 'User Defined'], inline='HTF', group=UI_GROUP_pivot, tooltip=UI_TOOLTIP_pivotPoint)
-INPUT_HTF_USER_RAW      = input.string('15 Min', '          or User Defined', options=['15 Min', '1 Hour', '4 Hour', 'Daily', 'Weekly', 'Monthly', 'Quarterly', 'Yearly'], inline='HTF1', group=UI_GROUP_pivot)
-
-// Parse HTF input
-REQ_htfUserParsed = INPUT_HTF_USER_RAW == '15 Min'? '15' : 
-                  INPUT_HTF_USER_RAW == '1 Hour'? '60' : 
-                  INPUT_HTF_USER_RAW == '4 Hour'? '240' : 
-                  INPUT_HTF_USER_RAW == 'Daily'? 'D' : 
-                  INPUT_HTF_USER_RAW == 'Weekly'? 'W' : 
-                  INPUT_HTF_USER_RAW == 'Monthly'? 'M' : 
-                  INPUT_HTF_USER_RAW == 'Quarterly'? '3M' : '12M'
-
-INPUT_LEVELS_PVT        = input.string('Prices', 'Level Labels', options=['Levels', 'Prices', 'Levels + Prices', 'None'], inline='pvt', group=UI_GROUP_pivot)
-INPUT_LEVELS_PVT_POS    = input.string('Pivot End', '', options=['Last Bar', 'Pivot End'], inline='pvt', group=UI_GROUP_pivot)
-INPUT_LEVELS_PVT_SIZE   = input.string('Small', '', options=['Small', 'Normal'], inline='pvt', group=UI_GROUP_pivot)
-INPUT_EXTEND_PVT        = input.bool(false, 'Extend Pivot Point Lines', inline='fLines', group=UI_GROUP_pivot)
-
-// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
-// FIBONACCI EXTENSION / RETRACEMENT / TIME ZONE INPUTS
+// FIBONACCI EXTENTION / RETRACEMENT / TIME ZONE INPUTS
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 INPUT_LEVELS_LABEL      = input.string('Prices', 'Level Labels', options=['Levels', 'Prices', 'Levels + Prices', 'None'], inline='fLines', group=UI_GROUP_fibTool)
@@ -958,6 +956,7 @@ perf_getPresetName() =>
         STATIC_PERF_presetDebug => "Debug"
         => "Unknown"
 
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 f_canRunLearning(bool enabled, int min_samples, int history_size) =>
     enabled and barstate.islast and history_size >= min_samples
@@ -1036,6 +1035,7 @@ f_rollingEntropy(float log_return, int window, int num_bins, float threshold, bo
 // Performance: O(window) per-bar loop replaced with O(1) incremental updates
 // Uses binary symbolization and k-gram patterns with precomputed lookup tables.
 // Doc-backed: Pine v6 arrays, var persistence, negative indexing (TradingView docs/arrays)
+// ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
 type SymbolicEntropyState
     bool  initialized = false
