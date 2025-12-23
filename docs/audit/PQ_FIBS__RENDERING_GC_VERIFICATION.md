@@ -302,9 +302,9 @@ var table perfDashboard = table.new(...)
 | `line`      | 500 | ~27 | Delete-before-create + per-bar clear | ✅ |
 | `label`     | 500 | ~23 | Delete-before-create + per-bar clear | ✅ |
 | `box`       | 500 | 1 | PositionVisual.deleteAll() | ✅ |
-| `polyline`  | 100 | 51 | gcPolys() FIFO eviction | ⚠️* |
+| `polyline`  | 100 | 51 | gcPolys() FIFO eviction | ⚠️ PASS* |
 
-**Note (⚠️*):** Polyline cap is safe at default settings but edge case exists at max user config.
+**Note (⚠️ PASS*):** Polyline cap is safe at default settings but edge case exists at max user config.
 
 ---
 
