@@ -5,7 +5,7 @@
 //   - Compiled tokens: 100k (libraries: 1M combined)
 //   - Dynamic requests: 40 max per script
 //   - calc_bars_count: compile-time literal (0 = all bars)
-indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS/2.1', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true, calc_bars_count=0)
+indicator(title = 'Shox Fibonacci Pivots [PQ_MOD]', shorttitle = 'FIBS/2.2', overlay = true, max_lines_count=500, max_labels_count=500, max_boxes_count=500, max_polylines_count=100, max_bars_back=5000, dynamic_requests=true, calc_bars_count=0)
 
 // ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 // CONSTANTS & THEME
