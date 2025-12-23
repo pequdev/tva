@@ -45,7 +45,7 @@ This document analyzes potential shared intermediate computations across stats e
 | `ta.atr(INPUT_ATR_LENGTH) * INPUT_ATR_MULT` | L2910 | Length from input | `i_weightedATR` (volatility addon) |
 | `ta.atr(INPUT_ZSCORE_ATR_LEN)` | L3015 | Z-score length | `GLOBAL_regime.zscoreAtr` |
 | `ta.atr(INPUT_ATR_LENGTH)` | L3818 | Same as L2910 | `raw_atr` (spawn logic) |
-| `ta.atr(2)` | L1829 | Fixed 2 | `dev_treshold` function |
+| `ta.atr(2)` | L1829 | Fixed 2 | `dev_threshold` function |
 
 **Analysis**:
 - L2910 and L3818 use the **same parameter** (`INPUT_ATR_LENGTH`)
