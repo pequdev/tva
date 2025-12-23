@@ -100,10 +100,10 @@ method pushBounded(array<float> buf, float v, int window) =>
 
 | Field | Type | Init | Bound | Mechanism |
 |-------|------|------|-------|-----------|
-| `history` | `array<BacktestTrade>` | L2681 | ⚠️ **UNBOUNDED** | `push()` L2693, L3968 |
+| `history` | `array<BacktestTrade>` | L2685 | ⚠️ **UNBOUNDED** | `push()` L2699, L3979 |
 
 **⚠️ RISK**: `GLOBAL_backtest.history` grows without limit.  
-- Trades are pushed on pivot completion (L3968)
+- Trades are pushed on pivot completion (L3979)
 - No cap enforcement exists
 - Long-running charts may accumulate thousands of trades
 
@@ -173,8 +173,8 @@ The codebase already uses helper methods with negative indexing:
 
 | Location | Current Pattern | Safe to Convert | Guard Exists |
 |----------|-----------------|-----------------|--------------|
-| L2090 | `array.get(this.points, array.size(this.points) - 1)` | ✅ YES | `array.size() >= maxPoints` L2086 |
-| L2105 | `array.get(this.points, array.size(this.points) - 1)` | ✅ YES | `array.size() == 0` check L2101 |
+| L2094 | `array.get(this.points, array.size(this.points) - 1)` | ✅ YES | `array.size() >= maxPoints` L2086 |
+| L2110 | `array.get(this.points, array.size(this.points) - 1)` | ✅ YES | `array.size() == 0` check L2101 |
 | L1672 | `for i = 0 to array.size(parts) - 1` | N/A | Loop bounds, not access pattern |
 | L2060 | `for i = 0 to array.size(this.sealed) - 1` | N/A | Loop bounds, not access pattern |
 

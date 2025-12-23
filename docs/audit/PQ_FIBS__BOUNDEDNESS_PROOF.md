@@ -179,18 +179,19 @@ while pwr <= maxW
 
 **Proof**:
 ```pine
-// L2085-2093: Flush before overflow
+// L2085-2098: Flush before overflow
 method flushIfFull(ZigZagVisualBuffer this) =>
     if array.size(this.points) >= this.maxPoints and not na(this.active)
         array.push(this.sealed, this.active)
         this.active := na
         this.gcPolys()
-        chart.point lastPoint = array.get(this.points, array.size(this.points) - 1)
+        // Pine v6: negative indexing for O(1) last-element access
+        chart.point lastPoint = array.get(this.points, -1)
         array.clear(this.points)  // ← ENFORCEMENT
         array.push(this.points, lastPoint)  // Carry forward last point
     this
 ```
-- Called after every segment add (L2109)
+- Called after every segment add (L2114)
 - Clears buffer when reaching cap, preserves continuity
 - **PASS**: Hard cap with proactive flush ✅
 
@@ -311,7 +312,7 @@ method push(CircularBufferSetupRecord this, SetupRecord value) =>
 
 | Property | Value |
 |----------|-------|
-| **Location** | L2676 (UDT), L2681 (init), L2693 + L3968 (push) |
+| **Location** | L2676 (UDT), L2685 (init), L2699 + L3979 (push) |
 | **Declaration** | `array<BacktestTrade> history` in `BacktestEngine` |
 | **Cap Source** | ⚠️ **NONE DEFINED** |
 | **Enforcement** | ⚠️ **NONE** |
@@ -319,16 +320,16 @@ method push(CircularBufferSetupRecord this, SetupRecord value) =>
 
 **Analysis**:
 ```pine
-// L2681: Init as empty
+// L2685: Init as empty
 this.history := array.new<BacktestTrade>()
 
-// L2693: Push in archiveTrade method
+// L2699: Push in archiveTrade method
 method archiveTrade(BacktestEngine this, BacktestTrade trade) =>
     if not na(this.history)
         this.history.push(trade)  // ← NO CAP CHECK
     this
 
-// L3968: Called on trade completion
+// L3979: Called on trade completion
 array.push(GLOBAL_backtest.history, GLOBAL_backtest.current)  // ← NO CAP CHECK
 ```
 
