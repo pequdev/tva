@@ -110,7 +110,7 @@ else
 |-----------|--------------|--------|
 | `GLOBAL_zigzag.changed` | Per-pivot | Full recreate |
 | `projectionStateChanged` | Per mode toggle | Full recreate |
-| Projection tentative | Per tentative detection | Full recreate |
+| Projection tentative | Per tentative pivot detection | Full recreate |
 | Neither (existing) | Per-bar | Update only (O(1)) |
 | Neither (new) | Once | Initial create |
 
