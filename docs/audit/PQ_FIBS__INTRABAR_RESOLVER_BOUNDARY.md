@@ -245,11 +245,11 @@ if not GLOBAL_activeTrade.hasAny(STATIC_MASK_OUTCOME)
 
 ## 10. Input Configuration
 
-### 10.1 User Inputs (L335-340)
+### 10.1 User Inputs (L725-727)
 ```pine
-INPUT_INTRABAR_ENABLED = input.bool(true, "Enable LTF Resolution")
-INPUT_INTRABAR_TIEBREAK = input.string("Conservative", "Tiebreak Mode", 
-                                        options=["Conservative", "Aggressive"])
+INPUT_INTRABAR_ENABLED  = input.bool(true, '🔬 Intrabar Precision', ...)
+INPUT_INTRABAR_TIEBREAK = input.string(UI_OPT_conservative, '   ↳ Tie-Break Policy', 
+                                        options=[UI_OPT_conservative, UI_OPT_optimistic], ...)
 ```
 
 ### 10.2 Behavior Matrix
@@ -257,7 +257,7 @@ INPUT_INTRABAR_TIEBREAK = input.string("Conservative", "Tiebreak Mode",
 | Intrabar Enabled | Tiebreak Mode | Both Hit Same Bar Behavior |
 |------------------|---------------|---------------------------|
 | true | Conservative | LTF resolution, SL on tie |
-| true | Aggressive | LTF resolution, TP on tie |
+| true | Optimistic | LTF resolution, TP on tie |
 | false | (ignored) | HTF heuristic only |
 
 ---
