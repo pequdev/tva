@@ -138,19 +138,20 @@ if ta.change(time) != 0 and array.size(UI_labelsBuffer) > 0
 
 ## 3. Object Budget Summary
 
-### 3.1 Worst-Case Static Allocation
+### 3.1 Static Allocation (default ZigZag config, `maxPolys=50`)
 
 | Module | Lines | Labels | Boxes | Polylines |
 |--------|-------|--------|-------|-----------|
 | ZigZag (LINES mode) | 1 | 0 | 0 | 0 |
-| ZigZag (POLYLINE mode) | 1 (live) | 0 | 0 | 51 (50 sealed + 1 active) |
+| ZigZag (POLYLINE mode) | 1 (live) | 0 | 0 | 51 (default `maxPolys=50`: 50 sealed + 1 active) |
 | PositionVisual | 4 (SL, SmartSL, TP, live) | 1 | 1 | 0 |
 | FibLevels (22 levels) | 22 | 22 | 0 | 0 |
 | UI Buffers | Variable | Variable | 0 | 0 |
 | **Subtotal (POLYLINE mode)** | **27** | **23** | **1** | **51** |
 
-### 3.2 Dynamic Headroom
+> Note: The GC stress-test documented in `PQ_FIBS__RENDERING_GC_VERIFICATION.md` uses ZigZag `maxPolys=100`, where the theoretical edge case reaches **101 polylines** (100 sealed + 1 active). That edge-case load is validated in the GC verification doc and is intentionally **not** the default configuration summarized in this table.
 
+### 3.2 Dynamic Headroom (default ZigZag config, `maxPolys=50`)
 | Object Type | Max | Reserved | Headroom | Headroom % |
 |-------------|-----|----------|----------|------------|
 | Lines       | 500 | 27       | 473      | 94.6%      |
