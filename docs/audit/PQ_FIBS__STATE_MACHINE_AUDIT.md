@@ -321,7 +321,7 @@ if not skip_this_bar
 | State Flags | L875-907 | Flag definitions and masks |
 | f_resolveIntrabar | L922-960 | LTF chronological resolution |
 | SetupRecord UDT | L2489-2553 | Learning data structure |
-| BacktestTrade UDT | L2605-2665 | Simulation data structure |
+| BacktestTrade UDT | L2605-2657 | Simulation data structure |
 | BacktestEngine UDT | L2681-2738 | Simulation manager |
 | SetupState UDT | L2741-2810 | Live setup tracking |
 | BacktestEngine loop | L3805-3990 | Spawn/manage/close logic |
