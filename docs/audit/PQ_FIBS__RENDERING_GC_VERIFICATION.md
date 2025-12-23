@@ -116,7 +116,7 @@ int maxPolys = 50   // Default, INPUT_ZZ_POLY_MAX_KEEP (1-100)
 
 When `maxPolys = 100` (max user setting) and indicator limit is also 100:
 1. `sealed.size()` can reach 100 (at cap)
-2. `gcPolys()` runs with `size > maxPolys` = `100 > 100` = false (no eviction)
+2. `gcPolys()` runs when `sealed.size() == maxPolys` (`100 == 100`); the condition `size > maxPolys` is false, so no eviction occurs
 3. Active polyline exists = 1 more
 4. **Total: 101 polylines** (exceeds limit of 100)
 
