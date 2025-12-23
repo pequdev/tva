@@ -3815,7 +3815,8 @@ bool raw_is_long = GLOBAL_cachedPivots.pEndBase < GLOBAL_cachedPivots.pMidPivot
 int raw_direction = raw_is_long ? 1 : -1
 
 // Calculate RAW SL/TP using default multipliers (pure data, no learning)
-float raw_atr = nz(ta.atr(INPUT_ATR_LENGTH), 1.0)
+// Consolidation: reuse GLOBAL_regime.rawAtr (= ta.atr(INPUT_ATR_LENGTH)) computed at L3024
+float raw_atr = nz(GLOBAL_regime.rawAtr, 1.0)
 float raw_sl_buffer = raw_atr * INPUT_POS_SL_MULT
 float raw_tp_target = GLOBAL_cachedPivots.pMidPivot  // Conservative TP = back to MidPivot (swing start)
 
