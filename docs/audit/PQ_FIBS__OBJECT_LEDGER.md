@@ -269,9 +269,9 @@ method gcPolys(ZigZagVisualBuffer this) =>
 The GC runs in `flushIfFull()` which is called after pushing to sealed but before creating new active. This means:
 - Push to sealed (now 100)
 - gcPolys runs (deletes to 100)
-- But active is then re-created → 101 total
+- But active is then re-created → 101 total (transiently, during this flush/GC cycle)
 
-**Verdict:** ⚠️ EDGE CASE — At `maxPolys=100`, could hit 101 polylines transiently. Recommend default of 50 (currently set) or cap input at 99.
+**Verdict:** ⚠️ EDGE CASE — At `maxPolys=100`, could hit 101 polylines transiently due to this timing. Recommend default of 50 (currently set) or cap input at 99. See `PQ_FIBS__RENDERING_GC_VERIFICATION.md` for the full timing trace.
 
 ---
 
