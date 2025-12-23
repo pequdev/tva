@@ -575,6 +575,9 @@ int   STATIC_LEARN_minSamplesSL      = 20
 int   STATIC_LEARN_minSamplesBuffer  = 10
 int   STATIC_LEARN_minSamplesWinRate      = 10
 int   STATIC_LEARN_minSamplesMAE     = 5
+
+// Backtest history cap (prevents unbounded growth)
+int   STATIC_BACKTEST_maxHistory     = 1000
 int   STATIC_LEARN_minSamplesDiv     = 5
 int   STATIC_LEARN_minSamplesDir     = 5
 int   STATIC_LEARN_minSamplesLosing  = 3
@@ -2087,7 +2090,8 @@ method flushIfFull(ZigZagVisualBuffer this) =>
         array.push(this.sealed, this.active)
         this.active := na
         this.gcPolys()
-        chart.point lastPoint = array.get(this.points, array.size(this.points) - 1)
+        // Pine v6: negative indexing for O(1) last-element access
+        chart.point lastPoint = array.get(this.points, -1)
         array.clear(this.points)
         array.push(this.points, lastPoint)
     this
@@ -2102,7 +2106,8 @@ method addSegment(ZigZagVisualBuffer this, int tStart, float pStart, int tEnd, f
         if array.size(this.points) == 0
             array.push(this.points, ptStart)
         else
-            chart.point lastPt = array.get(this.points, array.size(this.points) - 1)
+            // Pine v6: negative indexing for O(1) last-element access
+            chart.point lastPt = array.get(this.points, -1)
             if lastPt.time != ptStart.time or lastPt.price != ptStart.price
                 array.push(this.points, ptStart)
         array.push(this.points, ptEnd)
@@ -2672,14 +2677,17 @@ method getSmartSlOffset(BacktestStats this) =>
     this.smartSlOffset
 
 //              Spawns trades on pivot changes, manages lifecycle, closes on SL/TP.
+//              History buffer is bounded by maxHistory to prevent unbounded growth.
 type BacktestEngine
     array<BacktestTrade> history = na
     BacktestTrade current = na
     BacktestStats stats = na
+    int maxHistory = 1000  // Cap: oldest evicted when exceeded
 
 method init(BacktestEngine this) =>
     this.history := array.new<BacktestTrade>()
     this.stats := BacktestStats.new()
+    this.maxHistory := STATIC_BACKTEST_maxHistory
     this
 
 method hasActiveTrade(BacktestEngine this) =>
@@ -2690,6 +2698,9 @@ method getTradeCount(BacktestEngine this) =>
 
 method archiveTrade(BacktestEngine this, BacktestTrade trade) =>
     if not na(this.history)
+        // Bounded push: evict oldest when at capacity (prevents unbounded growth)
+        if this.history.size() >= this.maxHistory
+            this.history.shift()
         this.history.push(trade)
     this
 
@@ -3964,8 +3975,8 @@ if not na(GLOBAL_backtest.current) and not skip_this_bar
             else
                 GLOBAL_backtest.current.setOutcome(STATIC_FLAG_SL_HIT)
             
-            // Push completed trade to GLOBAL_backtest.history
-            array.push(GLOBAL_backtest.history, GLOBAL_backtest.current)
+            // Archive completed trade (bounded push: evicts oldest when at capacity)
+            GLOBAL_backtest.archiveTrade(GLOBAL_backtest.current)
             
             
             // Clear current simulation
