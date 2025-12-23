@@ -1,0 +1,253 @@
+# PQ_FIBS Boolean Audit — v6 Semantics & Lazy Evaluation
+
+> **Task 5 Deliverable**: Boolean Inventory + Risk Classification
+> **Branch**: `50-pq_fibs-28-boolean-semantics-lazy-wiring`
+> **Generated**: 2024-12-22
+
+---
+
+## Executive Summary
+
+Pine Script v6 enforces **strict boolean semantics**: `bool` values must be `true` or `false`, never `na`.  
+This audit inventories all boolean symbols in `PQ_FIBS.pine`, classifies their `na` risk, and confirms lazy evaluation compliance.
+
+**Key Findings**:
+- ✅ **1 `var bool`** declaration — properly initialized (`false`)
+- ✅ **~100+ `bool` locals** — all initialized to literal `true`/`false`
+- ⚠️ **2 patterns with NA_RISK** — comparisons involving `ta.valuewhen` results (early bars)
+- ✅ **UDT bool fields** — all have explicit default values in type definitions
+- ✅ **Lazy evaluation** — already implemented at critical spawn gates (L3838-3843)
+- ✅ **No `bool x = na`** assignments anywhere
+
+---
+
+## 1. Pine v6 Boolean Semantics — Doc References
+
+| Rule | Pine v6 Behavior | Source |
+|------|------------------|--------|
+| Boolean values | Only `true` or `false`, never `na` | Pine v6 Type System docs |
+| `ta.change(bool)` | Returns `true` if value differs from previous bar | Pine v6 Functions/ta.change |
+| Comparison with `na` series | Comparison returns `na` if either operand is `na` | Pine v6 `na` handling rules |
+| Lazy `and/or` | Short-circuit: `A and B` skips `B` if `A` is `false` | Pine v6 Keywords/and |
+| `nz()` on bool | **Not recommended** — use explicit `na` checks | Pine v6 best practices |
+
+**Doc-Backed Decision**: Booleans derived from series comparisons where the series may be `na` can produce `na` boolean results on early bars. These must be explicitly guarded.
+
+---
+
+## 2. Boolean Inventory
+
+### 2.1 `var bool` Declarations (Persistent Booleans)
+
+| Anchor | Variable | Default | Risk | Consumer |
+|--------|----------|---------|------|----------|
+| L5195 | `wasProjection` | `false` | ✅ SAFE | Projection state change detection |
+
+**Assessment**: Only 1 `var bool` in codebase. Properly initialized to `false`. No risk.
+
+---
+
+### 2.2 UDT Boolean Fields
+
+| UDT | Field | Default | Anchor | Risk |
+|-----|-------|---------|--------|------|
+| `RegimeState` | `entropyOk` | `true` | L2139 | ✅ SAFE |
+| `RegimeState` | `hurstOk` | `true` | L2142 | ✅ SAFE |
+| `RegimeState` | `strongMomentum` | `false` | L2147 | ✅ SAFE |
+| `RegimeState` | `momentumOk` | `true` | L2148 | ✅ SAFE |
+| `ExternalContextState` | `enabled` | `false` | L2156 | ✅ SAFE |
+| `ExternalContextState` | `gated` | `false` | L2157 | ✅ SAFE |
+| `ExternalContextState` | `budgetExceeded` | `false` | L2158 | ✅ SAFE |
+| `ExternalContextState` | `extOk` | `true` | L2166 | ✅ SAFE |
+| `LearningMetrics` | `useTakeProfitAggressive` | `false` | L2209 | ✅ SAFE |
+| `LearningMetrics` | `isPermtestSignificant` | `false` | L2255 | ✅ SAFE |
+| `LearningMetrics` | `isHealthy` | `true` | L2258 | ✅ SAFE |
+| `LearningMetrics` | `needsRecalculation` | `false` | L2262 | ✅ SAFE |
+| `SymbolicEntropyState` | `initialized` | `false` | L1165 | ✅ SAFE |
+| `ZigZagEngine` | `liveEnabled` | `true` | L2042 | ✅ SAFE |
+| `TradeState` | `isProjection` | `false` | L2819 | ✅ SAFE |
+| `TradeState` | `isLong` | `false` | L2820 | ✅ SAFE |
+| `TradeState` | `zoneTouched` | `false` | L2821 | ✅ SAFE |
+| `TradeState` | `stopLossHit` | `false` | L2822 | ✅ SAFE |
+| `TradeState` | `takeProfitHit` | `false` | L2823 | ✅ SAFE |
+| `TradeState` | `isInZone` | `false` | L2824 | ✅ SAFE |
+| `TradeState` | `isZoneEntry` | `false` | L2825 | ✅ SAFE |
+| `TradeState` | `useAggressiveTakeProfit` | `false` | L2826 | ✅ SAFE |
+| `TradeState` | `isExpired` | `false` | L2827 | ✅ SAFE |
+
+**Assessment**: All 23 UDT boolean fields have explicit defaults. No risk.
+
+---
+
+### 2.3 Regime Gate Booleans (Critical Path)
+
+| Anchor | Variable | Producer Expression | Risk | Notes |
+|--------|----------|---------------------|------|-------|
+| L2966 | `entropyOk` | `not INPUT_ENTROPY_ENABLED or _entReg != STATIC_ENTROPY_regimeDisordered` | ✅ SAFE | Comparison with int constant |
+| L3011 | `hurstOk` | `not INPUT_HURST_ENABLED or not INPUT_HURST_BLOCK_RANDOM or _hurstReg != STATIC_HURST_regimeRandom` | ✅ SAFE | Chain of bools + int comparison |
+| L3021 | `momentumOk` | `not INPUT_ZSCORE_ENABLED or _strongMom` | ✅ SAFE | Bool input + bool variable |
+| L3063 | `_extGated` | `INPUT_EXT_ENABLED and f_computeExtGate(...)` | ✅ SAFE | Lazy eval: cheap input first |
+| L3107 | `_extOk` | Assigned in conditional block | ✅ SAFE | Defaults to `true`, conditionally set |
+| L3843 | `_regimeGatesPassed` | `GLOBAL_regime.entropyOk and ... and GLOBAL_extContext.extOk` | ✅ SAFE | All operands are pre-computed bools |
+
+**Assessment**: All regime gates are composed of strict booleans. No `na` risk.
+
+---
+
+### 2.4 Pivot Change Detection Booleans
+
+| Anchor | Variable | Producer | Risk | Notes |
+|--------|----------|----------|------|-------|
+| L3245 | `_pivotChange_iPrev` | `ta.change(GLOBAL_zigzag.iPrevPivot != 0)` | ✅ SAFE | Comparison with 0 always bool |
+| L3246 | `_pivotChange_pPrev` | `ta.change(GLOBAL_zigzag.pPrevPivot != 0)` | ✅ SAFE | Comparison with 0 always bool |
+| L3247 | `_pivotChange_iLast` | `ta.change(GLOBAL_zigzag.iLastPivot != 0)` | ✅ SAFE | Comparison with 0 always bool |
+| L3248 | `_pivotChange_pLast` | `ta.change(GLOBAL_zigzag.pLastPivot != 0)` | ✅ SAFE | Comparison with 0 always bool |
+
+**Assessment**: These use `ta.change()` on boolean expressions (comparisons). Since the comparisons are against literal `0` (never `na`), the result is always a valid boolean.
+
+---
+
+### 2.5 RSI Divergence Booleans (✅ Hardened)
+
+| Anchor | Variable | Producer | Risk | Notes |
+|--------|----------|----------|------|-------|
+| L3768 | `GLOBAL_rsi_at_pivot` | `ta.valuewhen(GLOBAL_zigzag.changed, GLOBAL_regime.rsi, 0)` | ✅ GUARDED | Returns `na` until first pivot |
+| L3769 | `GLOBAL_priceAtPivot` | `ta.valuewhen(GLOBAL_zigzag.changed, close, 0)` | ✅ GUARDED | Returns `na` until first pivot |
+| L4354 | `_divDataReady` | `not na(price_at_pivot) and not na(rsi_at_pivot) and not na(rsi)` | ✅ GUARD | Explicit na check |
+| L4356 | `bullish_div` | `_divDataReady and check_long and close < price_at_pivot and ...` | ✅ SAFE | Guarded by `_divDataReady` |
+| L4358 | `bearish_div` | `_divDataReady and not check_long and close > price_at_pivot and ...` | ✅ SAFE | Guarded by `_divDataReady` |
+
+**Hardening Applied**: Added explicit `_divDataReady` guard to ensure comparisons involving potentially `na` values are safe. The guard uses lazy evaluation (cheap `na` checks first) and ensures booleans are always `true` or `false`, never `na`.
+
+---
+
+### 2.6 Trade State Booleans
+
+| Anchor | Variable | Default | Risk |
+|--------|----------|---------|------|
+| L921 | `ltf_resolved` | `false` | ✅ SAFE |
+| L934-935 | `sl_hit`, `tp_hit` | Ternary expression | ✅ SAFE |
+| L1951 | `newSegment` | `false` | ✅ SAFE |
+| L3030-3036 | `bullCandle`, `bearCandle`, `exhaustVol`, `highVolatility` | Direct comparisons | ✅ SAFE |
+| L3789 | `needsFullRedraw` | `GLOBAL_zigzag.changed or ...` | ✅ SAFE |
+| L3872 | `skip_this_bar` | `GLOBAL_zigzag.changed` | ✅ SAFE |
+| L3919-3920 | `sl_hit`, `tp_hit` (backtest) | Ternary with OHLC | ✅ SAFE |
+
+---
+
+## 3. Lazy Evaluation Compliance
+
+### 3.1 Documented Lazy Evaluation Guidance
+
+**Anchor**: L1039-1042
+
+```pine
+// ── LAZY EVALUATION GUARDS - Execution flow optimization
+//   Pine v6: strict bool (true|false only, never na), lazy and/or evaluation
+//   Order conditions cheapest → expensive to exploit short-circuit
+//   Side-effect calls must NOT be in and/or operands (evaluation may be skipped)
+```
+
+### 3.2 Critical Lazy Evaluation Sites
+
+| Anchor | Pattern | Ordering | Assessment |
+|--------|---------|----------|------------|
+| L3842 | `_spawnGatesPassed` | `changed and na(current) and not na(pivot)...` | ✅ Cheap→Expensive |
+| L3843 | `_regimeGatesPassed` | `entropyOk and hurstOk and momentumOk and extOk` | ✅ All pre-computed bools |
+| L3848 | Spawn guard | `_spawnGatesPassed and _regimeGatesPassed` | ✅ Pre-computed bools |
+| L4041 | `use_learned` | `INPUT_USE_LEARNED_SL and INPUT_LEARNING_ENABLED and size() >= min and mult > 0` | ✅ Inputs first, then size check |
+| L4073 | `has_learned_tp` | `INPUT_LEARN_TP and INPUT_LEARNING_ENABLED and size() >= min` | ✅ Inputs first |
+| L4392 | Learning loop guard | `INPUT_LEARNING_ENABLED and size() >= min and needsRecalculation` | ✅ Flag-gated lazy execution |
+
+### 3.3 Performance Gate Functions
+
+| Anchor | Function | Purpose | Ordering |
+|--------|----------|---------|----------|
+| L1043 | `f_readyForRegime(window_bars)` | Data sufficiency check | Simple int comparison |
+| L1048 | `perf_shouldComputeHeavy(enabled, window_bars)` | Heavy compute guard | `enabled and isconfirmed and bar_index >= window` |
+| L1051 | `perf_shouldRenderDebug()` | Debug render guard | `preset == debug and islast` |
+| L1057 | `perf_shouldShowDashboard()` | Dashboard guard | `show and islast` |
+
+---
+
+## 4. NA-as-False Pattern Audit
+
+### 4.1 `nz()` Usage on Booleans
+
+**Search Result**: No `nz()` calls on boolean variables or expressions.
+
+All `nz()` calls are on numeric types:
+- L1630: `nz(src[length - 1 - i])` — float
+- L2375-2378: `nz(this.localHigh, currentHigh)` — float
+- L2911: `nz(volume)` — float
+- L3029: `nz(volume)` — float
+- L3780-3783: `nz(GLOBAL_cachedPivots.*)` — float
+- L3818: `nz(ta.atr(...), 1.0)` — float
+- L5076-5226: Various `nz()` on trade fields — float/int
+
+**Assessment**: ✅ No boolean `nz()` misuse found.
+
+### 4.2 Implicit Falsy Patterns
+
+No patterns found where `na` boolean would be used as implicit `false`.
+
+---
+
+## 5. Risk Classification Summary
+
+| Risk Tag | Count | Status |
+|----------|-------|--------|
+| ✅ SAFE | 97+ | All properly initialized |
+| ✅ HARDENED | 2 | `bullish_div`, `bearish_div` — explicit `na` guard added |
+| ⚠️ INIT_RISK | 0 | All `var bool` initialized |
+| ⚠️ DRIFT_RISK | 0 | No stateful bool reset issues found |
+| 🎯 PERF_GATE | 6 | Already implemented (L3842-3848, L4041, L4073, L4392) |
+
+---
+
+## 6. Applied Changes
+
+### 6.1 RSI Divergence Guard (L4354-4358)
+
+**Change**: Added explicit `_divDataReady` guard before divergence comparisons.
+
+```pine
+// BEFORE (NA_RISK):
+bool bullish_div = check_long and close < price_at_pivot and rsi > rsi_at_pivot
+bool bearish_div = not check_long and close > price_at_pivot and rsi < rsi_at_pivot
+
+// AFTER (v6 compliant):
+bool _divDataReady = not na(price_at_pivot) and not na(rsi_at_pivot) and not na(rsi)
+bool bullish_div = _divDataReady and check_long and close < price_at_pivot and rsi > rsi_at_pivot
+bool bearish_div = _divDataReady and not check_long and close > price_at_pivot and rsi < rsi_at_pivot
+```
+
+**Reasoning**:
+- `ta.valuewhen()` returns `na` until the first matching condition
+- Comparisons with `na` produce `na` boolean (not `false`)
+- Pine v6 strict bool semantics require explicit handling
+- Guard uses lazy evaluation: cheap `na` checks first, comparisons last
+
+**Behavior Preservation**:
+- Old behavior: comparison with `na` yields `na`, which in boolean context was treated as falsy
+- New behavior: explicit `false` when data not ready, otherwise same comparison logic
+- Truth table equivalent for all valid (non-na) states
+
+---
+
+## 7. Conclusion
+
+**PQ_FIBS.pine passes the Boolean Semantics Audit for Pine v6**:
+
+1. ✅ All `var bool` declarations are explicitly initialized
+2. ✅ All UDT boolean fields have explicit defaults
+3. ✅ No boolean is assigned `na` anywhere
+4. ✅ No `nz()` misuse on booleans
+5. ✅ Lazy evaluation is already implemented at critical gates
+6. ✅ RSI divergence booleans hardened with explicit `na` guard
+
+**Code Changes Applied**:
+- Added `_divDataReady` guard at L4354 for explicit `na` handling
+- Modified `bullish_div` and `bearish_div` to use the guard (L4356, L4358)
+
+**Behavior Impact**: None — change is logic-preserving. The guard explicitly returns `false` where previously the comparison would have returned `na` (treated as falsy in boolean context).
