@@ -4351,10 +4351,12 @@ if INPUT_SHOW_POS and not na(effIMidPivot) and not na(effPEndBase)
     
     // Use CONFIRMED trade direction for divergence check (for learning consistency)
     bool check_long = not na(GLOBAL_activeTrade.setup_bar) ? GLOBAL_activeTrade.hasFlag(STATIC_FLAG_IS_LONG) : is_long_setup
+    // v6 boolean guard: ta.valuewhen returns na until first pivot; guard comparisons explicitly
+    bool _divDataReady = not na(price_at_pivot) and not na(rsi_at_pivot) and not na(rsi)
     // Bullish divergence: price made lower low but RSI made higher low (momentum building)
-    bool bullish_div = check_long and close < price_at_pivot and rsi > rsi_at_pivot
+    bool bullish_div = _divDataReady and check_long and close < price_at_pivot and rsi > rsi_at_pivot
     // Bearish divergence: price made higher high but RSI made lower high (momentum fading)
-    bool bearish_div = not check_long and close > price_at_pivot and rsi < rsi_at_pivot
+    bool bearish_div = _divDataReady and not check_long and close > price_at_pivot and rsi < rsi_at_pivot
     bool rsi_confirm = INPUT_POS_RSI_DIV ? ((check_long and bullish_div) or (not check_long and bearish_div)) : false
     
     // Capture RSI divergence flag for learning (CONFIRMED trades only, not projections)

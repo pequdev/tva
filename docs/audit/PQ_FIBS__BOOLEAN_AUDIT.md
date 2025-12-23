@@ -107,21 +107,17 @@ This audit inventories all boolean symbols in `PQ_FIBS.pine`, classifies their `
 
 ---
 
-### 2.5 RSI Divergence Booleans (⚠️ NA_RISK Pattern)
+### 2.5 RSI Divergence Booleans (✅ Hardened)
 
 | Anchor | Variable | Producer | Risk | Notes |
 |--------|----------|----------|------|-------|
-| L3768 | `GLOBAL_rsi_at_pivot` | `ta.valuewhen(GLOBAL_zigzag.changed, GLOBAL_regime.rsi, 0)` | ⚠️ NA source | Returns `na` until first pivot |
-| L3769 | `GLOBAL_priceAtPivot` | `ta.valuewhen(GLOBAL_zigzag.changed, close, 0)` | ⚠️ NA source | Returns `na` until first pivot |
-| L4355 | `bullish_div` | `check_long and close < price_at_pivot and rsi > rsi_at_pivot` | ⚠️ NA_RISK | Uses potentially `na` operands |
-| L4357 | `bearish_div` | `not check_long and close > price_at_pivot and rsi < rsi_at_pivot` | ⚠️ NA_RISK | Uses potentially `na` operands |
+| L3768 | `GLOBAL_rsi_at_pivot` | `ta.valuewhen(GLOBAL_zigzag.changed, GLOBAL_regime.rsi, 0)` | ✅ GUARDED | Returns `na` until first pivot |
+| L3769 | `GLOBAL_priceAtPivot` | `ta.valuewhen(GLOBAL_zigzag.changed, close, 0)` | ✅ GUARDED | Returns `na` until first pivot |
+| L4354 | `_divDataReady` | `not na(price_at_pivot) and not na(rsi_at_pivot) and not na(rsi)` | ✅ GUARD | Explicit na check |
+| L4356 | `bullish_div` | `_divDataReady and check_long and close < price_at_pivot and ...` | ✅ SAFE | Guarded by `_divDataReady` |
+| L4358 | `bearish_div` | `_divDataReady and not check_long and close > price_at_pivot and ...` | ✅ SAFE | Guarded by `_divDataReady` |
 
-**Risk Analysis**:
-- `GLOBAL_rsi_at_pivot` and `GLOBAL_priceAtPivot` return `na` on bars before the first pivot change
-- Comparisons like `rsi > rsi_at_pivot` where `rsi_at_pivot` is `na` produce `na` boolean
-- However, this is **mitigated by context**: these booleans are only used within the `if not na(GLOBAL_activeTrade.setup_bar)` block (L4360), which only executes when there's an active trade — implying pivots have already occurred
-
-**Mitigation Status**: ✅ Contextually safe — active trade implies prior pivots exist
+**Hardening Applied**: Added explicit `_divDataReady` guard to ensure comparisons involving potentially `na` values are safe. The guard uses lazy evaluation (cheap `na` checks first) and ensures booleans are always `true` or `false`, never `na`.
 
 ---
 
@@ -201,33 +197,41 @@ No patterns found where `na` boolean would be used as implicit `false`.
 
 | Risk Tag | Count | Status |
 |----------|-------|--------|
-| ✅ SAFE | 95+ | All properly initialized |
-| ⚠️ NA_RISK | 2 | `bullish_div`, `bearish_div` — contextually mitigated |
+| ✅ SAFE | 97+ | All properly initialized |
+| ✅ HARDENED | 2 | `bullish_div`, `bearish_div` — explicit `na` guard added |
 | ⚠️ INIT_RISK | 0 | All `var bool` initialized |
 | ⚠️ DRIFT_RISK | 0 | No stateful bool reset issues found |
 | 🎯 PERF_GATE | 6 | Already implemented (L3842-3848, L4041, L4073, L4392) |
 
 ---
 
-## 6. Recommendations
+## 6. Applied Changes
 
-### 6.1 Optional Hardening (Low Priority)
+### 6.1 RSI Divergence Guard (L4354-4358)
 
-The `bullish_div` and `bearish_div` expressions at L4355-4357 could be hardened with explicit `na` guards:
+**Change**: Added explicit `_divDataReady` guard before divergence comparisons.
 
 ```pine
-// Current (works due to context):
+// BEFORE (NA_RISK):
 bool bullish_div = check_long and close < price_at_pivot and rsi > rsi_at_pivot
+bool bearish_div = not check_long and close > price_at_pivot and rsi < rsi_at_pivot
 
-// Hardened (explicit guard):
-bool bullish_div = check_long and not na(price_at_pivot) and not na(rsi_at_pivot) and close < price_at_pivot and rsi > rsi_at_pivot
+// AFTER (v6 compliant):
+bool _divDataReady = not na(price_at_pivot) and not na(rsi_at_pivot) and not na(rsi)
+bool bullish_div = _divDataReady and check_long and close < price_at_pivot and rsi > rsi_at_pivot
+bool bearish_div = _divDataReady and not check_long and close > price_at_pivot and rsi < rsi_at_pivot
 ```
 
-**Recommendation**: Optional — current code is safe due to the enclosing `if not na(GLOBAL_activeTrade.setup_bar)` guard.
+**Reasoning**:
+- `ta.valuewhen()` returns `na` until the first matching condition
+- Comparisons with `na` produce `na` boolean (not `false`)
+- Pine v6 strict bool semantics require explicit handling
+- Guard uses lazy evaluation: cheap `na` checks first, comparisons last
 
-### 6.2 Documentation Alignment
-
-The lazy evaluation guidance at L1039-1042 is excellent. Consider adding a reference to this in the spawn gate comments for cross-linking.
+**Behavior Preservation**:
+- Old behavior: comparison with `na` yields `na`, which in boolean context was treated as falsy
+- New behavior: explicit `false` when data not ready, otherwise same comparison logic
+- Truth table equivalent for all valid (non-na) states
 
 ---
 
@@ -240,6 +244,10 @@ The lazy evaluation guidance at L1039-1042 is excellent. Consider adding a refer
 3. ✅ No boolean is assigned `na` anywhere
 4. ✅ No `nz()` misuse on booleans
 5. ✅ Lazy evaluation is already implemented at critical gates
-6. ⚠️ Two comparison-derived booleans have theoretical NA_RISK but are contextually safe
+6. ✅ RSI divergence booleans hardened with explicit `na` guard
 
-**No code changes required** — the codebase already follows Pine v6 strict boolean semantics.
+**Code Changes Applied**:
+- Added `_divDataReady` guard at L4354 for explicit `na` handling
+- Modified `bullish_div` and `bearish_div` to use the guard (L4356, L4358)
+
+**Behavior Impact**: None — change is logic-preserving. The guard explicitly returns `false` where previously the comparison would have returned `na` (treated as falsy in boolean context).
